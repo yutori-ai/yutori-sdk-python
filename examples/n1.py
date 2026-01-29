@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-n1 Browser Agent - A web browsing agent using Yutori's n1 API
+A web browsing agent using Yutori's n1 API (OpenAI API compatible)
 
 This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
@@ -35,7 +35,7 @@ class Config(BaseModel):
     model: str = "n1-latest"
     temperature: float = 0.3
     # agent
-    max_steps: int = 30
+    max_steps: int = 100
     # browser
     viewport_width: int = 1280
     viewport_height: int = 800
@@ -49,7 +49,7 @@ class Agent:
         base_url: str = "https://api.yutori.com/v1",
         model: str = "n1-latest",
         temperature: float = 0.3,
-        max_steps: int = 30,
+        max_steps: int = 100,
         viewport_width: int = 1280,
         viewport_height: int = 800,
         headless: bool = False,
@@ -219,6 +219,7 @@ class Agent:
             arguments = json.loads(tool_call.function.arguments)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
+            return
 
         try:
             if action_name == "left_click":
@@ -320,7 +321,7 @@ class Agent:
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
-                return False
+                return
 
             # Wait for any navigation or dynamic content
             try:

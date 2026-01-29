@@ -22,9 +22,9 @@ export YUTORI_API_KEY=<your-api-key>
 
 ## Examples
 
-### n1.py - Browser Automation Agent
+### n1.py
 
-A complete browser agent that uses the n1 API to autonomously navigate websites and complete tasks.
+Demonstrate how to build a browsing agent with n1 API to navigate the web and complete tasks.
 
 The script launches a local Playwright browser, takes screenshots, sends them to the n1 API to get predicted actions, executes those actions, and repeats until the task is complete.
 
