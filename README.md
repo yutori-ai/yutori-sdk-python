@@ -291,6 +291,10 @@ client = YutoriClient(
 - Python 3.9+
 - [httpx](https://www.python-httpx.org/) for HTTP requests
 
+## Examples
+
+See [examples/](examples/) for complete working examples, including a browser automation agent using the n1 API.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
