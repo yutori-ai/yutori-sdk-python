@@ -125,8 +125,12 @@ class Agent:
         await asyncio.sleep(1)
 
     async def _cleanup(self) -> None:
+        self._messages = []
+        self._step_count = 0
+
         if self._browser:
             await self._browser.close()
+            self._browser = None
 
     async def _take_screenshot(self) -> str:
         screenshot_bytes = await self._page.screenshot(type="jpeg", quality=75)
@@ -208,14 +212,13 @@ class Agent:
         )
         return response
 
-    async def _execute_action(self, tool_call) -> bool:
+    async def _execute_action(self, tool_call) -> None:
         action_name = tool_call.function.name
 
         try:
             arguments = json.loads(tool_call.function.arguments)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
-            return False
 
         try:
             if action_name == "left_click":
@@ -325,11 +328,8 @@ class Agent:
             except Exception:
                 pass
 
-            return True
-
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
-            return False
 
 
 async def main():
