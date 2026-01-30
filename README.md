@@ -56,7 +56,7 @@ The Yutori API provides four main capabilities:
 
 ## n1 API
 
-The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface using the `tool` role for screenshots.
+The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface:
 
 ```python
 response = client.chat.completions.create(
