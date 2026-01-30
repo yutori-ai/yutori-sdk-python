@@ -71,7 +71,7 @@ class AsyncYutoriClient:
         self.scouts = AsyncScoutsNamespace(self._client, self._base_url, self._api_key)
         self.browsing = AsyncBrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = AsyncResearchNamespace(self._client, self._base_url, self._api_key)
-        self.chat = AsyncChatNamespace(self._client, self._base_url, self._api_key)
+        self.chat = AsyncChatNamespace(self._base_url, self._api_key, timeout)
 
     async def get_usage(self) -> dict[str, Any]:
         """Get usage statistics for your API key.
@@ -91,6 +91,7 @@ class AsyncYutoriClient:
     async def close(self) -> None:
         """Release the underlying HTTP client resources."""
         await self._client.aclose()
+        await self.chat.close()
 
     async def __aenter__(self) -> AsyncYutoriClient:
         return self

@@ -217,22 +217,39 @@ class TestResearchNamespace:
 
 
 class TestChatNamespace:
-    def test_chat_completions(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"choices": [{"message": {"content": "click"}}]}'
-        mock_response.json.return_value = {"choices": [{"message": {"content": "click"}}]}
+    def test_chat_completions(self):
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
 
-        with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
-            result = client.chat.completions(
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content="click"),
+                )
+            ],
+            created=1234567890,
+            model="n1-latest",
+            object="chat.completion",
+        )
+
+        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create.return_value = mock_completion
+            MockOpenAI.return_value = mock_openai_client
+
+            client = YutoriClient(api_key="yt-test")
+            result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Click login"}],
-                model="n1-preview-2025-11",
+                model="n1-latest",
             )
-            assert "choices" in result
-            payload = mock_post.call_args[1]["json"]
-            assert payload["model"] == "n1-preview-2025-11"
-            headers = mock_post.call_args[1]["headers"]
-            assert "Authorization" in headers
+            assert result.choices[0].message.content == "click"
+            mock_openai_client.chat.completions.create.assert_called_once()
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["model"] == "n1-latest"
+            client.close()
 
 
 class TestErrorHandling:

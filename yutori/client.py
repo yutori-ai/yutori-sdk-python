@@ -61,7 +61,7 @@ class YutoriClient:
         self.scouts = ScoutsNamespace(self._client, self._base_url, self._api_key)
         self.browsing = BrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = ResearchNamespace(self._client, self._base_url, self._api_key)
-        self.chat = ChatNamespace(self._client, self._base_url, self._api_key)
+        self.chat = ChatNamespace(self._base_url, self._api_key, timeout)
 
     def get_usage(self) -> dict[str, Any]:
         """Get usage statistics for your API key.
@@ -81,6 +81,7 @@ class YutoriClient:
     def close(self) -> None:
         """Release the underlying HTTP client resources."""
         self._client.close()
+        self.chat.close()
 
     def __enter__(self) -> YutoriClient:
         return self
