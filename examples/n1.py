@@ -69,7 +69,7 @@ class Agent:
         self.viewport_height = viewport_height
         self.headless = headless
 
-        self._client = AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url)
+        self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
         self._messages: list = []
@@ -79,10 +79,17 @@ class Agent:
         logger.info(f"Task: {task}")
         logger.info(f"Starting URL: {start_url}")
 
+        self._messages = []
+        self._step_count = 0
+
         final_response = ""
 
-        async with async_playwright() as playwright:
+        async with (
+            AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
+            async_playwright() as playwright,
+        ):
             try:
+                self._client = client
                 await self._init_browser(playwright)
                 await self._page.goto(start_url)
                 await self._page.wait_for_load_state("domcontentloaded")
@@ -118,7 +125,7 @@ class Agent:
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
             finally:
-                await self._cleanup()
+                await self._close_browser()
 
         return final_response
 
@@ -130,12 +137,7 @@ class Agent:
         self._page = await context.new_page()
         await asyncio.sleep(1)
 
-    async def _cleanup(self) -> None:
-        self._messages = []
-        self._step_count = 0
-
-        await self._client.close()
-
+    async def _close_browser(self) -> None:
         if self._browser:
             await self._browser.close()
             self._browser = None
