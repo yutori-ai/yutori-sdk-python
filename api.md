@@ -56,31 +56,45 @@ async with AsyncYutoriClient(api_key="yt-...") as client:
 
 ### client.chat
 
-n1 API - Pixels-to-actions LLM for browser control.
+n1 API - Pixels-to-actions LLM for browser control. OpenAI SDK compatible.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.chat.completions(messages, model="n1-preview-2025-11", **kwargs)` | POST | `/v1/chat/completions` | `dict` |
+| `client.chat.completions.create(messages, model="n1-latest", **kwargs)` | POST | `/v1/chat/completions` | `ChatCompletion` |
 
-#### chat.completions
+#### chat.completions.create
 
 ```python
-response = client.chat.completions(
+response = client.chat.completions.create(
+    model="n1-latest",
     messages=[
-        {"role": "user", "content": [{"type": "text", "text": "Search for Yutori"}]},
-        {"role": "observation", "content": [{"type": "image_url", "image_url": {"url": "..."}}]}
-    ],
-    model="n1-preview-2025-11",  # Optional, this is the default
-    temperature=0.3,             # Optional
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe the screenshot and search for Yutori."},
+                {"type": "image_url", "image_url": {"url": "https://example.com/screenshot.jpg"}}
+            ]
+        }
+    ]
 )
+
+# Access the response
+message = response.choices[0].message
+print(message.content)  # Model's thoughts
+
+# Get tool calls (browser actions)
+if message.tool_calls:
+    for tool_call in message.tool_calls:
+        print(f"Action: {tool_call.function.name}")
+        print(f"Arguments: {tool_call.function.arguments}")
 ```
 
 **Parameters:**
-- `messages` (list[dict]): Chat messages. Use `"observation"` role for screenshots.
-- `model` (str): Model ID. Default: `"n1-preview-2025-11"`.
-- `**kwargs`: Additional parameters passed to the API.
+- `messages` (Iterable[ChatCompletionMessageParam]): Chat messages following OpenAI format. Include screenshots as `image_url` content blocks.
+- `model` (str): Model ID. Default: `"n1-latest"`.
+- `**kwargs`: Additional parameters (e.g., `temperature`).
 
-**Returns:** Dictionary with `thoughts` and `actions` fields.
+**Returns:** `ChatCompletion` object from the OpenAI SDK with `choices[0].message` containing the model's response and optional `tool_calls` for browser actions.
 
 ---
 
@@ -329,6 +343,11 @@ The SDK supports two authentication methods:
    ```
 
 API keys start with `yt-` and can be created at [platform.yutori.com](https://platform.yutori.com).
+
+## Dependencies
+
+- `httpx>=0.26.0,<0.28.0` - HTTP client for browsing, research, and scouting APIs
+- `openai>=1.0.0` - OpenAI SDK for the n1 chat API (provides `ChatCompletion` types)
 
 ## Error Handling
 

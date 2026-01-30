@@ -9,18 +9,12 @@ import httpx
 from .exceptions import APIError, AuthenticationError
 
 
-def build_headers(api_key: str, auth_type: str = "api_key") -> dict[str, str]:
-    """Build request headers with appropriate authentication."""
-    headers = {"Content-Type": "application/json"}
-
-    if auth_type == "api_key":
-        headers["x-api-key"] = api_key
-    elif auth_type == "bearer":
-        headers["Authorization"] = f"Bearer {api_key}"
-    else:
-        raise ValueError(f"Unsupported auth type: {auth_type}")
-
-    return headers
+def build_headers(api_key: str) -> dict[str, str]:
+    """Build request headers with API key authentication."""
+    return {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+    }
 
 
 def handle_response(response: httpx.Response) -> dict[str, Any]:
