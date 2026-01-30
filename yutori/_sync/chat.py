@@ -26,7 +26,7 @@ class ChatCompletions:
         Args:
             messages: List of messages following OpenAI Chat format.
             model: Model to use (default: "n1-latest").
-            **kwargs: Additional parameters (e.g., temperature, stream).
+            **kwargs: Additional parameters (e.g., temperature).
 
         Returns:
             ChatCompletion object.

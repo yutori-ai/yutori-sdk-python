@@ -19,11 +19,16 @@ import os
 import sys
 
 from loguru import logger
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+from openai.types.chat import ChatCompletion
 from PIL import Image
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
+
+RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
 
 class Config(BaseModel):
@@ -129,6 +134,8 @@ class Agent:
         self._messages = []
         self._step_count = 0
 
+        await self._client.close()
+
         if self._browser:
             await self._browser.close()
             self._browser = None
@@ -171,7 +178,21 @@ class Agent:
                 result[key] = value
         return result
 
-    async def _get_next_action(self, task: str) -> dict:
+    @retry(
+        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    async def _predict_with_retries(self) -> ChatCompletion:
+        return await asyncio.wait_for(
+            self._client.chat.completions.create(
+                model=self.model, messages=self._messages, temperature=self.temperature
+            ),
+            timeout=120.0,  # 2 minutes
+        )
+
+    async def _get_next_action(self, task: str) -> ChatCompletion:
         screenshot_b64 = await self._take_screenshot()
         current_url = self._page.url
 
@@ -208,9 +229,7 @@ class Agent:
                 self._messages.append(tool_message)
                 logger.info(f"Tool result: {self._format_message_for_log(tool_message)}")
 
-        response = await self._client.chat.completions.create(
-            model=self.model, messages=self._messages, temperature=self.temperature
-        )
+        response = await self._predict_with_retries()
         return response
 
     async def _execute_action(self, tool_call) -> None:
