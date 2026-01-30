@@ -26,7 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Typing :: Typed",
 ]
-dependencies = ["httpx>=0.26.0,<0.28.0"]
+dependencies = ["httpx>=0.26.0,<0.28.0", "openai>=1.0.0"]
 
 [project.urls]
 Homepage = "https://yutori.com"
@@ -38,7 +38,6 @@ Issues = "https://github.com/yutori-ai/yutori-sdk-python/issues"
 dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.1"]
 examples = [
     "loguru>=0.7.0",
-    "openai>=1.0.0",
     "pillow>=10.0.0",
     "playwright>=1.40.0",
     "pydantic>=2.0.0",

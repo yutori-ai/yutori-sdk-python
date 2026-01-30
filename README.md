@@ -47,35 +47,48 @@ client = YutoriClient()  # Uses YUTORI_API_KEY env var
 
 The Yutori API provides four main capabilities:
 
-| API | Description | SDK Namespace |
-|-----|-------------|---------------|
-| **n1** | Pixels-to-actions LLM for browser control | `client.chat` |
-| **Browsing** | One-time browser automation tasks | `client.browsing` |
-| **Research** | Deep web research using 100+ tools | `client.research` |
-| **Scouting** | Continuous web monitoring on a schedule | `client.scouts` |
+| API          | Description                               | SDK Namespace     |
+| ------------ | ----------------------------------------- | ----------------- |
+| **n1**       | Pixels-to-actions LLM for browser control | `client.chat`     |
+| **Browsing** | One-time browser automation tasks         | `client.browsing` |
+| **Research** | Deep web research using 100+ tools        | `client.research` |
+| **Scouting** | Continuous web monitoring on a schedule   | `client.scouts`   |
 
 ## n1 API
 
-The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface using the `observation` role for screenshots.
+The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface using the `tool` role for screenshots.
 
 ```python
-response = client.chat.completions(
-    model="n1-preview-2025-11",
+response = client.chat.completions.create(
+    model="n1-latest",
     messages=[
         {
             "role": "user",
-            "content": [{"type": "text", "text": "Search for Yutori"}]
-        },
-        {
-            "role": "observation",
             "content": [
-                {"type": "image_url", "image_url": {"url": "data:image/webp;base64,..."}}
+                {
+                    "type": "text",
+                    "text": "Describe the screenshot and search for Yutori."
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_homepage_%28as_of_January_2024%29.jpg"
+                    }
+                }
             ]
         }
-    ],
+    ]
 )
-print(response)
-# {"thoughts": "I'll click on the search bar...", "actions": [{"action_type": "click", "center_coordinates": [500, 300]}]}
+
+# Get the thoughts
+message = response.choices[0].message
+print(message.content)
+
+# Get the tool calls, such as browser interaction actions
+if message.tool_calls:
+    for tool_call in message.tool_calls:
+        print(f"Action: {tool_call.function.name}")
+        print(f"Arguments: {tool_call.function.arguments}")
 ```
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
@@ -269,10 +282,10 @@ except APIError as e:
 
 ### Exception Types
 
-| Exception | Status Code | Description |
-|-----------|-------------|-------------|
-| `AuthenticationError` | 401 | Invalid or missing API key |
-| `APIError` | 4xx, 5xx | General API error with status code |
+| Exception             | Status Code | Description                        |
+| --------------------- | ----------- | ---------------------------------- |
+| `AuthenticationError` | 401         | Invalid or missing API key         |
+| `APIError`            | 4xx, 5xx    | General API error with status code |
 
 ## Configuration
 
@@ -290,6 +303,7 @@ client = YutoriClient(
 
 - Python 3.9+
 - [httpx](https://www.python-httpx.org/) for HTTP requests
+- [openai](https://github.com/openai/openai-python) for the n1 chat API
 
 ## Examples
 

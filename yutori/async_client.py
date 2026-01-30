@@ -71,7 +71,7 @@ class AsyncYutoriClient:
         self.scouts = AsyncScoutsNamespace(self._client, self._base_url, self._api_key)
         self.browsing = AsyncBrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = AsyncResearchNamespace(self._client, self._base_url, self._api_key)
-        self.chat = AsyncChatNamespace(self._client, self._base_url, self._api_key)
+        self.chat = AsyncChatNamespace(self._base_url, self._api_key, timeout)
 
     async def get_usage(self) -> dict[str, Any]:
         """Get usage statistics for your API key.

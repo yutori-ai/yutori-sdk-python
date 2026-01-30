@@ -19,10 +19,11 @@ import os
 import sys
 
 from loguru import logger
-from openai import OpenAI
 from PIL import Image
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
+
+from yutori import AsyncYutoriClient
 
 
 class Config(BaseModel):
@@ -63,7 +64,7 @@ class Agent:
         self.viewport_height = viewport_height
         self.headless = headless
 
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = AsyncYutoriClient(api_key=api_key, base_url=base_url)
         self._browser: Browser | None = None
         self._page: Page | None = None
         self._messages: list = []
@@ -207,7 +208,7 @@ class Agent:
                 self._messages.append(tool_message)
                 logger.info(f"Tool result: {self._format_message_for_log(tool_message)}")
 
-        response = self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=self.model, messages=self._messages, temperature=self.temperature
         )
         return response

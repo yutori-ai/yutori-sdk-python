@@ -189,17 +189,33 @@ class TestAsyncResearchNamespace:
 @pytest.mark.asyncio
 class TestAsyncChatNamespace:
     async def test_chat_completions(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"choices": []}'
-        mock_response.json.return_value = {"choices": []}
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
 
-        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content="click"),
+                )
+            ],
+            created=1234567890,
+            model="n1-latest",
+            object="chat.completion",
+        )
+
+        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            MockAsyncOpenAI.return_value = mock_openai_client
+
             async with AsyncYutoriClient(api_key="yt-test") as client:
-                result = await client.chat.completions(
+                result = await client.chat.completions.create(
                     messages=[{"role": "user", "content": "Click login"}],
                 )
-                assert "choices" in result
+                assert result.choices[0].message.content == "click"
 
 
 @pytest.mark.asyncio
