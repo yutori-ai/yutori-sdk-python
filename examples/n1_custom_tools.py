@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 """
-A web browsing agent using Yutori's n1 API (OpenAI API compatible)
+A web browsing agent using Yutori's n1 API (OpenAI API compatible) with custom tools
 
 This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
+In addition, we implement a custom tool to extract content and links from the page.
+
 Usage:
     export YUTORI_API_KEY=...
-    python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"
+    python examples/n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
 """
 
 import argparse
@@ -16,7 +18,9 @@ import base64
 import io
 import json
 import os
+import re
 import sys
+from functools import cached_property
 
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -34,7 +38,7 @@ RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, Int
 
 class Config(BaseModel):
     # task
-    task: str = Field(default="List the team member names")
+    task: str = Field(default="Get the titles and links of all the blog posts")
     start_url: str = "https://www.yutori.com"
     # model
     api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
@@ -47,6 +51,73 @@ class Config(BaseModel):
     viewport_width: int = 1280
     viewport_height: int = 800
     headless: bool = False
+
+
+class ExtractContentAndLinksTool:
+    def __init__(self):
+        super().__init__()
+
+        self._link_pattern = re.compile(r'- link "([^"]*)"')
+        self._url_pattern = re.compile(r"- /url: (.+)")
+        self._title_cleaner_pattern = re.compile(r"\s+\d+$")
+
+    @cached_property
+    def input_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "extract_content_and_links",
+                "description": (
+                    "Extracts page content and hyperlinks relevant to the user task. "
+                    "This operation is strictly read-only and never interacts with or alters the page"
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        }
+
+    async def __call__(self, page: Page, **kwargs) -> str:
+        url_to_title: dict[str, str] = {}
+
+        snapshot = await page.locator("body").aria_snapshot()
+        lines = snapshot.split("\n")
+
+        for i, line in enumerate(lines):
+            # Match link pattern: - link "TITLE": or - link "TITLE"
+            if link_match := self._link_pattern.search(line):
+                title = link_match.group(1)
+
+                # Look for /url in subsequent indented lines
+                url = None
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j]
+                    # Check if we've moved out of this link's children (less or equal indentation)
+                    if next_line.strip() and not next_line.startswith(" " * (len(line) - len(line.lstrip()) + 2)):
+                        break
+                    # Check for /url pattern
+                    url_match = self._url_pattern.search(next_line)
+                    if url_match:
+                        url = url_match.group(1).strip()
+                        break
+                    j += 1
+
+                if not url:
+                    continue
+
+                title = self._title_cleaner_pattern.sub("", title).strip()
+                if url in url_to_title:
+                    # Deduplicate by URL, keeping the longest title (without trailing numbers)
+                    existing = url_to_title[url]
+                    if len(title) > len(existing):
+                        url_to_title[url] = title
+                else:
+                    url_to_title[url] = title
+
+        result = f"Current URL: {page.url}"
+        if url_to_title:
+            result += "\nLinks on the entire page:\n"
+            result += "\n".join([f"- [{title}]({url})" for url, title in url_to_title.items()])
+        return result
 
 
 class Agent:
@@ -75,6 +146,9 @@ class Agent:
         self._page: Page | None = None
         self._messages: list = []
         self._step_count = 0
+
+        # Custom tools
+        self._extract_content_and_links_tool = ExtractContentAndLinksTool()
 
     async def run(self, task: str, start_url: str) -> str:
         logger.info(f"Task: {task}")
@@ -193,7 +267,10 @@ class Agent:
     async def _call_llm_with_retries(self) -> ChatCompletion:
         return await asyncio.wait_for(
             self._client.chat.completions.create(
-                model=self.model, messages=self._messages, temperature=self.temperature
+                model=self.model,
+                messages=self._messages,
+                temperature=self.temperature,
+                tools=[self._extract_content_and_links_tool.input_schema],  # add custom tools here
             ),
             timeout=120.0,  # 2 minutes
         )
@@ -324,6 +401,10 @@ class Agent:
 
             elif action_name == "wait":
                 await asyncio.sleep(2)
+
+            elif action_name == "extract_content_and_links":
+                result = await self._extract_content_and_links_tool(self._page)
+                return result
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
