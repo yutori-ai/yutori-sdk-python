@@ -138,7 +138,7 @@ class MemoToolSuite:
         with open(file_path, "w") as f:
             f.write("\n".join(lines))
 
-    async def add_question(self, index: int, question: str, description: str) -> str:
+    async def add_question(self, index: int, question: str, description: str | None = None) -> str:
         records = await self.read_jsonl(self.file_path)
         for record in records:
             if record["index"] == index:
