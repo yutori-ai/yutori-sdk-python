@@ -40,3 +40,6 @@ class AsyncChatNamespace:
     def __init__(self, base_url: str, api_key: str, timeout: float) -> None:
         self._openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self.completions = AsyncChatCompletions(self._openai_client)
+
+    async def close(self) -> None:
+        await self._openai_client.close()

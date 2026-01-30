@@ -64,7 +64,7 @@ class Agent:
         self.viewport_height = viewport_height
         self.headless = headless
 
-        self._client = AsyncYutoriClient(api_key=api_key, base_url=base_url)
+        self._client = AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url)
         self._browser: Browser | None = None
         self._page: Page | None = None
         self._messages: list = []

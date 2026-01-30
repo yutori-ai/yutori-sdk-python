@@ -40,3 +40,6 @@ class ChatNamespace:
     def __init__(self, base_url: str, api_key: str, timeout: float) -> None:
         self._openai_client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self.completions = ChatCompletions(self._openai_client)
+
+    def close(self) -> None:
+        self._openai_client.close()

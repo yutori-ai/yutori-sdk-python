@@ -91,6 +91,7 @@ class AsyncYutoriClient:
     async def close(self) -> None:
         """Release the underlying HTTP client resources."""
         await self._client.aclose()
+        await self.chat.close()
 
     async def __aenter__(self) -> AsyncYutoriClient:
         return self

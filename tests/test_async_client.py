@@ -209,6 +209,7 @@ class TestAsyncChatNamespace:
         with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
             mock_openai_client = MagicMock()
             mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            mock_openai_client.close = AsyncMock()
             MockAsyncOpenAI.return_value = mock_openai_client
 
             async with AsyncYutoriClient(api_key="yt-test") as client:

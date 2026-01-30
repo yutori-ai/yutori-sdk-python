@@ -81,6 +81,7 @@ class YutoriClient:
     def close(self) -> None:
         """Release the underlying HTTP client resources."""
         self._client.close()
+        self.chat.close()
 
     def __enter__(self) -> YutoriClient:
         return self
