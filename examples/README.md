@@ -2,6 +2,8 @@
 
 ## Setup
 
+We recommend using [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
 ```bash
 # Install SDK with example dependencies
 uv sync --extra examples
@@ -29,7 +31,9 @@ Options:
 Extends the basic agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the n1 API.
 
 ```bash
-uv run python examples/n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
+uv run python examples/n1_custom_tools.py \
+    --task "Get the titles and links of all the blog posts" \
+    --start-url "https://www.yutori.com"
 ```
 
 The example implements an `extract_content_and_links` tool that parses the page's ARIA snapshot to extract all hyperlinks with their titles and URLs.
