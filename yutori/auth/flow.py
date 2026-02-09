@@ -57,6 +57,7 @@ def build_auth_url(code_challenge: str, state: str) -> str:
         "code_challenge_method": "S256",
         "state": state,
         "scope": "openid profile email",
+        "prompt": "consent",
     }
     return f"{CLERK_INSTANCE_URL}/oauth/authorize?{urlencode(params)}"
 
@@ -203,7 +204,12 @@ def run_login_flow() -> LoginResult:
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
-        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code})", auth_url=auth_url)
+        detail = ""
+        try:
+            detail = f": {e.response.text}"
+        except Exception:
+            pass
+        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}", auth_url=auth_url)
     except Exception as e:
         return LoginResult(success=False, error=str(e), auth_url=auth_url)
 
