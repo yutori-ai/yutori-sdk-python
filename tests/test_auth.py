@@ -449,11 +449,11 @@ class TestGetAuthStatus:
         assert status.authenticated is False
         assert status.masked_key is None
 
-    def test_config_file_takes_precedence_over_env(self, monkeypatch):
+    def test_env_var_takes_precedence_over_config_file(self, monkeypatch):
         save_config("yt-config-key-abc")
         monkeypatch.setenv("YUTORI_API_KEY", "yt-env-key-xyz")
         status = get_auth_status()
-        assert status.source == "config_file"
+        assert status.source == "env_var"
 
 
 # ---------------------------------------------------------------------------

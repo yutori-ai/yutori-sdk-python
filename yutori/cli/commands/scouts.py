@@ -2,28 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from yutori.auth.credentials import resolve_api_key
+from yutori.cli.commands import get_authenticated_client
 
 app = typer.Typer(help="Manage scouts")
 console = Console()
-
-
-def _get_client() -> Any:
-    """Get an authenticated YutoriClient."""
-    from yutori.client import YutoriClient
-
-    api_key = resolve_api_key()
-    if not api_key:
-        console.print("[red]Not authenticated. Run 'yutori auth login' first.[/red]")
-        raise typer.Exit(1)
-
-    return YutoriClient(api_key=api_key)
 
 
 @app.command("list")
@@ -32,7 +18,7 @@ def list_scouts(
     status: str = typer.Option(None, help="Filter by status: active, paused, done"),
 ) -> None:
     """List your scouts."""
-    client = _get_client()
+    client = get_authenticated_client()
 
     try:
         result = client.scouts.list(limit=limit, status=status)
@@ -78,7 +64,7 @@ def get(
     scout_id: str = typer.Argument(help="The scout ID"),
 ) -> None:
     """Get details of a specific scout."""
-    client = _get_client()
+    client = get_authenticated_client()
 
     try:
         scout = client.scouts.get(scout_id)
@@ -119,7 +105,7 @@ def create(
     interval_map = {"hourly": 3600, "daily": 86400, "weekly": 604800}
     output_interval = interval_map.get(interval.lower(), 86400)
 
-    client = _get_client()
+    client = get_authenticated_client()
 
     try:
         result = client.scouts.create(
@@ -148,7 +134,7 @@ def delete(
             console.print("[yellow]Cancelled.[/yellow]")
             raise typer.Exit(0)
 
-    client = _get_client()
+    client = get_authenticated_client()
 
     try:
         client.scouts.delete(scout_id)

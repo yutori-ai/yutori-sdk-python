@@ -2,28 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from yutori.auth.credentials import resolve_api_key
+from yutori.cli.commands import get_authenticated_client
 
 app = typer.Typer(help="View usage statistics")
 console = Console()
-
-
-def _get_client() -> Any:
-    """Get an authenticated YutoriClient."""
-    from yutori.client import YutoriClient
-
-    api_key = resolve_api_key()
-    if not api_key:
-        console.print("[red]Not authenticated. Run 'yutori auth login' first.[/red]")
-        raise typer.Exit(1)
-
-    return YutoriClient(api_key=api_key)
 
 
 @app.callback(invoke_without_command=True)
@@ -32,7 +18,7 @@ def usage(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
 
-    client = _get_client()
+    client = get_authenticated_client()
 
     try:
         data = client.get_usage()

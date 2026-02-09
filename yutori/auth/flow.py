@@ -169,15 +169,17 @@ def run_login_flow() -> LoginResult:
         return LoginResult(success=False, error=str(e))
 
     server.timeout = AUTH_TIMEOUT_SECONDS
-    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
     webbrowser.open(auth_url)
 
-    callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
-    server.shutdown()
-    server_thread.join(timeout=1)
-    server.server_close()
+    try:
+        callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
+    finally:
+        server.shutdown()
+        server_thread.join(timeout=2)
+        server.server_close()
 
     if not callback_result.received.is_set():
         return LoginResult(success=False, error=ERROR_AUTH_TIMEOUT)
@@ -211,18 +213,10 @@ def _mask_key(key: str) -> str:
 def get_auth_status() -> AuthStatus:
     """Check current authentication status.
 
+    Precedence matches resolve_api_key(): env var > config file.
     Returns an AuthStatus — never prints directly.
     """
     config_path = str(_get_config_path())
-
-    config = load_config()
-    if config and config.get("api_key"):
-        return AuthStatus(
-            authenticated=True,
-            masked_key=_mask_key(config["api_key"]),
-            source="config_file",
-            config_path=config_path,
-        )
 
     env_key = os.environ.get("YUTORI_API_KEY")
     if env_key:
@@ -230,6 +224,15 @@ def get_auth_status() -> AuthStatus:
             authenticated=True,
             masked_key=_mask_key(env_key),
             source="env_var",
+            config_path=config_path,
+        )
+
+    config = load_config()
+    if config and config.get("api_key"):
+        return AuthStatus(
+            authenticated=True,
+            masked_key=_mask_key(config["api_key"]),
+            source="config_file",
             config_path=config_path,
         )
 
