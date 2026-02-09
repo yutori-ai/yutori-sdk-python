@@ -10,6 +10,7 @@ import base64
 import hashlib
 import html
 import http.server
+import logging
 import os
 import secrets
 import socketserver
@@ -34,6 +35,8 @@ from .constants import (
 )
 from .credentials import get_config_path, load_config, save_config
 from .types import AuthStatus, LoginResult
+
+logger = logging.getLogger(__name__)
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -172,7 +175,7 @@ def run_login_flow() -> LoginResult:
     server_thread.start()
 
     if not webbrowser.open(auth_url):
-        print(f"\nCould not open browser. Open this URL manually:\n  {auth_url}\n")
+        logger.warning("Could not open browser. Open this URL manually:\n  %s", auth_url)
 
     try:
         callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
@@ -182,26 +185,26 @@ def run_login_flow() -> LoginResult:
         server.server_close()
 
     if not callback_result.received.is_set():
-        return LoginResult(success=False, error=ERROR_AUTH_TIMEOUT)
+        return LoginResult(success=False, error=ERROR_AUTH_TIMEOUT, auth_url=auth_url)
 
     if callback_result.error:
-        return LoginResult(success=False, error=callback_result.error)
+        return LoginResult(success=False, error=callback_result.error, auth_url=auth_url)
 
     if callback_result.state != state:
-        return LoginResult(success=False, error=ERROR_STATE_MISMATCH)
+        return LoginResult(success=False, error=ERROR_STATE_MISMATCH, auth_url=auth_url)
 
     if not callback_result.code:
-        return LoginResult(success=False, error=ERROR_AUTH_FAILED)
+        return LoginResult(success=False, error=ERROR_AUTH_FAILED, auth_url=auth_url)
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
         api_key = generate_api_key(jwt)
         save_config(api_key)
-        return LoginResult(success=True, api_key=api_key)
+        return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
-        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code})")
+        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code})", auth_url=auth_url)
     except Exception as e:
-        return LoginResult(success=False, error=str(e))
+        return LoginResult(success=False, error=str(e), auth_url=auth_url)
 
 
 def _mask_key(key: str) -> str:

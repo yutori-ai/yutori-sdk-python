@@ -21,7 +21,6 @@ CONFIG_DIR = ".yutori"
 CONFIG_FILE = "config.json"
 
 # Error messages
-ERROR_NO_API_KEY = "API key required. Run 'yutori auth login' or set YUTORI_API_KEY."
 ERROR_AUTH_TIMEOUT = "Login timed out. Please try again."
 ERROR_STATE_MISMATCH = "Security validation failed (state mismatch). Please try again."
 ERROR_AUTH_FAILED = "Authentication failed"
