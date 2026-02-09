@@ -10,7 +10,7 @@ except ImportError:
     print("Yutori CLI requires extras: pip install yutori[cli]")
     sys.exit(1)
 
-from .commands import auth, scouts, usage
+from .commands import auth, browse, research, scouts, usage
 
 app = typer.Typer(
     name="yutori",
@@ -19,6 +19,8 @@ app = typer.Typer(
 )
 
 app.add_typer(auth.app, name="auth")
+app.add_typer(browse.app, name="browse")
+app.add_typer(research.app, name="research")
 app.add_typer(scouts.app, name="scouts")
 app.add_typer(usage.app, name="usage")
 
