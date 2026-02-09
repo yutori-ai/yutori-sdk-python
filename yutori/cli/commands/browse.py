@@ -15,7 +15,7 @@ console = Console()
 def run(
     task: str = typer.Argument(help="Natural language description of the browsing task"),
     start_url: str = typer.Argument(help="URL to start browsing from"),
-    max_steps: int | None = typer.Option(None, "--max-steps", help="Maximum agent steps (1-100)"),
+    max_steps: int | None = typer.Option(None, "--max-steps", help="Maximum number of agent steps"),
     agent: str | None = typer.Option(None, "--agent", help="Agent to use"),
     require_auth: bool | None = typer.Option(None, "--require-auth", help="Use auth-optimized browser for login flows"),
 ) -> None:
