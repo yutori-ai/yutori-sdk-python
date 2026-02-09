@@ -103,7 +103,10 @@ def create(
         query = typer.prompt("What would you like to monitor?")
 
     interval_map = {"hourly": 3600, "daily": 86400, "weekly": 604800}
-    output_interval = interval_map.get(interval.lower(), 86400)
+    output_interval = interval_map.get(interval.lower())
+    if output_interval is None:
+        console.print(f"[red]Invalid interval '{interval}'. Choose from: hourly, daily, weekly[/red]")
+        raise typer.Exit(1)
 
     client = get_authenticated_client()
 
