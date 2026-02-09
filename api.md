@@ -30,7 +30,7 @@ Synchronous client for the Yutori API.
 
 ```python
 client = YutoriClient(
-    api_key="yt-...",              # Required (or set YUTORI_API_KEY env var)
+    api_key="yt-...",              # Optional (auto-resolves from env var or CLI login)
     base_url="https://api.yutori.com/v1",  # Optional
     timeout=30.0,                  # Optional, in seconds
 )
@@ -329,9 +329,9 @@ updates = client.scouts.get_updates(
 
 ## Authentication
 
-The SDK supports two authentication methods:
+The SDK supports three authentication methods, resolved in this order:
 
-1. **API Key Parameter:**
+1. **API Key Parameter** (highest priority):
    ```python
    client = YutoriClient(api_key="yt-...")
    ```
@@ -339,10 +339,46 @@ The SDK supports two authentication methods:
 2. **Environment Variable:**
    ```python
    # Set YUTORI_API_KEY in your environment
-   client = YutoriClient()  # Reads from env var
+   client = YutoriClient()  # Reads from YUTORI_API_KEY env var
    ```
 
-API keys start with `yt-` and can be created at [platform.yutori.com](https://platform.yutori.com).
+3. **CLI Login** (saved credentials):
+   ```bash
+   pip install yutori[cli]
+   yutori auth login
+   ```
+   This opens a browser for Clerk OAuth authentication and saves an API key to `~/.yutori/config.json`. The SDK automatically reads from this file when no explicit key or env var is set.
+   ```python
+   client = YutoriClient()  # Uses key from ~/.yutori/config.json
+   ```
+
+**Resolution order:** explicit `api_key` param > `YUTORI_API_KEY` env var > `~/.yutori/config.json`.
+
+API keys start with `yt-` and can be created at [platform.yutori.com](https://platform.yutori.com) or via `yutori auth login`.
+
+### CLI Auth Commands
+
+Requires `pip install yutori[cli]`.
+
+| Command | Description |
+|---------|-------------|
+| `yutori auth login` | Authenticate via browser (Clerk OAuth + PKCE), saves API key to `~/.yutori/config.json` |
+| `yutori auth status` | Show current auth status (source, masked key) |
+| `yutori auth logout` | Remove saved credentials from `~/.yutori/config.json` |
+
+### CLI Resource Commands
+
+| Command | Description |
+|---------|-------------|
+| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth`) |
+| `yutori browse get TASK_ID` | Get browsing task status and result |
+| `yutori research run QUERY [OPTIONS]` | Start a research task (`--timezone`, `--location`) |
+| `yutori research get TASK_ID` | Get research task status and result |
+| `yutori scouts list` | List scouts (`--limit`, `--status`) |
+| `yutori scouts get SCOUT_ID` | Get scout details |
+| `yutori scouts create -q QUERY` | Create a scout (`--interval`, `--timezone`, etc.) |
+| `yutori scouts delete SCOUT_ID` | Delete a scout |
+| `yutori usage` | Show API usage statistics |
 
 ## Dependencies
 
