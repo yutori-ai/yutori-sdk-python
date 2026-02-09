@@ -357,6 +357,7 @@ class TestRunLoginFlow:
                     result = run_login_flow()
                     assert result.success is True
                     assert result.api_key == "yt-new-key"
+                    assert result.auth_url is not None
                     mock_save.assert_called_once_with("yt-new-key")
 
     def test_port_in_use(self):
@@ -386,6 +387,7 @@ class TestRunLoginFlow:
                     result = run_login_flow()
                     assert result.success is False
                     assert "timed out" in result.error.lower()
+                    assert result.auth_url is not None
 
     def test_state_mismatch(self):
         def fake_server_init(self, addr, handler):
@@ -414,6 +416,7 @@ class TestRunLoginFlow:
                     result = run_login_flow()
                     assert result.success is False
                     assert "state mismatch" in result.error.lower()
+                    assert result.auth_url is not None
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +518,14 @@ class TestTypes:
         assert r.success is False
         assert r.api_key is None
         assert r.error == "something broke"
+
+    def test_login_result_auth_url_default_none(self):
+        r = LoginResult(success=True, api_key="yt-key")
+        assert r.auth_url is None
+
+    def test_login_result_auth_url_preserved(self):
+        r = LoginResult(success=False, error="timeout", auth_url="https://clerk.yutori.com/oauth/authorize?x=1")
+        assert r.auth_url == "https://clerk.yutori.com/oauth/authorize?x=1"
 
     def test_auth_status_authenticated(self):
         s = AuthStatus(authenticated=True, masked_key="yt-...abc", source="config_file", config_path="/home/.yutori/config.json")
