@@ -91,22 +91,23 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 
         params = parse_qs(parsed.query)
 
-        if "error" in params:
-            error_text = params.get("error_description", params["error"])[0]
-            self.callback_result.error = error_text
-            self._send_html(f"<h1>Login Failed</h1><p>{html.escape(error_text)}</p>")
-        elif params.get("code"):
-            self.callback_result.code = params["code"][0]
-            self.callback_result.state = params.get("state", [None])[0]
-            self._send_html(
-                "<h1>Login Successful</h1>"
-                "<p>You can close this window and return to the terminal.</p>"
-            )
-        else:
-            self.callback_result.error = "No authorization code received"
-            self._send_html("<h1>Login Failed</h1><p>No authorization code received.</p>")
-
-        self.callback_result.received.set()
+        try:
+            if "error" in params:
+                error_text = params.get("error_description", params["error"])[0]
+                self.callback_result.error = error_text
+                self._send_html(f"<h1>Login Failed</h1><p>{html.escape(error_text)}</p>")
+            elif params.get("code"):
+                self.callback_result.code = params["code"][0]
+                self.callback_result.state = params.get("state", [None])[0]
+                self._send_html(
+                    "<h1>Login Successful</h1>"
+                    "<p>You can close this window and return to the terminal.</p>"
+                )
+            else:
+                self.callback_result.error = "No authorization code received"
+                self._send_html("<h1>Login Failed</h1><p>No authorization code received.</p>")
+        finally:
+            self.callback_result.received.set()
 
     def _send_html(self, body: str) -> None:
         self.send_response(200)
