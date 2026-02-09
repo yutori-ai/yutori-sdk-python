@@ -215,8 +215,10 @@ def run_login_flow() -> LoginResult:
 
 
 def _mask_key(key: str) -> str:
-    if len(key) > 10:
-        return key[:6] + "..." + key[-4:]
+    if len(key) >= 16:
+        return key[:4] + "..." + key[-4:]
+    if len(key) >= 8:
+        return key[:4] + "..."
     return "***"
 
 

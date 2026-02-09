@@ -437,7 +437,7 @@ class TestGetAuthStatus:
         status = get_auth_status()
         assert status.authenticated is True
         assert status.source == "config_file"
-        assert "yt-tes" in status.masked_key
+        assert "yt-t" in status.masked_key
         assert "2345" in status.masked_key
 
     def test_authenticated_from_env_var(self, monkeypatch):
@@ -445,7 +445,7 @@ class TestGetAuthStatus:
         status = get_auth_status()
         assert status.authenticated is True
         assert status.source == "env_var"
-        assert "yt-env" in status.masked_key
+        assert "yt-e" in status.masked_key
 
     def test_not_authenticated(self):
         status = get_auth_status()
@@ -470,17 +470,29 @@ class TestGetAuthStatus:
 # ---------------------------------------------------------------------------
 
 class TestMaskKey:
-    def test_long_key_masked(self):
-        result = _mask_key("yt-abcdefghijk")
-        assert result == "yt-abc...hijk"
+    def test_long_key_shows_prefix_and_suffix(self):
+        result = _mask_key("yt-abcdefghijklmnop")  # 20 chars
+        assert result == "yt-a...mnop"
+
+    def test_medium_key_shows_prefix_only(self):
+        result = _mask_key("yt-abcdefghijk")  # 14 chars (8-15 range)
+        assert result == "yt-a..."
 
     def test_short_key_fully_masked(self):
-        result = _mask_key("short")
+        result = _mask_key("short")  # 5 chars
         assert result == "***"
 
-    def test_exactly_11_chars(self):
-        result = _mask_key("12345678901")
-        assert result == "123456...8901"
+    def test_exactly_16_chars_shows_prefix_and_suffix(self):
+        result = _mask_key("1234567890abcdef")  # 16 chars
+        assert result == "1234...cdef"
+
+    def test_8_chars_shows_prefix_only(self):
+        result = _mask_key("12345678")  # 8 chars
+        assert result == "1234..."
+
+    def test_7_chars_fully_masked(self):
+        result = _mask_key("1234567")  # 7 chars
+        assert result == "***"
 
 
 # ---------------------------------------------------------------------------
