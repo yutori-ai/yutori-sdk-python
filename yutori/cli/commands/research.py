@@ -14,8 +14,8 @@ console = Console()
 @app.command()
 def run(
     query: str = typer.Argument(help="Natural language research query"),
-    timezone: str | None = typer.Option(None, "--timezone", "-tz", help="e.g., America/Los_Angeles"),
-    location: str | None = typer.Option(None, "--location", help="e.g., San Francisco, CA, US"),
+    timezone: str = typer.Option(None, "--timezone", "-tz", help="e.g., America/Los_Angeles"),
+    location: str = typer.Option(None, "--location", help="e.g., San Francisco, CA, US"),
 ) -> None:
     """Start a new research task."""
     client = get_authenticated_client()
