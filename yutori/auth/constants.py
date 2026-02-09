@@ -15,8 +15,8 @@ REDIRECT_PORT = 54320
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 AUTH_TIMEOUT_SECONDS = 300
 
-# Auth API — separate from the SDK data API (api.yutori.com)
-AUTH_API_BASE_URL = os.environ.get("YUTORI_AUTH_API_BASE_URL", "https://api.dev.yutori.com/v1")
+# Auth API for key generation after OAuth (same base as SDK data API)
+AUTH_API_BASE_URL = os.environ.get("YUTORI_AUTH_API_BASE_URL", "https://api.yutori.com/v1")
 
 # Credential storage
 CONFIG_DIR = ".yutori"
