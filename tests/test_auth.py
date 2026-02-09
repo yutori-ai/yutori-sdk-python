@@ -491,8 +491,8 @@ class TestConstants:
     def test_callback_host_is_ipv4(self):
         assert CALLBACK_HOST == "127.0.0.1"
 
-    def test_redirect_uri_uses_callback_host(self):
-        assert CALLBACK_HOST in REDIRECT_URI
+    def test_redirect_uri_uses_localhost(self):
+        assert "localhost" in REDIRECT_URI
         assert str(REDIRECT_PORT) in REDIRECT_URI
         assert "/callback" in REDIRECT_URI
 

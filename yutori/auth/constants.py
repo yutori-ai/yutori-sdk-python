@@ -10,10 +10,11 @@ from yutori.config import DEFAULT_BASE_URL
 CLERK_INSTANCE_URL = os.environ.get("CLERK_INSTANCE_URL", "https://clerk.yutori.com")
 CLERK_CLIENT_ID = os.environ.get("CLERK_CLIENT_ID", "TGiyfoPbG01Sakpe")
 
-# Callback server — 127.0.0.1 for both bind and redirect URI (no IPv4/IPv6 mismatch)
+# Callback server — bind to 127.0.0.1 (avoids IPv4/IPv6 mismatch),
+# but use localhost in redirect URI (must match Clerk's registered URL).
 CALLBACK_HOST = "127.0.0.1"
 REDIRECT_PORT = 54320
-REDIRECT_URI = f"http://{CALLBACK_HOST}:{REDIRECT_PORT}/callback"
+REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 AUTH_TIMEOUT_SECONDS = 300
 
 # Credential storage
