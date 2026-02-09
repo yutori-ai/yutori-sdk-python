@@ -18,30 +18,67 @@ Yutori provides APIs for building web agents that autonomously execute tasks on 
 pip install yutori
 ```
 
-## Usage
+To use the CLI (for login and managing resources from the terminal):
 
-### Getting an API Key
+```bash
+pip install yutori[cli]
+```
 
-1. Sign up at [platform.yutori.com](https://platform.yutori.com)
-2. Navigate to Settings to create an API key
-3. API keys start with `yt-`
+## Getting Started
 
-### Basic Example
+### Authentication
+
+The easiest way to authenticate is via the CLI:
+
+```bash
+yutori auth login
+```
+
+This opens your browser, authenticates with your Yutori account, and saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically use this saved key.
+
+Alternatively, you can set the `YUTORI_API_KEY` environment variable, or pass the key directly:
 
 ```python
 from yutori import YutoriClient
 
+# Uses saved credentials from `yutori auth login`, or YUTORI_API_KEY env var
+client = YutoriClient()
+
+# Or pass explicitly
 client = YutoriClient(api_key="yt-...")
-
-# Check your API key usage
-print(client.get_usage())
 ```
 
-The SDK reads the `YUTORI_API_KEY` environment variable if no key is provided:
+API key resolution order: explicit parameter > `YUTORI_API_KEY` env var > `~/.yutori/config.json`.
 
-```python
-client = YutoriClient()  # Uses YUTORI_API_KEY env var
+## CLI
+
+The CLI provides commands for authentication and managing Yutori resources from the terminal.
+
+```bash
+# Authentication
+yutori auth login       # Log in via browser
+yutori auth status      # Show current auth status
+yutori auth logout      # Remove saved credentials
+
+# Scouts
+yutori scouts list                          # List your scouts
+yutori scouts get SCOUT_ID                  # Get scout details
+yutori scouts create -q "monitor for news"  # Create a scout
+yutori scouts delete SCOUT_ID               # Delete a scout
+
+# Browsing
+yutori browse run "extract all prices" https://example.com/products
+yutori browse get TASK_ID
+
+# Research
+yutori research run "latest developments in quantum computing"
+yutori research get TASK_ID
+
+# Usage
+yutori usage            # Show API usage statistics
 ```
+
+Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## API Overview
 
@@ -293,7 +330,7 @@ except APIError as e:
 from yutori import YutoriClient
 
 client = YutoriClient(
-    api_key="yt-...",                          # Required (or set YUTORI_API_KEY)
+    api_key="yt-...",                          # Or: yutori auth login / YUTORI_API_KEY
     base_url="https://api.yutori.com/v1",      # Default
     timeout=30.0,                               # Request timeout in seconds
 )
