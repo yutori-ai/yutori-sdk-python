@@ -57,7 +57,7 @@ def build_auth_url(code_challenge: str, state: str) -> str:
         "code_challenge_method": "S256",
         "state": state,
         "scope": "openid profile email",
-        "prompt": "consent",
+        "prompt": "login",
     }
     return f"{CLERK_INSTANCE_URL}/oauth/authorize?{urlencode(params)}"
 
