@@ -24,6 +24,7 @@ pip install yutori
 
 The easiest way to authenticate is to run this in your terminal:
 
+**Terminal:**
 ```bash
 yutori auth login
 ```
