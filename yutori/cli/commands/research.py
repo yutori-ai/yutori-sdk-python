@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from yutori.cli.commands import get_authenticated_client
 
@@ -48,7 +49,7 @@ def get(
         console.print(f"  Status: {result.get('status', 'N/A')}")
 
         if result.get("query"):
-            console.print(f"  Query: {result['query']}")
+            console.print(f"  Query: {escape(result['query'])}")
         if result.get("created_at"):
             console.print(f"  Created: {result['created_at']}")
 
@@ -58,6 +59,6 @@ def get(
             text = str(output)
             if len(text) > 2000:
                 text = text[:2000] + "\n... (truncated)"
-            console.print(text)
+            console.print(text, markup=False)
     finally:
         client.close()

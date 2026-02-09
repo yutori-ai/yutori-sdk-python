@@ -64,6 +64,6 @@ def get(
             text = str(output)
             if len(text) > 2000:
                 text = text[:2000] + "\n... (truncated)"
-            console.print(text)
+            console.print(text, markup=False)
     finally:
         client.close()

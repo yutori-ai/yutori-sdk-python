@@ -6,6 +6,7 @@ import os
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from yutori.auth import clear_config, get_auth_status, run_login_flow
 from yutori.auth.credentials import load_config
@@ -41,7 +42,7 @@ def login() -> None:
         console.print("[green]Successfully authenticated![/green]")
         console.print("You can now use the Yutori CLI and SDK.")
     else:
-        console.print(f"\n[red]Authentication failed: {result.error}[/red]")
+        console.print(f"\n[red]Authentication failed: {escape(str(result.error))}[/red]")
         if result.auth_url:
             console.print(f"\n[dim]If the browser didn't open, visit:[/dim]\n  {result.auth_url}")
         raise typer.Exit(1)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from yutori.cli.commands import get_authenticated_client
@@ -70,7 +71,7 @@ def get(
         scout = client.scouts.get(scout_id)
 
         console.print(f"\n[bold]Scout: {scout.get('id', scout_id)}[/bold]\n")
-        console.print(f"  Query: {scout.get('query', 'N/A')}")
+        console.print(f"  Query: {escape(scout.get('query', 'N/A'))}")
         console.print(f"  Status: {scout.get('status', 'N/A')}")
 
         interval_secs = scout.get("output_interval", 0)
@@ -105,7 +106,7 @@ def create(
     interval_map = {"hourly": 3600, "daily": 86400, "weekly": 604800}
     output_interval = interval_map.get(interval.lower())
     if output_interval is None:
-        console.print(f"[red]Invalid interval '{interval}'. Choose from: hourly, daily, weekly[/red]")
+        console.print(f"[red]Invalid interval '{escape(interval)}'. Choose from: hourly, daily, weekly[/red]")
         raise typer.Exit(1)
 
     client = get_authenticated_client()
@@ -119,7 +120,7 @@ def create(
 
         console.print("\n[green]Scout created successfully![/green]")
         console.print(f"  ID: {result.get('id', 'N/A')}")
-        console.print(f"  Query: {result.get('query', query)}")
+        console.print(f"  Query: {escape(result.get('query', query))}")
         console.print(f"  Status: {result.get('status', 'N/A')}")
     finally:
         client.close()
