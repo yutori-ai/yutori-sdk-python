@@ -8,8 +8,8 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from yutori.auth import clear_config, get_auth_status, run_login_flow
-from yutori.auth.credentials import load_config
+from yutori.auth.credentials import clear_config, load_config
+from yutori.auth.flow import get_auth_status, run_login_flow
 
 app = typer.Typer(help="Manage authentication")
 console = Console()
