@@ -17,11 +17,13 @@ class TestYutoriClientInit:
 
     def test_init_without_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+        monkeypatch.setattr("yutori.auth.credentials.load_config", lambda: None)
         with pytest.raises(AuthenticationError):
             YutoriClient(api_key="")
 
     def test_init_with_none_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+        monkeypatch.setattr("yutori.auth.credentials.load_config", lambda: None)
         with pytest.raises(AuthenticationError):
             YutoriClient(api_key=None)
 

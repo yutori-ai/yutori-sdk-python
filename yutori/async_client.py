@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
@@ -57,10 +56,12 @@ class AsyncYutoriClient:
         Raises:
             AuthenticationError: If no API key is provided or found in environment.
         """
-        api_key = api_key or os.environ.get("YUTORI_API_KEY")
+        from yutori.auth.credentials import resolve_api_key
+
+        api_key = resolve_api_key(api_key)
         if not api_key:
             raise AuthenticationError(
-                "No API key provided. Pass api_key or set the YUTORI_API_KEY environment variable."
+                "No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key."
             )
 
         self._api_key = api_key
