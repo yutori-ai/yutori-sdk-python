@@ -25,11 +25,10 @@ pip install yutori
 The easiest way to authenticate is to run this in your terminal:
 
 ```bash
-$ yutori auth login
-# Opens your browser to log in with your Yutori account
+yutori auth login
 ```
 
-This saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically use this saved key.
+This opens your browser to log in with your Yutori account and saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically use this saved key.
 
 Alternatively, you can set the `YUTORI_API_KEY` environment variable, or pass the key directly:
 
