@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import typer
 from rich.console import Console
 
@@ -18,6 +20,11 @@ def login() -> None:
 
     Opens your browser to log in with Clerk OAuth and saves an API key locally.
     """
+    if os.environ.get("YUTORI_API_KEY"):
+        console.print("[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]")
+        console.print("Unset it first if you want to use browser login.")
+        raise typer.Exit(1)
+
     config = load_config()
     existing_key = config.get("api_key") if config else None
     if existing_key and isinstance(existing_key, str):
