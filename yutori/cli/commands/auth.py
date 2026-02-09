@@ -19,7 +19,8 @@ def login() -> None:
     Opens your browser to log in with Clerk OAuth and saves an API key locally.
     """
     config = load_config()
-    if config and config.get("api_key"):
+    existing_key = config.get("api_key") if config else None
+    if existing_key and isinstance(existing_key, str):
         console.print("[yellow]You are already authenticated.[/yellow]")
         console.print("Run [bold]yutori auth logout[/bold] first to re-authenticate.")
         raise typer.Exit(1)
