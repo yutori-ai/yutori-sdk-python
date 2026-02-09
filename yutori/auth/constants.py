@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import os
 
-from yutori.config import DEFAULT_BASE_URL
-
 # Clerk OAuth configuration
 CLERK_INSTANCE_URL = os.environ.get("CLERK_INSTANCE_URL", "https://clerk.yutori.com")
 CLERK_CLIENT_ID = os.environ.get("CLERK_CLIENT_ID", "TGiyfoPbG01Sakpe")
@@ -16,6 +14,9 @@ CALLBACK_HOST = "127.0.0.1"
 REDIRECT_PORT = 54320
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 AUTH_TIMEOUT_SECONDS = 300
+
+# Auth API — uses api.yutori.ai (not api.yutori.com which is the SDK data API)
+AUTH_API_BASE_URL = os.environ.get("YUTORI_API_BASE_URL", "https://api.yutori.ai/v1")
 
 # Credential storage
 CONFIG_DIR = ".yutori"
@@ -28,5 +29,5 @@ ERROR_AUTH_FAILED = "Authentication failed"
 
 
 def build_auth_api_url(path: str) -> str:
-    """Build API URL for auth endpoints using the SDK's canonical base URL."""
-    return f"{DEFAULT_BASE_URL}{path}"
+    """Build API URL for auth endpoints (key generation after OAuth)."""
+    return f"{AUTH_API_BASE_URL}{path}"

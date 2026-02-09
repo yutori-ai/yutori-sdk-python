@@ -498,8 +498,7 @@ class TestConstants:
 
     def test_build_auth_api_url(self):
         url = build_auth_api_url("/client/generate_key")
-        assert url.endswith("/client/generate_key")
-        assert "api.yutori.com" in url
+        assert url.endswith("/v1/client/generate_key")
 
 
 # ---------------------------------------------------------------------------
