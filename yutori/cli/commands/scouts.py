@@ -36,7 +36,7 @@ def list_scouts(
         table.add_column("Interval")
 
         for scout in scouts:
-            interval_secs = scout.get("output_interval", 0)
+            interval_secs = scout.get("output_interval") or 0
             if interval_secs >= 86400:
                 interval_str = f"{interval_secs // 86400}d"
             elif interval_secs >= 3600:
@@ -74,7 +74,7 @@ def get(
         console.print(f"  Query: {escape(scout.get('query', 'N/A'))}")
         console.print(f"  Status: {scout.get('status', 'N/A')}")
 
-        interval_secs = scout.get("output_interval", 0)
+        interval_secs = scout.get("output_interval") or 0
         if interval_secs >= 86400:
             interval_str = f"{interval_secs // 86400} day(s)"
         elif interval_secs >= 3600:
