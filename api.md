@@ -1,4 +1,4 @@
-# Yutori Python SDK API Reference
+# Yutori Python SDK & CLI API Reference
 
 This document provides a comprehensive reference to the Yutori Python SDK.
 
@@ -344,7 +344,6 @@ The SDK supports three authentication methods, resolved in this order:
 
 3. **CLI Login** (saved credentials):
    ```bash
-   pip install yutori[cli]
    yutori auth login
    ```
    This opens a browser for Clerk OAuth authentication and saves an API key to `~/.yutori/config.json`. The SDK automatically reads from this file when no explicit key or env var is set.
@@ -357,8 +356,6 @@ The SDK supports three authentication methods, resolved in this order:
 API keys start with `yt-` and can be created at [platform.yutori.com](https://platform.yutori.com) or via `yutori auth login`.
 
 ### CLI Auth Commands
-
-Requires `pip install yutori[cli]`.
 
 | Command | Description |
 |---------|-------------|
@@ -384,6 +381,8 @@ Requires `pip install yutori[cli]`.
 
 - `httpx>=0.26.0,<0.28.0` - HTTP client for browsing, research, and scouting APIs
 - `openai>=1.0.0` - OpenAI SDK for the n1 chat API (provides `ChatCompletion` types)
+- `typer>=0.9.0` - CLI framework
+- `rich>=13.0.0` - Terminal formatting for CLI output
 
 ## Error Handling
 

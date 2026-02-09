@@ -1,11 +1,11 @@
-# Yutori Python SDK
+# Yutori Python SDK & CLI
 
 [![PyPI version](https://img.shields.io/pypi/v/yutori.svg)](https://pypi.org/project/yutori/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-The official Python library for the Yutori API.
+The official Python library and CLI for the Yutori API.
 
-Yutori provides APIs for building web agents that autonomously execute tasks on the web. The SDK offers both synchronous and asynchronous clients with full type annotations.
+Yutori provides APIs for building web agents that autonomously execute tasks on the web. The SDK offers both synchronous and asynchronous clients with full type annotations, plus a CLI for authentication and managing resources from the terminal.
 
 ## Documentation
 
@@ -18,23 +18,18 @@ Yutori provides APIs for building web agents that autonomously execute tasks on 
 pip install yutori
 ```
 
-To use the CLI (for login and managing resources from the terminal):
-
-```bash
-pip install yutori[cli]
-```
-
 ## Getting Started
 
 ### Authentication
 
-The easiest way to authenticate is via the CLI:
+The easiest way to authenticate is to run this in your terminal:
 
 ```bash
-yutori auth login
+$ yutori auth login
+# Opens your browser to log in with your Yutori account
 ```
 
-This opens your browser, authenticates with your Yutori account, and saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically use this saved key.
+This saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically use this saved key.
 
 Alternatively, you can set the `YUTORI_API_KEY` environment variable, or pass the key directly:
 
@@ -49,36 +44,6 @@ client = YutoriClient(api_key="yt-...")
 ```
 
 API key resolution order: explicit parameter > `YUTORI_API_KEY` env var > `~/.yutori/config.json`.
-
-## CLI
-
-The CLI provides commands for authentication and managing Yutori resources from the terminal.
-
-```bash
-# Authentication
-yutori auth login       # Log in via browser
-yutori auth status      # Show current auth status
-yutori auth logout      # Remove saved credentials
-
-# Scouts
-yutori scouts list                          # List your scouts
-yutori scouts get SCOUT_ID                  # Get scout details
-yutori scouts create -q "monitor for news"  # Create a scout
-yutori scouts delete SCOUT_ID               # Delete a scout
-
-# Browsing
-yutori browse run "extract all prices" https://example.com/products
-yutori browse get TASK_ID
-
-# Research
-yutori research run "latest developments in quantum computing"
-yutori research get TASK_ID
-
-# Usage
-yutori usage            # Show API usage statistics
-```
-
-Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## API Overview
 
@@ -336,11 +301,42 @@ client = YutoriClient(
 )
 ```
 
+## CLI
+
+The CLI provides commands for authentication and managing Yutori resources from the terminal.
+
+```bash
+# Authentication
+yutori auth login       # Log in via browser
+yutori auth status      # Show current auth status
+yutori auth logout      # Remove saved credentials
+
+# Scouts
+yutori scouts list                          # List your scouts
+yutori scouts get SCOUT_ID                  # Get scout details
+yutori scouts create -q "monitor for news"  # Create a scout
+yutori scouts delete SCOUT_ID               # Delete a scout
+
+# Browsing
+yutori browse run "extract all prices" https://example.com/products
+yutori browse get TASK_ID
+
+# Research
+yutori research run "latest developments in quantum computing"
+yutori research get TASK_ID
+
+# Usage
+yutori usage            # Show API usage statistics
+```
+
+Run `yutori --help` or `yutori <command> --help` for full option details.
+
 ## Requirements
 
 - Python 3.9+
 - [httpx](https://www.python-httpx.org/) for HTTP requests
 - [openai](https://github.com/openai/openai-python) for the n1 chat API
+- [typer](https://typer.tiangolo.com/) and [rich](https://rich.readthedocs.io/) for the CLI
 
 ## Examples
 
