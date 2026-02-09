@@ -93,9 +93,9 @@ class TestCredentials:
     def _use_tmp_config(self, tmp_path, monkeypatch):
         """Redirect config path to a temp directory for all credential tests."""
         config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials._get_config_path", lambda: config_path)
+        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
         # Also patch the import in flow.py which imports _get_config_path
-        monkeypatch.setattr("yutori.auth.flow._get_config_path", lambda: config_path)
+        monkeypatch.setattr("yutori.auth.flow.get_config_path", lambda: config_path)
         self.config_path = config_path
         self.config_dir = config_path.parent
 
@@ -159,7 +159,7 @@ class TestResolveApiKey:
     @pytest.fixture(autouse=True)
     def _use_tmp_config(self, tmp_path, monkeypatch):
         config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials._get_config_path", lambda: config_path)
+        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
         self.config_path = config_path
         monkeypatch.delenv("YUTORI_API_KEY", raising=False)
 
@@ -424,8 +424,8 @@ class TestGetAuthStatus:
     @pytest.fixture(autouse=True)
     def _use_tmp_config(self, tmp_path, monkeypatch):
         config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials._get_config_path", lambda: config_path)
-        monkeypatch.setattr("yutori.auth.flow._get_config_path", lambda: config_path)
+        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
+        monkeypatch.setattr("yutori.auth.flow.get_config_path", lambda: config_path)
         monkeypatch.delenv("YUTORI_API_KEY", raising=False)
         self.config_path = config_path
 
@@ -454,6 +454,12 @@ class TestGetAuthStatus:
         monkeypatch.setenv("YUTORI_API_KEY", "yt-env-key-xyz")
         status = get_auth_status()
         assert status.source == "env_var"
+
+    def test_non_string_api_key_in_config_treated_as_unauthenticated(self):
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(json.dumps({"api_key": 12345}))
+        status = get_auth_status()
+        assert status.authenticated is False
 
 
 # ---------------------------------------------------------------------------

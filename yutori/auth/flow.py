@@ -32,7 +32,7 @@ from .constants import (
     REDIRECT_URI,
     build_auth_api_url,
 )
-from .credentials import _get_config_path, load_config, save_config
+from .credentials import get_config_path, load_config, save_config
 from .types import AuthStatus, LoginResult
 
 
@@ -168,11 +168,11 @@ def run_login_flow() -> LoginResult:
             )
         return LoginResult(success=False, error=str(e))
 
-    server.timeout = AUTH_TIMEOUT_SECONDS
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
-    webbrowser.open(auth_url)
+    if not webbrowser.open(auth_url):
+        print(f"\nCould not open browser. Open this URL manually:\n  {auth_url}\n")
 
     try:
         callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
@@ -216,7 +216,7 @@ def get_auth_status() -> AuthStatus:
     Precedence matches resolve_api_key(): env var > config file.
     Returns an AuthStatus — never prints directly.
     """
-    config_path = str(_get_config_path())
+    config_path = str(get_config_path())
 
     env_key = os.environ.get("YUTORI_API_KEY")
     if env_key:
@@ -228,10 +228,11 @@ def get_auth_status() -> AuthStatus:
         )
 
     config = load_config()
-    if config and config.get("api_key"):
+    config_key = config.get("api_key") if config else None
+    if config_key and isinstance(config_key, str):
         return AuthStatus(
             authenticated=True,
-            masked_key=_mask_key(config["api_key"]),
+            masked_key=_mask_key(config_key),
             source="config_file",
             config_path=config_path,
         )

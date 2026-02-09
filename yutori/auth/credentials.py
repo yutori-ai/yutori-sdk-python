@@ -15,7 +15,7 @@ from typing import Any
 from .constants import CONFIG_DIR, CONFIG_FILE
 
 
-def _get_config_path() -> Path:
+def get_config_path() -> Path:
     return Path.home() / CONFIG_DIR / CONFIG_FILE
 
 
@@ -24,7 +24,7 @@ def load_config() -> dict[str, Any] | None:
 
     Returns None if file doesn't exist, is corrupt, or is not a dict.
     """
-    config_path = _get_config_path()
+    config_path = get_config_path()
     if not config_path.exists():
         return None
     try:
@@ -43,7 +43,7 @@ def save_config(api_key: str) -> None:
     - File: 0600 (owner read/write only)
     - Atomic: writes to temp file in same dir, then os.replace()
     """
-    config_path = _get_config_path()
+    config_path = get_config_path()
     config_dir = config_path.parent
     config_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(config_dir, 0o700)
@@ -65,7 +65,7 @@ def save_config(api_key: str) -> None:
 
 def clear_config() -> None:
     """Delete the config file if it exists."""
-    config_path = _get_config_path()
+    config_path = get_config_path()
     if config_path.exists():
         config_path.unlink()
 
