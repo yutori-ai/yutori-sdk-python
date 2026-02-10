@@ -306,6 +306,9 @@ client = YutoriClient(
 The CLI provides commands for authentication and managing Yutori resources from the terminal.
 
 ```bash
+# Version
+yutori --version
+
 # Authentication
 yutori auth login       # Log in via browser
 yutori auth status      # Show current auth status

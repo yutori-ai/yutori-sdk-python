@@ -361,6 +361,7 @@ API keys start with `yt-` and can be created at [platform.yutori.com](https://pl
 
 | Command | Description |
 |---------|-------------|
+| `yutori --version` | Show CLI version and exit |
 | `yutori auth login` | Authenticate via browser (Clerk OAuth + PKCE), saves API key to `~/.yutori/config.json` |
 | `yutori auth status` | Show current auth status (source, masked key) |
 | `yutori auth logout` | Remove saved credentials from `~/.yutori/config.json` |

@@ -25,6 +25,29 @@ app.add_typer(scouts.app, name="scouts")
 app.add_typer(usage.app, name="usage")
 
 
+def _version_callback(value: bool) -> None:
+    """Handle --version and exit early."""
+    if value:
+        from yutori import __version__
+
+        typer.echo(f"yutori {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the CLI version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Yutori CLI root callback."""
+    _ = version
+
+
 @app.command()
 def version() -> None:
     """Show the CLI version."""
