@@ -57,6 +57,15 @@ def usage(ctx: typer.Context) -> None:
 
             if len(scouts) > 10:
                 console.print(f"  ... and {len(scouts) - 10} more")
+            return
+
+        # Newer usage responses may return summary counters instead of scout records.
+        num_scouts = data.get("num_scouts")
+        active_scout_ids = data.get("active_scout_ids")
+        if isinstance(num_scouts, int):
+            console.print(f"\n  [bold]Scouts:[/bold] {num_scouts}")
+            if isinstance(active_scout_ids, list):
+                console.print(f"  Active Scouts: {len(active_scout_ids)}")
         else:
             console.print("\n  No scouts yet.")
     finally:

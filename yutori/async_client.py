@@ -78,10 +78,8 @@ class AsyncYutoriClient:
         """Get usage statistics for your API key.
 
         Returns:
-            Dictionary containing usage information including:
-                - api_key_id: Your API key identifier
-                - user_id: Your user ID
-                - scouts: List of scouts with their stats
+            Dictionary containing usage information. Keys are API-defined and
+            may include counters such as `num_scouts` and `active_scout_ids`.
         """
         response = await self._client.get(
             f"{self._base_url}/usage",

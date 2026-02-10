@@ -33,7 +33,8 @@ class AsyncScoutsNamespace:
         Returns:
             Dictionary containing list of scouts.
         """
-        params = build_query_params(limit=limit, status=status)
+        # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
+        params = build_query_params(page_size=limit, limit=limit, status=status)
         response = await self._client.get(
             f"{self._base_url}/scouting/tasks",
             headers=build_headers(self._api_key),

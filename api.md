@@ -19,7 +19,7 @@ from yutori import (
 | Exception | Description |
 |-----------|-------------|
 | `YutoriSDKError` | Base exception for all SDK errors |
-| `AuthenticationError` | Invalid or missing API key (HTTP 401) |
+| `AuthenticationError` | Invalid or missing API key (HTTP 401 or 403) |
 | `APIError` | General API error with `status_code`, `message`, and `response` attributes |
 
 ## Client
@@ -42,6 +42,8 @@ client = YutoriClient(
 |--------|------|----------|---------|
 | `client.get_usage()` | GET | `/v1/usage` | `dict` |
 | `client.close()` | - | - | `None` |
+
+`client.get_usage()` returns an API-defined dictionary. Current responses include summary counters such as `num_scouts` and `active_scout_ids`.
 
 ### AsyncYutoriClient
 
@@ -215,7 +217,7 @@ scouts = client.scouts.list(
 ```
 
 **Parameters:**
-- `limit` (int, optional): Maximum number of scouts to return.
+- `limit` (int, optional): Maximum number of scouts to return (mapped to API `page_size`).
 - `status` (str, optional): Filter by status - `"active"`, `"paused"`, or `"done"`.
 
 **Returns:** Dictionary containing `scouts` list and pagination info.
@@ -367,7 +369,7 @@ API keys start with `yt-` and can be created at [platform.yutori.com](https://pl
 
 | Command | Description |
 |---------|-------------|
-| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth`) |
+| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth` flag) |
 | `yutori browse get TASK_ID` | Get browsing task status and result |
 | `yutori research run QUERY [OPTIONS]` | Start a research task (`--timezone`, `--location`) |
 | `yutori research get TASK_ID` | Get research task status and result |

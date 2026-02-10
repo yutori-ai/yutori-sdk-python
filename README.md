@@ -286,7 +286,7 @@ except APIError as e:
 
 | Exception             | Status Code | Description                        |
 | --------------------- | ----------- | ---------------------------------- |
-| `AuthenticationError` | 401         | Invalid or missing API key         |
+| `AuthenticationError` | 401, 403    | Invalid or missing API key         |
 | `APIError`            | 4xx, 5xx    | General API error with status code |
 
 ## Configuration
@@ -319,6 +319,7 @@ yutori scouts delete SCOUT_ID               # Delete a scout
 
 # Browsing
 yutori browse run "extract all prices" https://example.com/products
+yutori browse run "log in and continue" https://example.com/login --require-auth
 yutori browse get TASK_ID
 
 # Research

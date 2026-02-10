@@ -58,10 +58,14 @@ class TestAsyncScoutsNamespace:
         mock_response.content = b'{"scouts": []}'
         mock_response.json.return_value = {"scouts": []}
 
-        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             async with AsyncYutoriClient(api_key="yt-test") as client:
-                result = await client.scouts.list()
+                result = await client.scouts.list(limit=10, status="active")
                 assert result == {"scouts": []}
+                params = mock_get.call_args[1]["params"]
+                assert params["page_size"] == 10
+                assert params["limit"] == 10
+                assert params["status"] == "active"
 
     async def test_scouts_get(self):
         mock_response = MagicMock(spec=httpx.Response)
@@ -227,6 +231,16 @@ class TestAsyncErrorHandling:
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 401
         mock_response.text = "Unauthorized"
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
+            async with AsyncYutoriClient(api_key="yt-invalid") as client:
+                with pytest.raises(AuthenticationError):
+                    await client.get_usage()
+
+    async def test_auth_error_forbidden(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-invalid") as client:

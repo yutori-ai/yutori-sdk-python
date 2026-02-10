@@ -19,7 +19,7 @@ def build_headers(api_key: str) -> dict[str, str]:
 
 def handle_response(response: httpx.Response) -> dict[str, Any]:
     """Process HTTP response, raising appropriate errors for failures."""
-    if response.status_code == 401:
+    if response.status_code in (401, 403):
         raise AuthenticationError("Invalid or missing API key")
 
     if response.status_code >= 400:

@@ -67,6 +67,17 @@ class TestYutoriClientGetUsage:
                 client.get_usage()
             client.close()
 
+    def test_get_usage_forbidden_auth_error(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 403
+        mock_response.text = "Forbidden"
+
+        with patch.object(httpx.Client, "get", return_value=mock_response):
+            client = YutoriClient(api_key="yt-invalid")
+            with pytest.raises(AuthenticationError):
+                client.get_usage()
+            client.close()
+
 
 class TestScoutsNamespace:
     def test_scouts_list(self, client):
@@ -79,8 +90,10 @@ class TestScoutsNamespace:
             result = client.scouts.list(limit=10, status="active")
             assert result == {"scouts": []}
             mock_get.assert_called_once()
-            call_kwargs = mock_get.call_args
-            assert "limit" in str(call_kwargs) or call_kwargs[1].get("params", {}).get("limit") == 10
+            params = mock_get.call_args[1]["params"]
+            assert params["page_size"] == 10
+            assert params["limit"] == 10
+            assert params["status"] == "active"
 
     def test_scouts_get(self, client):
         mock_response = MagicMock(spec=httpx.Response)
