@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -27,6 +28,7 @@ from yutori.auth.credentials import clear_config, load_config, resolve_api_key, 
 from yutori.auth.flow import (
     _CallbackHandler,
     _CallbackResult,
+    _build_key_name,
     _mask_key,
     build_auth_url,
     exchange_code_for_token,
@@ -82,6 +84,23 @@ class TestBuildAuthUrl:
         assert params["code_challenge_method"] == ["S256"]
         assert params["state"] == ["test_state"]
         assert params["scope"] == ["openid profile email"]
+
+
+class TestBuildKeyName:
+    def test_build_key_name_uses_utc_date_and_default_source(self):
+        with patch("yutori.auth.flow.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 2, 9, 12, 0, 0, tzinfo=timezone.utc)
+            key_name = _build_key_name()
+
+        assert key_name == "2026-02-09-yutori-cli"
+        mock_datetime.now.assert_called_once_with(timezone.utc)
+
+    def test_build_key_name_allows_custom_source(self):
+        with patch("yutori.auth.flow.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 2, 9, 12, 0, 0, tzinfo=timezone.utc)
+            key_name = _build_key_name("yutori-mcp")
+
+        assert key_name == "2026-02-09-yutori-mcp"
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +313,11 @@ class TestGenerateApiKey:
         mock_response.raise_for_status = MagicMock()
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
-            key = generate_api_key("jwt_token")
+            key = generate_api_key("jwt_token", key_name="2026-02-09-yutori-cli")
             assert key == "yt-generated-key"
             call_kwargs = mock_post.call_args
             assert "Bearer jwt_token" in call_kwargs[1]["headers"]["Authorization"]
+            assert call_kwargs[1]["json"] == {"name": "2026-02-09-yutori-cli"}
 
     def test_generate_api_key_uses_build_auth_api_url(self):
         mock_response = MagicMock(spec=httpx.Response)
@@ -308,6 +328,7 @@ class TestGenerateApiKey:
             generate_api_key("jwt")
             url = mock_post.call_args[0][0]
             assert url == build_auth_api_url("/client/generate_key")
+            assert mock_post.call_args[1]["json"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +380,12 @@ class TestRunLoginFlow:
                     assert result.api_key == "yt-new-key"
                     assert result.auth_url is not None
                     mock_save.assert_called_once_with("yt-new-key")
+                    mock_gen_key.assert_called_once()
+                    assert mock_gen_key.call_args.args[0] == "jwt123"
+                    key_name = mock_gen_key.call_args.kwargs["key_name"]
+                    assert key_name.endswith("-yutori-cli")
+                    date_part = key_name[:10]
+                    datetime.strptime(date_part, "%Y-%m-%d")
 
     def test_port_in_use(self):
         with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):

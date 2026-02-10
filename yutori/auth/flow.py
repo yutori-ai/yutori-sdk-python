@@ -7,6 +7,7 @@ All functions return typed results and never print directly (callers handle pres
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import html
 import http.server
@@ -135,22 +136,31 @@ def exchange_code_for_token(code: str, code_verifier: str) -> str:
         return response.json()["access_token"]
 
 
-def generate_api_key(jwt: str) -> str:
+def _build_key_name(source: str = "yutori-cli") -> str:
+    """Build a descriptive name for SDK-generated API keys."""
+    date_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"{date_prefix}-{source}"
+
+
+def generate_api_key(jwt: str, key_name: str | None = None) -> str:
     """Generate a Yutori API key using a Clerk JWT."""
+    payload = {"name": key_name} if key_name else None
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             build_auth_api_url("/client/generate_key"),
             headers={"Authorization": f"Bearer {jwt}"},
+            json=payload,
         )
         response.raise_for_status()
         return response.json()["key"]
 
 
-def run_login_flow() -> LoginResult:
+def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
     """Run the full OAuth 2.0 + PKCE login flow.
 
     Opens browser for Clerk authentication, runs a local callback server,
     exchanges the auth code for a JWT, generates an API key, and saves it.
+    Key names are tagged with `key_source` for dashboard visibility.
 
     Returns a LoginResult — never prints directly.
     """
@@ -201,7 +211,7 @@ def run_login_flow() -> LoginResult:
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
-        api_key = generate_api_key(jwt)
+        api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
