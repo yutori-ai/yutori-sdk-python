@@ -21,10 +21,19 @@ AUTH_TIMEOUT_SECONDS = 300
 CONFIG_DIR = ".yutori"
 CONFIG_FILE = "config.json"
 
+# API endpoints
+GENERATE_KEY_ENDPOINT = "/client/generate_key"
+SIGN_UP_VALIDATE_ENDPOINT = "/client/sign-up/validate-api"
+
+# Clerk sign-up hint
+SCREEN_HINT_SIGN_UP = "sign_up"
+
 # Error messages
 ERROR_AUTH_TIMEOUT = "Login timed out. Please try again."
 ERROR_STATE_MISMATCH = "Security validation failed (state mismatch). Please try again."
 ERROR_AUTH_FAILED = "Authentication failed"
+ERROR_SIGN_UP_FAILED = "Account creation failed"
+ERROR_MAX_KEYS_REACHED = "Maximum number of API keys reached (50). Delete unused keys and try again."
 
 
 def build_auth_api_url(path: str) -> str:

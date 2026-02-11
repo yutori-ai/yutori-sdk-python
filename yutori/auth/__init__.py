@@ -14,6 +14,10 @@ def __getattr__(name: str):
         from .flow import run_login_flow
 
         return run_login_flow
+    if name == "run_register_flow":
+        from .flow import run_register_flow
+
+        return run_register_flow
     if name == "get_auth_status":
         from .flow import get_auth_status
 
@@ -27,6 +31,7 @@ __all__ = [
     "load_config",
     "resolve_api_key",
     "run_login_flow",
+    "run_register_flow",
     "save_config",
     "AuthStatus",
     "LoginResult",
