@@ -398,7 +398,7 @@ class Agent:
 
             elif action_name in ("key", "key_press"):
                 key = arguments.get("key") or arguments.get("key_comb", "")
-                key = key.replace("Meta", "ControlOrMeta")
+                key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
                 await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)
 
