@@ -102,9 +102,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
                 self.callback_result.state = params.get("state", [None])[0]
                 self._send_html(
                     "<h1>Login Successful</h1>"
-                    "<p>Redirecting to your developer dashboard...</p>"
-                    '<script>setTimeout(function(){window.location.href='
-                    '"https://platform.yutori.com/settings"},5000)</script>'
+                    "<p>You can close this window.</p>"
                 )
             else:
                 self.callback_result.error = "No authorization code received"
