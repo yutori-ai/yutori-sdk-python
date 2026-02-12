@@ -285,7 +285,7 @@ class Agent:
         last_content.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/webp;base64,{screenshot_b64}"},
+                "image_url": {"url": f"data:image/webp;base64,{screenshot_b64}", "detail": "high"},
             }
         )
 
