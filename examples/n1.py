@@ -254,14 +254,14 @@ class Agent:
 
             elif action_name == "type":
                 text = arguments.get("text", "")
-                press_enter = arguments.get("press_enter_after", False)
-                clear_first = arguments.get("clear_before_typing", False)
+                press_enter = arguments.get("press_enter_after", True)
+                clear_first = arguments.get("clear_before_typing", True)
 
                 if clear_first:
                     await self._page.keyboard.press("Control+a" if sys.platform != "darwin" else "Meta+a")
                     await self._page.keyboard.press("Backspace")
 
-                await self._page.keyboard.type(text, delay=50)
+                await self._page.keyboard.type(text)
 
                 if press_enter:
                     await self._page.keyboard.press("Enter")
@@ -269,6 +269,7 @@ class Agent:
 
             elif action_name in ("key", "key_press"):
                 key = arguments.get("key") or arguments.get("key_comb", "")
+                key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
                 await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)
 
@@ -302,7 +303,7 @@ class Agent:
 
                 await self._page.mouse.move(start_x, start_y)
                 await self._page.mouse.down()
-                await self._page.mouse.move(end_x, end_y, steps=10)
+                await self._page.mouse.move(end_x, end_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.5)
 
@@ -323,7 +324,7 @@ class Agent:
                 await asyncio.sleep(1)
 
             elif action_name == "wait":
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
