@@ -36,7 +36,7 @@ class AsyncBrowsingNamespace:
             task: Natural language description of the browsing task.
             start_url: URL to start browsing from.
             max_steps: Maximum agent steps (1-100).
-            agent: Agent to use ("navigator-n1-preview-2025-11" or
+            agent: Agent to use ("navigator-n1-latest" or
                    "claude-sonnet-4-5-computer-use-2025-01-24").
             require_auth: Use auth-optimized browser for login flows.
             output_schema: JSON schema for structured output.

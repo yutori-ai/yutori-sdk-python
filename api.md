@@ -128,7 +128,7 @@ task = client.browsing.create(
 - `task` (str): Natural language description of the browsing task.
 - `start_url` (str): URL to start browsing from.
 - `max_steps` (int, optional): Maximum agent steps (1-100).
-- `agent` (str, optional): Agent to use. Options: `"navigator-n1-preview-2025-11"`, `"claude-sonnet-4-5-computer-use-2025-01-24"`.
+- `agent` (str, optional): Agent to use. Options: `"navigator-n1-latest"`, `"claude-sonnet-4-5-computer-use-2025-01-24"`.
 - `require_auth` (bool, optional): Use auth-optimized browser for login flows.
 - `output_schema` (dict, optional): JSON schema for structured output.
 - `webhook_url` (str, optional): URL for completion notifications.
@@ -190,7 +190,7 @@ result = client.research.get("task_id")
 **Parameters:**
 - `task_id` (str): The unique identifier of the task.
 
-**Returns:** Dictionary with `status` and results if completed.
+**Returns:** Dictionary with `status` (`"queued"`, `"running"`, `"succeeded"`, `"failed"`) and results if completed.
 
 ---
 
