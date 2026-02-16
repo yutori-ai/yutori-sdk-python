@@ -74,7 +74,7 @@ response = client.chat.completions.create(
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": "https://upload.wikimedia.org/wikipedia/commons/5/53/Google_homepage_%28as_of_January_2024%29.jpg"
+                        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_homepage_%28as_of_January_2024%29.jpg/1280px-Google_homepage_%28as_of_January_2024%29.jpg"
                     }
                 }
             ]
