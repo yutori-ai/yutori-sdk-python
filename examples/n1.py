@@ -5,6 +5,10 @@ A web browsing agent using Yutori's n1 API (OpenAI API compatible)
 This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
+Features:
+- Payload trimming: automatically removes old screenshots when the message history grows
+  too large for the API, keeping only the most recent screenshots for context.
+
 Usage:
     export YUTORI_API_KEY=...
     python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"
@@ -28,6 +32,7 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
+from yutori.n1.payload import trim_images_to_fit
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -47,6 +52,9 @@ class Config(BaseModel):
     viewport_width: int = 1280
     viewport_height: int = 800
     headless: bool = False
+    # payload management
+    max_request_bytes: int = 9_500_000
+    keep_recent_screenshots: int = 6
 
 
 class Agent:
@@ -60,6 +68,8 @@ class Agent:
         viewport_width: int = 1280,
         viewport_height: int = 800,
         headless: bool = False,
+        max_request_bytes: int = 9_500_000,
+        keep_recent_screenshots: int = 6,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -69,6 +79,8 @@ class Agent:
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
         self.headless = headless
+        self.max_request_bytes = max_request_bytes
+        self.keep_recent_screenshots = keep_recent_screenshots
 
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
@@ -211,6 +223,15 @@ class Agent:
                 "image_url": {"url": f"data:image/webp;base64,{screenshot_b64}", "detail": "high"},
             }
         )
+
+        # Trim old screenshots to keep payload within API size limits
+        size_bytes, removed = trim_images_to_fit(
+            self._messages,
+            max_bytes=self.max_request_bytes,
+            keep_recent=self.keep_recent_screenshots,
+        )
+        if removed:
+            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
         for i in range(self._message_index, len(self._messages)):
             logger.info(f"Message: {self._format_message_for_log(self._messages[i])}")
@@ -371,6 +392,14 @@ async def main():
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    parser.add_argument(
+        "--max-request-bytes", type=int, default=default_config.max_request_bytes,
+        help="Max payload size in bytes before trimming old screenshots",
+    )
+    parser.add_argument(
+        "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
+        help="Number of recent screenshots to protect from trimming",
+    )
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
@@ -383,6 +412,8 @@ async def main():
         viewport_width=config.viewport_width,
         viewport_height=config.viewport_height,
         headless=config.headless,
+        max_request_bytes=config.max_request_bytes,
+        keep_recent_screenshots=config.keep_recent_screenshots,
     )
 
     result = await agent.run(config.task, config.start_url)
