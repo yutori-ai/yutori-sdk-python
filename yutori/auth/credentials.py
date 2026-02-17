@@ -70,23 +70,31 @@ def clear_config() -> None:
         config_path.unlink()
 
 
+_PLACEHOLDER_KEYS = frozenset({"YOUR_API_KEY"})
+
+
+def _is_real_key(key: str | None) -> bool:
+    return bool(key and key.strip() and key.strip() not in _PLACEHOLDER_KEYS)
+
+
 def resolve_api_key(api_key: str | None = None) -> str | None:
     """Resolve an API key using the standard precedence chain.
 
     Order: explicit parameter > YUTORI_API_KEY env var > config file.
+    Placeholder values like ``"YOUR_API_KEY"`` are treated as missing.
     Returns None if no key is found (caller decides error behavior).
     """
-    if api_key:
+    if _is_real_key(api_key):
         return api_key
 
     env_key = os.environ.get("YUTORI_API_KEY")
-    if env_key:
+    if _is_real_key(env_key):
         return env_key
 
     config = load_config()
     if config:
         stored_key = config.get("api_key")
-        if stored_key and isinstance(stored_key, str):
+        if isinstance(stored_key, str) and _is_real_key(stored_key):
             return stored_key
 
     return None

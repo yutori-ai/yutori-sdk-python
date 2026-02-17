@@ -203,6 +203,28 @@ class TestResolveApiKey:
         monkeypatch.setenv("YUTORI_API_KEY", "yt-env")
         assert resolve_api_key("") == "yt-env"
 
+    def test_placeholder_param_falls_through(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", "yt-env")
+        assert resolve_api_key("YOUR_API_KEY") == "yt-env"
+
+    def test_placeholder_env_falls_through_to_config(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", "YOUR_API_KEY")
+        save_config("yt-stored")
+        assert resolve_api_key() == "yt-stored"
+
+    def test_placeholder_env_returns_none_without_config(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", "YOUR_API_KEY")
+        assert resolve_api_key() is None
+
+    def test_placeholder_in_config_returns_none(self):
+        save_config("YOUR_API_KEY")
+        assert resolve_api_key() is None
+
+    def test_placeholder_with_whitespace_falls_through(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", "  YOUR_API_KEY  ")
+        save_config("yt-stored")
+        assert resolve_api_key() == "yt-stored"
+
 
 # ---------------------------------------------------------------------------
 # Callback handler
