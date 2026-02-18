@@ -119,6 +119,26 @@ print(result)
 
 ### Structured Output with Webhooks
 
+You can define the output structure using a JSON schema dict or a Pydantic BaseModel class (Pydantic is optional):
+
+```python
+from pydantic import BaseModel  # optional dependency
+
+class Employee(BaseModel):
+    name: str
+    title: str
+
+task = client.browsing.create(
+    task="Give me a list of all employees (names and titles) of Yutori.",
+    start_url="https://yutori.com",
+    max_steps=75,
+    webhook_url="https://example.com/webhook",
+    output_schema=Employee,  # auto-converted to JSON schema
+)
+```
+
+Or use a raw dict:
+
 ```python
 task = client.browsing.create(
     task="Give me a list of all employees (names and titles) of Yutori.",
@@ -162,21 +182,18 @@ print(result)
 ### Structured Output
 
 ```python
+from pydantic import BaseModel  # optional dependency
+
+class Finding(BaseModel):
+    title: str
+    summary: str
+    source_url: str
+
 task = client.research.create(
     query="What are the latest developments in quantum computing?",
     user_timezone="America/Los_Angeles",
     webhook_url="https://example.com/webhook",
-    output_schema={
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "summary": {"type": "string"},
-                "source_url": {"type": "string"}
-            }
-        }
-    }
+    output_schema=Finding,  # or pass a JSON schema dict
 )
 ```
 
@@ -220,23 +237,20 @@ client.scouts.delete("scout_abc123")
 ### Structured Output with Webhooks
 
 ```python
+from pydantic import BaseModel  # optional dependency
+
+class NewsItem(BaseModel):
+    headline: str
+    summary: str
+    source_url: str
+
 scout = client.scouts.create(
     query="Tell me about the latest news and announcements about Yutori",
     output_interval=86400,  # Daily
     user_timezone="America/Los_Angeles",
     skip_email=True,
     webhook_url="https://example.com/webhook",
-    output_schema={
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": {
-                "headline": {"type": "string"},
-                "summary": {"type": "string"},
-                "source_url": {"type": "string"}
-            }
-        }
-    }
+    output_schema=NewsItem,  # or pass a JSON schema dict
 )
 ```
 
