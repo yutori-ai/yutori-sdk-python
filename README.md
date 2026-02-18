@@ -235,7 +235,7 @@ client = YutoriClient(api_key="yt-...")
 
 # Create a scout that monitors for updates
 scout = client.scouts.create(
-    query="Tell me about the latest news, product updates, and announcements about Yutori",
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
 )
 print(f"Created scout: {scout['id']}")
 
@@ -272,7 +272,7 @@ class NewsItem(BaseModel):
     source_url: str
 
 scout = client.scouts.create(
-    query="Tell me about the latest news and announcements about Yutori",
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
     output_interval=86400,  # Daily
     user_timezone="America/Los_Angeles",
     skip_email=True,
@@ -286,7 +286,7 @@ scout = client.scouts.create(
 
 ```python
 scout = client.scouts.create(
-    query="Tell me about the latest news and announcements about Yutori",
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
     output_interval=86400,  # Daily
     user_timezone="America/Los_Angeles",
     skip_email=True,
