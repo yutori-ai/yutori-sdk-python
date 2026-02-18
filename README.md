@@ -119,6 +119,27 @@ print(result)
 
 ### Structured Output with Webhooks
 
+You can define the output structure using a JSON schema dict or a Pydantic BaseModel class (Pydantic is optional):
+
+```python
+from pydantic import BaseModel  # optional dependency
+
+class Employee(BaseModel):
+    name: str
+    title: str
+
+task = client.browsing.create(
+    task="Give me a list of all employees (names and titles) of Yutori.",
+    start_url="https://yutori.com",
+    max_steps=75,
+    webhook_url="https://example.com/webhook",
+    output_schema=Employee,  # auto-converted to JSON schema
+)
+```
+
+<details>
+<summary>Using a JSON schema dict instead</summary>
+
 ```python
 task = client.browsing.create(
     task="Give me a list of all employees (names and titles) of Yutori.",
@@ -137,6 +158,8 @@ task = client.browsing.create(
     }
 )
 ```
+
+</details>
 
 ## Research API
 
@@ -162,6 +185,25 @@ print(result)
 ### Structured Output
 
 ```python
+from pydantic import BaseModel  # optional dependency
+
+class Finding(BaseModel):
+    title: str
+    summary: str
+    source_url: str
+
+task = client.research.create(
+    query="What are the latest developments in quantum computing?",
+    user_timezone="America/Los_Angeles",
+    webhook_url="https://example.com/webhook",
+    output_schema=Finding,  # auto-converted to JSON schema
+)
+```
+
+<details>
+<summary>Using a JSON schema dict instead</summary>
+
+```python
 task = client.research.create(
     query="What are the latest developments in quantum computing?",
     user_timezone="America/Los_Angeles",
@@ -180,6 +222,8 @@ task = client.research.create(
 )
 ```
 
+</details>
+
 ## Scouting API
 
 Scouts run on a configurable schedule to monitor the web and send notifications when relevant updates occur.
@@ -191,7 +235,7 @@ client = YutoriClient(api_key="yt-...")
 
 # Create a scout that monitors for updates
 scout = client.scouts.create(
-    query="Tell me about the latest news, product updates, and announcements about Yutori",
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
 )
 print(f"Created scout: {scout['id']}")
 
@@ -220,8 +264,29 @@ client.scouts.delete("scout_abc123")
 ### Structured Output with Webhooks
 
 ```python
+from pydantic import BaseModel  # optional dependency
+
+class NewsItem(BaseModel):
+    headline: str
+    summary: str
+    source_url: str
+
 scout = client.scouts.create(
-    query="Tell me about the latest news and announcements about Yutori",
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
+    output_interval=86400,  # Daily
+    user_timezone="America/Los_Angeles",
+    skip_email=True,
+    webhook_url="https://example.com/webhook",
+    output_schema=NewsItem,  # auto-converted to JSON schema
+)
+```
+
+<details>
+<summary>Using a JSON schema dict instead</summary>
+
+```python
+scout = client.scouts.create(
+    query="Tell me about the latest news, product updates, and announcements about Yutori AI",
     output_interval=86400,  # Daily
     user_timezone="America/Los_Angeles",
     skip_email=True,
@@ -239,6 +304,8 @@ scout = client.scouts.create(
     }
 )
 ```
+
+</details>
 
 ## Async Usage
 

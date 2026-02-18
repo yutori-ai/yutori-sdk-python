@@ -130,7 +130,7 @@ task = client.browsing.create(
 - `max_steps` (int, optional): Maximum agent steps (1-100).
 - `agent` (str, optional): Agent to use. Options: `"navigator-n1-latest"`, `"claude-sonnet-4-5-computer-use-2025-01-24"`.
 - `require_auth` (bool, optional): Use auth-optimized browser for login flows.
-- `output_schema` (dict, optional): JSON schema for structured output.
+- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `webhook_url` (str, optional): URL for completion notifications.
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
 
@@ -175,7 +175,7 @@ task = client.research.create(
 - `query` (str): Natural language research query.
 - `user_timezone` (str, optional): Timezone, e.g., `"America/Los_Angeles"`.
 - `user_location` (str, optional): Location, e.g., `"San Francisco, CA, US"`.
-- `output_schema` (dict, optional): JSON schema for structured output.
+- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `webhook_url` (str, optional): URL for completion notifications.
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
 
@@ -256,7 +256,7 @@ scout = client.scouts.create(
 - `start_timestamp` (int, optional): Unix timestamp to start. 0 = immediately.
 - `user_timezone` (str, optional): Timezone, e.g., `"America/Los_Angeles"`.
 - `user_location` (str, optional): Location, e.g., `"San Francisco, CA, US"`.
-- `output_schema` (dict, optional): JSON schema for structured output.
+- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `skip_email` (bool, optional): Disable email notifications.
 - `webhook_url` (str, optional): URL for completion notifications.
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
@@ -292,7 +292,7 @@ client.scouts.update(
 - `output_interval` (int, optional): Updated interval between runs.
 - `user_timezone` (str, optional): Updated timezone.
 - `user_location` (str, optional): Updated location.
-- `output_schema` (dict, optional): Updated JSON schema.
+- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `skip_email` (bool, optional): Updated email notification setting.
 - `webhook_url` (str, optional): Updated webhook URL.
 - `webhook_format` (str, optional): Updated webhook format.

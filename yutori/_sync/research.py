@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .._http import build_headers, handle_response
+from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
     import httpx
@@ -24,7 +25,7 @@ class ResearchNamespace:
         *,
         user_timezone: str | None = None,
         user_location: str | None = None,
-        output_schema: dict[str, Any] | None = None,
+        output_schema: object | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
     ) -> dict[str, Any]:
@@ -36,7 +37,7 @@ class ResearchNamespace:
             query: Natural language research query.
             user_timezone: e.g., "America/Los_Angeles".
             user_location: e.g., "San Francisco, CA, US".
-            output_schema: JSON schema for structured output.
+            output_schema: JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance.
             webhook_url: URL for completion notifications.
             webhook_format: "scout" (default), "slack", or "zapier".
 
@@ -49,8 +50,9 @@ class ResearchNamespace:
             payload["user_timezone"] = user_timezone
         if user_location is not None:
             payload["user_location"] = user_location
-        if output_schema is not None:
-            payload["output_schema"] = output_schema
+        resolved_schema = resolve_output_schema(output_schema)
+        if resolved_schema is not None:
+            payload["output_schema"] = resolved_schema
         if webhook_url is not None:
             payload["webhook_url"] = webhook_url
         if webhook_format is not None:

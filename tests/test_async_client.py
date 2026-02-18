@@ -193,6 +193,81 @@ class TestAsyncResearchNamespace:
 
 
 @pytest.mark.asyncio
+class TestAsyncPydanticSchemaIntegration:
+    """Test that Pydantic models are resolved to JSON schema dicts in async payloads."""
+
+    @staticmethod
+    def _make_mock_response():
+        mock = MagicMock(spec=httpx.Response)
+        mock.status_code = 200
+        mock.content = b'{"task_id": "t-1"}'
+        mock.json.return_value = {"task_id": "t-1"}
+        return mock
+
+    class _FakeModel:
+        @classmethod
+        def model_json_schema(cls):
+            return {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_browsing_create_with_model_class(self):
+        with patch.object(
+            httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
+        ) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel)
+                payload = mock_post.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_browsing_create_with_model_instance(self):
+        with patch.object(
+            httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
+        ) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel())
+                payload = mock_post.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_research_create_with_model_class(self):
+        with patch.object(
+            httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
+        ) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.research.create(query="q", output_schema=self._FakeModel)
+                payload = mock_post.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_scouts_create_with_model_class(self):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.scouts.create(query="q", output_schema=self._FakeModel)
+                payload = mock_post.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_scouts_update_with_model_class(self):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.scouts.update("s-1", output_schema=self._FakeModel)
+                payload = mock_patch.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    async def test_scouts_update_with_model_instance(self):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.scouts.update("s-1", output_schema=self._FakeModel())
+                payload = mock_patch.call_args[1]["json"]
+                assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+
+@pytest.mark.asyncio
 class TestAsyncChatNamespace:
     async def test_chat_completions(self):
         from openai.types.chat import ChatCompletion, ChatCompletionMessage

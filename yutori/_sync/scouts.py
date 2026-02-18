@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .._http import build_headers, build_query_params, handle_response
+from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
     import httpx
@@ -65,7 +66,7 @@ class ScoutsNamespace:
         start_timestamp: int | None = None,
         user_timezone: str | None = None,
         user_location: str | None = None,
-        output_schema: dict[str, Any] | None = None,
+        output_schema: object | None = None,
         skip_email: bool | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
@@ -79,7 +80,7 @@ class ScoutsNamespace:
             start_timestamp: Unix timestamp to start (0 = immediately).
             user_timezone: e.g., "America/Los_Angeles".
             user_location: e.g., "San Francisco, CA, US".
-            output_schema: JSON schema for structured output.
+            output_schema: JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance.
             skip_email: Disable email notifications.
             webhook_url: URL for completion notifications.
             webhook_format: "scout" (default), "slack", or "zapier".
@@ -99,8 +100,9 @@ class ScoutsNamespace:
             payload["user_timezone"] = user_timezone
         if user_location is not None:
             payload["user_location"] = user_location
-        if output_schema is not None:
-            payload["output_schema"] = output_schema
+        resolved_schema = resolve_output_schema(output_schema)
+        if resolved_schema is not None:
+            payload["output_schema"] = resolved_schema
         if skip_email is not None:
             payload["skip_email"] = skip_email
         if webhook_url is not None:
@@ -126,7 +128,7 @@ class ScoutsNamespace:
         output_interval: int | None = None,
         user_timezone: str | None = None,
         user_location: str | None = None,
-        output_schema: dict[str, Any] | None = None,
+        output_schema: object | None = None,
         skip_email: bool | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
@@ -142,7 +144,7 @@ class ScoutsNamespace:
             output_interval: Updated interval between runs.
             user_timezone: Updated timezone.
             user_location: Updated location.
-            output_schema: Updated JSON schema for structured output.
+            output_schema: JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance.
             skip_email: Updated email notification setting.
             webhook_url: Updated webhook URL.
             webhook_format: Updated webhook format.
@@ -153,6 +155,8 @@ class ScoutsNamespace:
         Raises:
             ValueError: If status is provided along with other fields (API limitation).
         """
+        resolved_schema = resolve_output_schema(output_schema)
+
         # Build payload from non-None field values (single source of truth for field list)
         payload: dict[str, Any] = {
             k: v
@@ -161,7 +165,7 @@ class ScoutsNamespace:
                 "output_interval": output_interval,
                 "user_timezone": user_timezone,
                 "user_location": user_location,
-                "output_schema": output_schema,
+                "output_schema": resolved_schema,
                 "skip_email": skip_email,
                 "webhook_url": webhook_url,
                 "webhook_format": webhook_format,

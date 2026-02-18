@@ -231,6 +231,67 @@ class TestResearchNamespace:
             assert result["status"] == "succeeded"
 
 
+class TestPydanticSchemaIntegration:
+    """Test that Pydantic models are resolved to JSON schema dicts in payloads."""
+
+    def _make_mock_response(self):
+        mock = MagicMock(spec=httpx.Response)
+        mock.status_code = 200
+        mock.content = b'{"task_id": "t-1"}'
+        mock.json.return_value = {"task_id": "t-1"}
+        return mock
+
+    class _FakeModel:
+        @classmethod
+        def model_json_schema(cls):
+            return {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_browsing_create_with_model_class(self, client):
+        with patch.object(httpx.Client, "post", return_value=self._make_mock_response()) as mock_post:
+            client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel)
+            payload = mock_post.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_browsing_create_with_model_instance(self, client):
+        with patch.object(httpx.Client, "post", return_value=self._make_mock_response()) as mock_post:
+            client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel())
+            payload = mock_post.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_research_create_with_model_class(self, client):
+        with patch.object(httpx.Client, "post", return_value=self._make_mock_response()) as mock_post:
+            client.research.create(query="q", output_schema=self._FakeModel)
+            payload = mock_post.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_scouts_create_with_model_class(self, client):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.Client, "post", return_value=mock) as mock_post:
+            client.scouts.create(query="q", output_schema=self._FakeModel)
+            payload = mock_post.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_scouts_update_with_model_class(self, client):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.Client, "patch", return_value=mock) as mock_patch:
+            client.scouts.update("s-1", output_schema=self._FakeModel)
+            payload = mock_patch.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+    def test_scouts_update_with_model_instance(self, client):
+        mock = self._make_mock_response()
+        mock.content = b'{"id": "s-1"}'
+        mock.json.return_value = {"id": "s-1"}
+        with patch.object(httpx.Client, "patch", return_value=mock) as mock_patch:
+            client.scouts.update("s-1", output_schema=self._FakeModel())
+            payload = mock_patch.call_args[1]["json"]
+            assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
+
+
 class TestChatNamespace:
     def test_chat_completions(self):
         from openai.types.chat import ChatCompletion, ChatCompletionMessage
