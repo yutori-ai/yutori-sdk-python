@@ -137,7 +137,8 @@ task = client.browsing.create(
 )
 ```
 
-Or use a raw dict:
+<details>
+<summary>Using a JSON schema dict instead</summary>
 
 ```python
 task = client.browsing.create(
@@ -157,6 +158,8 @@ task = client.browsing.create(
     }
 )
 ```
+
+</details>
 
 ## Research API
 
@@ -193,9 +196,33 @@ task = client.research.create(
     query="What are the latest developments in quantum computing?",
     user_timezone="America/Los_Angeles",
     webhook_url="https://example.com/webhook",
-    output_schema=Finding,  # or pass a JSON schema dict
+    output_schema=Finding,  # auto-converted to JSON schema
 )
 ```
+
+<details>
+<summary>Using a JSON schema dict instead</summary>
+
+```python
+task = client.research.create(
+    query="What are the latest developments in quantum computing?",
+    user_timezone="America/Los_Angeles",
+    webhook_url="https://example.com/webhook",
+    output_schema={
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "summary": {"type": "string"},
+                "source_url": {"type": "string"}
+            }
+        }
+    }
+)
+```
+
+</details>
 
 ## Scouting API
 
@@ -250,9 +277,35 @@ scout = client.scouts.create(
     user_timezone="America/Los_Angeles",
     skip_email=True,
     webhook_url="https://example.com/webhook",
-    output_schema=NewsItem,  # or pass a JSON schema dict
+    output_schema=NewsItem,  # auto-converted to JSON schema
 )
 ```
+
+<details>
+<summary>Using a JSON schema dict instead</summary>
+
+```python
+scout = client.scouts.create(
+    query="Tell me about the latest news and announcements about Yutori",
+    output_interval=86400,  # Daily
+    user_timezone="America/Los_Angeles",
+    skip_email=True,
+    webhook_url="https://example.com/webhook",
+    output_schema={
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "headline": {"type": "string"},
+                "summary": {"type": "string"},
+                "source_url": {"type": "string"}
+            }
+        }
+    }
+)
+```
+
+</details>
 
 ## Async Usage
 
