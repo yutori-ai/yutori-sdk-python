@@ -12,7 +12,7 @@ from ._async import (
     AsyncResearchNamespace,
     AsyncScoutsNamespace,
 )
-from ._http import build_headers, handle_response
+from ._http import build_headers, build_query_params, handle_response
 from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
 from .exceptions import AuthenticationError
 
@@ -85,13 +85,10 @@ class AsyncYutoriClient:
             Dictionary with ``num_active_scouts``, ``active_scout_ids``,
             ``rate_limits``, ``n1_rate_limits``, and ``activity`` counts.
         """
-        params = {}
-        if period is not None:
-            params["period"] = period
         response = await self._client.get(
             f"{self._base_url}/usage",
             headers=build_headers(self._api_key),
-            params=params,
+            params=build_query_params(period=period),
         )
         return handle_response(response)
 
