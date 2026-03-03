@@ -40,10 +40,24 @@ client = YutoriClient(
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.get_usage()` | GET | `/v1/usage` | `dict` |
+| `client.get_usage(period=None)` | GET | `/v1/usage` | `dict` |
 | `client.close()` | - | - | `None` |
 
-`client.get_usage()` returns an API-defined dictionary. Current responses include summary counters such as `num_scouts` and `active_scout_ids`.
+#### get_usage
+
+```python
+usage = client.get_usage(period="7d")
+```
+
+**Parameters:**
+- `period` (str, optional): Time range for activity counts - `"24h"` (default), `"7d"`, `"30d"`, or `"90d"`.
+
+**Returns:** Dictionary containing:
+- `num_active_scouts` (int): Number of active (non-paused, non-completed) scouts.
+- `active_scout_ids` (list[str]): UUIDs of active scouts.
+- `rate_limits` (dict): API Gateway rate limits with `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, and `status` (`"available"` or `"unavailable"`).
+- `n1_rate_limits` (dict): n1 API rate limits with `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, and `per_second_limit`.
+- `activity` (dict): Activity counts for the requested period with `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, and `n1_calls`.
 
 ### AsyncYutoriClient
 

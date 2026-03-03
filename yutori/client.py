@@ -64,16 +64,24 @@ class YutoriClient:
         self.research = ResearchNamespace(self._client, self._base_url, self._api_key)
         self.chat = ChatNamespace(self._base_url, self._api_key, timeout)
 
-    def get_usage(self) -> dict[str, Any]:
+    def get_usage(self, *, period: str | None = None) -> dict[str, Any]:
         """Get usage statistics for your API key.
 
+        Args:
+            period: Time range for activity counts. One of "24h", "7d", "30d", "90d".
+                Defaults to "24h" on the server.
+
         Returns:
-            Dictionary containing usage information. Keys are API-defined and
-            may include counters such as `num_scouts` and `active_scout_ids`.
+            Dictionary with ``num_active_scouts``, ``active_scout_ids``,
+            ``rate_limits``, ``n1_rate_limits``, and ``activity`` counts.
         """
+        params = {}
+        if period is not None:
+            params["period"] = period
         response = self._client.get(
             f"{self._base_url}/usage",
             headers=build_headers(self._api_key),
+            params=params,
         )
         return handle_response(response)
 
