@@ -13,7 +13,10 @@ console = Console()
 
 
 @app.callback(invoke_without_command=True)
-def usage(ctx: typer.Context) -> None:
+def usage(
+    ctx: typer.Context,
+    period: str = typer.Option("24h", help="Activity period: 24h, 7d, 30d, or 90d"),
+) -> None:
     """Show API usage statistics."""
     if ctx.invoked_subcommand is not None:
         return
@@ -21,52 +24,55 @@ def usage(ctx: typer.Context) -> None:
     client = get_authenticated_client()
 
     try:
-        data = client.get_usage()
+        data = client.get_usage(period=period)
 
         console.print("\n[bold]Usage Statistics[/bold]\n")
 
-        if data.get("user_id"):
-            console.print(f"  User ID: {data['user_id']}")
-        if data.get("api_key_id"):
-            console.print(f"  API Key ID: {data['api_key_id']}")
+        # Active scouts
+        num_active = data.get("num_active_scouts", 0)
+        console.print(f"  Active Scouts: {num_active}")
+        active_ids = data.get("active_scout_ids", [])
+        if active_ids:
+            for sid in active_ids[:5]:
+                console.print(f"    - {sid}")
+            if len(active_ids) > 5:
+                console.print(f"    ... and {len(active_ids) - 5} more")
 
-        scouts = data.get("scouts", [])
-        if scouts:
-            console.print(f"\n  [bold]Scouts:[/bold] {len(scouts)}")
+        # Rate limits
+        rate_limits = data.get("rate_limits", {})
+        if rate_limits:
+            console.print(f"\n  [bold]API Rate Limits[/bold] ({rate_limits.get('status', 'unknown')})")
+            if rate_limits.get("status") == "available":
+                console.print(f"    Requests today: {rate_limits.get('requests_today', 'N/A')}")
+                console.print(f"    Daily limit:    {rate_limits.get('daily_limit', 'N/A')}")
+                console.print(f"    Remaining:      {rate_limits.get('remaining_requests', 'N/A')}")
+            console.print(f"    Resets at:      {rate_limits.get('reset_at', 'N/A')}")
 
-            table = Table()
-            table.add_column("ID", style="cyan")
-            table.add_column("Query", max_width=40)
-            table.add_column("Status")
-            table.add_column("Runs")
+        # n1 rate limits
+        n1_limits = data.get("n1_rate_limits", {})
+        if n1_limits:
+            console.print("\n  [bold]n1 API Rate Limits[/bold]")
+            console.print(f"    Requests today: {n1_limits.get('requests_today', 'N/A')}")
+            console.print(f"    Daily limit:    {n1_limits.get('daily_limit', 'N/A')}")
+            console.print(f"    Remaining:      {n1_limits.get('remaining_requests', 'N/A')}")
+            console.print(f"    Per-second:     {n1_limits.get('per_second_limit', 'N/A')}")
+            console.print(f"    Resets at:      {n1_limits.get('reset_at', 'N/A')}")
 
-            for scout in scouts[:10]:
-                query = scout.get("query", "")
-                if len(query) > 37:
-                    query = query[:37] + "..."
+        # Activity counts
+        activity = data.get("activity", {})
+        if activity:
+            p = activity.get("period", period)
+            console.print(f"\n  [bold]Activity ({p})[/bold]")
 
-                scout_id = scout.get("id", "")
-                table.add_row(
-                    scout_id,
-                    query,
-                    scout.get("status", ""),
-                    str(scout.get("run_count", 0)),
-                )
-
+            table = Table(show_header=True, padding=(0, 2))
+            table.add_column("Metric")
+            table.add_column("Count", justify="right")
+            table.add_row("Scout runs", str(activity.get("scout_runs", 0)))
+            table.add_row("Browsing tasks", str(activity.get("browsing_tasks", 0)))
+            table.add_row("Research tasks", str(activity.get("research_tasks", 0)))
+            table.add_row("n1 API calls", str(activity.get("n1_calls", 0)))
             console.print(table)
 
-            if len(scouts) > 10:
-                console.print(f"  ... and {len(scouts) - 10} more")
-            return
-
-        # Newer usage responses may return summary counters instead of scout records.
-        num_scouts = data.get("num_scouts")
-        active_scout_ids = data.get("active_scout_ids")
-        if isinstance(num_scouts, int):
-            console.print(f"\n  [bold]Scouts:[/bold] {num_scouts}")
-            if isinstance(active_scout_ids, list):
-                console.print(f"  Active Scouts: {len(active_scout_ids)}")
-        else:
-            console.print("\n  No scouts yet.")
+        console.print()
     finally:
         client.close()

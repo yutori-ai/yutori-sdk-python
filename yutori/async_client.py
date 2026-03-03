@@ -12,7 +12,7 @@ from ._async import (
     AsyncResearchNamespace,
     AsyncScoutsNamespace,
 )
-from ._http import build_headers, handle_response
+from ._http import build_headers, build_query_params, handle_response
 from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
 from .exceptions import AuthenticationError
 
@@ -74,16 +74,21 @@ class AsyncYutoriClient:
         self.research = AsyncResearchNamespace(self._client, self._base_url, self._api_key)
         self.chat = AsyncChatNamespace(self._base_url, self._api_key, timeout)
 
-    async def get_usage(self) -> dict[str, Any]:
+    async def get_usage(self, *, period: str | None = None) -> dict[str, Any]:
         """Get usage statistics for your API key.
 
+        Args:
+            period: Time range for activity counts. One of "24h", "7d", "30d", "90d".
+                Defaults to "24h" on the server.
+
         Returns:
-            Dictionary containing usage information. Keys are API-defined and
-            may include counters such as `num_scouts` and `active_scout_ids`.
+            Dictionary with ``num_active_scouts``, ``active_scout_ids``,
+            ``rate_limits``, ``n1_rate_limits``, and ``activity`` counts.
         """
         response = await self._client.get(
             f"{self._base_url}/usage",
             headers=build_headers(self._api_key),
+            params=build_query_params(period=period),
         )
         return handle_response(response)
 

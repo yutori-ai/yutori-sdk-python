@@ -38,16 +38,58 @@ class TestAsyncYutoriClientInit:
 
 @pytest.mark.asyncio
 class TestAsyncYutoriClientGetUsage:
-    async def test_get_usage_success(self):
+    USAGE_RESPONSE = {
+        "num_active_scouts": 2,
+        "active_scout_ids": ["id-1", "id-2"],
+        "rate_limits": {
+            "requests_today": 100,
+            "daily_limit": 10000,
+            "remaining_requests": 9900,
+            "reset_at": "2026-03-04T00:00:00+00:00",
+            "status": "available",
+        },
+        "n1_rate_limits": {
+            "requests_today": 50,
+            "daily_limit": 50000,
+            "remaining_requests": 49950,
+            "reset_at": "2026-03-04T00:00:00+00:00",
+            "per_second_limit": 20,
+        },
+        "activity": {
+            "period": "24h",
+            "scout_runs": 10,
+            "browsing_tasks": 3,
+            "research_tasks": 2,
+            "n1_calls": 50,
+        },
+    }
+
+    def _mock_usage_response(self, period: str = "24h"):
+        import json
+
+        data = {**self.USAGE_RESPONSE, "activity": {**self.USAGE_RESPONSE["activity"], "period": period}}
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
-        mock_response.content = b'{"api_key_id": "key123"}'
-        mock_response.json.return_value = {"api_key_id": "key123"}
+        mock_response.content = json.dumps(data).encode()
+        mock_response.json.return_value = data
+        return mock_response
 
-        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
+    async def test_get_usage_success(self):
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=self._mock_usage_response()):
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.get_usage()
-                assert result == {"api_key_id": "key123"}
+                assert result["num_active_scouts"] == 2
+                assert result["activity"]["period"] == "24h"
+
+    async def test_get_usage_with_period(self):
+        with patch.object(
+            httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=self._mock_usage_response("30d")
+        ) as mock_get:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.get_usage(period="30d")
+                assert result["activity"]["period"] == "30d"
+                call_kwargs = mock_get.call_args[1]
+                assert call_kwargs["params"] == {"period": "30d"}
 
 
 @pytest.mark.asyncio
