@@ -96,22 +96,24 @@ if message.tool_calls:
 For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
 
 ```python
-from yutori.n1 import trimmed_messages_to_fit
+from yutori.n1 import estimate_messages_size_bytes, trimmed_messages_to_fit
 
-trimmed_messages, size_bytes, removed = trimmed_messages_to_fit(
-    messages,
-    max_bytes=9_500_000,
-    keep_recent=6,
-)
+if estimate_messages_size_bytes(messages) > 9_500_000:
+    messages, size_bytes, removed = trimmed_messages_to_fit(
+        messages,
+        max_bytes=9_500_000,
+        keep_recent=6,
+    )
 
 response = await client.chat.completions.create(
     model="n1-latest",
-    messages=trimmed_messages,
+    messages=messages,
 )
 ```
 
 This keeps the raw OpenAI-compatible `client.chat.completions.create(...)` call unchanged, while giving Yutori users a safer
-message-preparation helper for large screenshot histories that does not mutate the original `messages` list.
+message-preparation helper for large screenshot histories. In long-lived loops, assign the trimmed copy back to your owned
+history before the next step so old screenshots do not keep accumulating in memory.
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
