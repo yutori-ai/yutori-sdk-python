@@ -6,8 +6,8 @@ This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
 Features:
-- Payload trimming: uses the SDK's opt-in non-mutating helper for screenshot-heavy
-  agent loops while keeping the raw chat completions interface unchanged.
+- Payload trimming: uses the SDK's opt-in non-mutating helper to prepare
+  messages before a standard chat completions call.
 
 Usage:
     export YUTORI_API_KEY=...
@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.n1 import acreate_trimmed
+from yutori.n1 import trimmed_messages_to_fit
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -203,14 +203,19 @@ class Agent:
         reraise=True,
     )
     async def _call_llm_with_retries(self) -> ChatCompletion:
+        trimmed_messages, size_bytes, removed = trimmed_messages_to_fit(
+            self._messages,
+            max_bytes=self.max_request_bytes,
+            keep_recent=self.keep_recent_screenshots,
+        )
+        if removed:
+            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
+
         return await asyncio.wait_for(
-            acreate_trimmed(
-                self._client.chat.completions,
-                self._messages,
+            self._client.chat.completions.create(
                 model=self.model,
+                messages=trimmed_messages,
                 temperature=self.temperature,
-                max_bytes=self.max_request_bytes,
-                keep_recent=self.keep_recent_screenshots,
             ),
             timeout=120.0,  # 2 minutes
         )
