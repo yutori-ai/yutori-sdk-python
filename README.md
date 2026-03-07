@@ -113,7 +113,8 @@ response = await client.chat.completions.create(
 
 This keeps the raw OpenAI-compatible `client.chat.completions.create(...)` call unchanged, while giving Yutori users a safer
 message-preparation helper for large screenshot histories. In long-lived loops, assign the trimmed copy back to your owned
-history before the next step so old screenshots do not keep accumulating in memory.
+history before the next step so old screenshots do not keep accumulating in memory. The size pre-check is there to avoid
+deep-copying the full history on every step when trimming is not needed.
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
