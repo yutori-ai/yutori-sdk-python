@@ -14,7 +14,7 @@ uv run playwright install chromium
 
 ## n1.py
 
-A complete browsing agent using the n1 API. Launches a local Playwright browser, takes screenshots, sends them to n1 to get predicted actions, and executes them until the task is complete.
+A complete browsing agent using the n1 API. Launches a local Playwright browser, takes screenshots, sends them to n1 to get predicted actions, and executes them until the task is complete. The example uses `yutori.n1.acreate_trimmed(...)` so screenshot trimming stays opt-in and does not mutate the agent's message history in place.
 
 ```bash
 uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"

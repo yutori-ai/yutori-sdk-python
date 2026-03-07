@@ -11,6 +11,7 @@ Adapted from the n1-brightdata project (https://github.com/meirk-brd/n1-brightda
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any
 
 DEFAULT_MAX_REQUEST_BYTES = 9_500_000
@@ -115,3 +116,32 @@ def trim_images_to_fit(
                 size_bytes = estimate_messages_size_bytes(messages)
 
     return size_bytes, removed
+
+
+def trimmed_messages_to_fit(
+    messages: list[dict[str, Any]],
+    *,
+    max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+    keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Return a trimmed copy of *messages* without mutating the caller's list.
+
+    This is the safer helper for higher-level SDK utilities that should not
+    modify agent-loop state in place.
+
+    Args:
+        messages: The original messages list.
+        max_bytes: Target maximum payload size in bytes.
+        keep_recent: Number of recent screenshots to protect from removal.
+
+    Returns:
+        A ``(trimmed_messages, current_size_bytes, images_removed)`` tuple.
+    """
+
+    trimmed_messages = deepcopy(messages)
+    size_bytes, removed = trim_images_to_fit(
+        trimmed_messages,
+        max_bytes=max_bytes,
+        keep_recent=keep_recent,
+    )
+    return trimmed_messages, size_bytes, removed

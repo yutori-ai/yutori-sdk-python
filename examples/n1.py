@@ -6,8 +6,8 @@ This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
 Features:
-- Payload trimming: automatically removes old screenshots when the message history grows
-  too large for the API, keeping only the most recent screenshots for context.
+- Payload trimming: uses the SDK's opt-in non-mutating helper for screenshot-heavy
+  agent loops while keeping the raw chat completions interface unchanged.
 
 Usage:
     export YUTORI_API_KEY=...
@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.n1.payload import trim_images_to_fit
+from yutori.n1 import acreate_trimmed
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -204,8 +204,13 @@ class Agent:
     )
     async def _call_llm_with_retries(self) -> ChatCompletion:
         return await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model, messages=self._messages, temperature=self.temperature
+            acreate_trimmed(
+                self._client.chat.completions,
+                self._messages,
+                model=self.model,
+                temperature=self.temperature,
+                max_bytes=self.max_request_bytes,
+                keep_recent=self.keep_recent_screenshots,
             ),
             timeout=120.0,  # 2 minutes
         )
@@ -223,15 +228,6 @@ class Agent:
                 "image_url": {"url": f"data:image/webp;base64,{screenshot_b64}", "detail": "high"},
             }
         )
-
-        # Trim old screenshots to keep payload within API size limits
-        size_bytes, removed = trim_images_to_fit(
-            self._messages,
-            max_bytes=self.max_request_bytes,
-            keep_recent=self.keep_recent_screenshots,
-        )
-        if removed:
-            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
         for i in range(self._message_index, len(self._messages)):
             logger.info(f"Message: {self._format_message_for_log(self._messages[i])}")

@@ -7,6 +7,7 @@ from yutori.n1.payload import (
     estimate_messages_size_bytes,
     message_has_image,
     trim_images_to_fit,
+    trimmed_messages_to_fit,
 )
 
 # ---------------------------------------------------------------------------
@@ -200,3 +201,25 @@ class TestTrimImagesToFit:
         # Only the very last image should survive
         assert message_has_image(msgs[-1])
         assert removed >= 2
+
+
+class TestTrimmedMessagesToFit:
+    def test_returns_trimmed_copy_without_mutating_input(self):
+        big_data = "A" * 5000
+        original_messages = [
+            _image_msg("assistant", url=big_data),
+            _image_msg("assistant", url=big_data),
+            _image_msg("assistant", url=big_data),
+        ]
+
+        trimmed_messages, size, removed = trimmed_messages_to_fit(
+            original_messages,
+            max_bytes=10_000,
+            keep_recent=1,
+        )
+
+        assert removed > 0
+        assert size > 0
+        assert trimmed_messages is not original_messages
+        assert message_has_image(original_messages[0]) is True
+        assert any(not message_has_image(message) for message in trimmed_messages[:-1])

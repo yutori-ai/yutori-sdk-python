@@ -93,6 +93,23 @@ if message.tool_calls:
         print(f"Arguments: {tool_call.function.arguments}")
 ```
 
+For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
+
+```python
+from yutori.n1 import acreate_trimmed
+
+response = await acreate_trimmed(
+    client.chat.completions,
+    messages,
+    model="n1-latest",
+    max_bytes=9_500_000,
+    keep_recent=6,
+)
+```
+
+This keeps the raw OpenAI-compatible `client.chat.completions.create(...)` call unchanged, while giving Yutori users a safer
+helper for large screenshot histories that does not mutate the original `messages` list.
+
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
 ## Browsing API
