@@ -341,6 +341,124 @@ class TestAsyncChatNamespace:
                 )
                 assert result.choices[0].message.content == "click"
 
+    async def test_n1_helper_acreate_trimmed_public_helper_uses_trimmed_copy(self):
+        from copy import deepcopy
+
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
+
+        from yutori.n1 import acreate_trimmed
+        from yutori.n1.payload import trimmed_messages_to_fit
+
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content="click"),
+                )
+            ],
+            created=1234567890,
+            model="n1-latest",
+            object="chat.completion",
+        )
+        original_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Check the page"},
+                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
+                ],
+            },
+            {
+                "role": "tool",
+                "content": [
+                    {"type": "text", "text": "Tool output"},
+                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
+                ],
+            },
+        ]
+        original_snapshot = deepcopy(original_messages)
+
+        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            mock_openai_client.close = AsyncMock()
+            MockAsyncOpenAI.return_value = mock_openai_client
+
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await acreate_trimmed(
+                    client.chat.completions,
+                    original_messages,
+                    max_bytes=100,
+                    keep_recent=1,
+                )
+                assert result.choices[0].message.content == "click"
+
+        call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+        sent_messages = call_kwargs["messages"]
+        assert sent_messages is not original_messages
+        assert sent_messages == trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)[0]
+        assert original_messages == original_snapshot
+
+    async def test_n1_payload_helper_supports_standard_async_create_pattern(self):
+        from copy import deepcopy
+
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
+
+        from yutori.n1 import trimmed_messages_to_fit
+
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content="click"),
+                )
+            ],
+            created=1234567890,
+            model="n1-latest",
+            object="chat.completion",
+        )
+        original_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Check the page"},
+                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
+                ],
+            },
+            {
+                "role": "tool",
+                "content": [
+                    {"type": "text", "text": "Tool output"},
+                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
+                ],
+            },
+        ]
+        original_snapshot = deepcopy(original_messages)
+        trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
+
+        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            mock_openai_client.close = AsyncMock()
+            MockAsyncOpenAI.return_value = mock_openai_client
+
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.chat.completions.create(
+                    model="n1-latest",
+                    messages=trimmed_messages,
+                )
+                assert result.choices[0].message.content == "click"
+
+        call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+        assert call_kwargs["messages"] == trimmed_messages
+        assert original_messages == original_snapshot
+
 
 @pytest.mark.asyncio
 class TestAsyncErrorHandling:
