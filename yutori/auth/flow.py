@@ -7,7 +7,6 @@ All functions return typed results and never print directly (callers handle pres
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
 import hashlib
 import html
 import http.server
@@ -17,6 +16,7 @@ import secrets
 import socketserver
 import threading
 import webbrowser
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -40,6 +40,15 @@ from .types import AuthStatus, LoginResult
 logger = logging.getLogger(__name__)
 
 
+class _BrowserAuthResult:
+    """Result of the browser-based OAuth flow before API provisioning."""
+
+    def __init__(self, jwt: str | None, auth_url: str, error: str | None = None) -> None:
+        self.jwt = jwt
+        self.auth_url = auth_url
+        self.error = error
+
+
 def generate_pkce() -> tuple[str, str]:
     """Generate PKCE code verifier and S256 challenge."""
     code_verifier = secrets.token_urlsafe(64)
@@ -48,7 +57,7 @@ def generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
-def build_auth_url(code_challenge: str, state: str) -> str:
+def build_auth_url(code_challenge: str, state: str, screen_hint: str | None = None) -> str:
     """Build Clerk OAuth authorization URL."""
     params = {
         "response_type": "code",
@@ -59,6 +68,8 @@ def build_auth_url(code_challenge: str, state: str) -> str:
         "state": state,
         "scope": "openid profile email",
     }
+    if screen_hint:
+        params["screen_hint"] = screen_hint
     return f"{CLERK_INSTANCE_URL}/oauth/authorize?{urlencode(params)}"
 
 
@@ -100,10 +111,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             elif params.get("code"):
                 self.callback_result.code = params["code"][0]
                 self.callback_result.state = params.get("state", [None])[0]
-                self._send_html(
-                    "<h1>Login Successful</h1>"
-                    "<p>You can close this window.</p>"
-                )
+                self._send_html("<h1>Login Successful</h1><p>You can close this window.</p>")
             else:
                 self.callback_result.error = "No authorization code received"
                 self._send_html("<h1>Login Failed</h1><p>No authorization code received.</p>")
@@ -153,18 +161,53 @@ def generate_api_key(jwt: str, key_name: str | None = None) -> str:
         return response.json()["key"]
 
 
-def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
-    """Run the full OAuth 2.0 + PKCE login flow.
+def check_registration_status(jwt: str) -> dict[str, bool]:
+    """Check whether the authenticated Clerk user already has a Yutori account."""
+    with httpx.Client(timeout=30.0) as client:
+        response = client.get(
+            build_auth_api_url("/client/registration-status"),
+            headers={"Authorization": f"Bearer {jwt}"},
+        )
+        response.raise_for_status()
+        return response.json()
 
-    Opens browser for Clerk authentication, runs a local callback server,
-    exchanges the auth code for a JWT, generates an API key, and saves it.
-    Key names are tagged with `key_source` for dashboard visibility.
 
-    Returns a LoginResult — never prints directly.
-    """
+def register_user(jwt: str, signup_source: str = "cli") -> None:
+    """Ensure the authenticated Clerk user is registered and provisioned for API access."""
+    payload = {"signup_source": signup_source}
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(
+            build_auth_api_url("/client/register"),
+            headers={"Authorization": f"Bearer {jwt}"},
+            json=payload,
+        )
+        response.raise_for_status()
+
+
+def _get_registration_state_for_ux(jwt: str) -> bool | None:
+    """Best-effort registration probe for user messaging only."""
+    try:
+        status = check_registration_status(jwt)
+        if not isinstance(status, dict):
+            logger.warning("Unexpected registration status payload: %s", status)
+            return None
+    except Exception as exc:
+        logger.warning("Could not determine registration status before login: %s", exc)
+        return None
+
+    is_registered = status.get("is_registered")
+    if isinstance(is_registered, bool):
+        return is_registered
+
+    logger.warning("Unexpected registration status payload: %s", status)
+    return None
+
+
+def _authenticate_browser_user(screen_hint: str | None = None) -> _BrowserAuthResult:
+    """Run the Clerk browser flow and exchange the callback for a JWT."""
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(32)
-    auth_url = build_auth_url(code_challenge, state)
+    auth_url = build_auth_url(code_challenge, state, screen_hint=screen_hint)
 
     callback_result = _CallbackResult()
     _CallbackHandler.callback_result = callback_result
@@ -176,51 +219,156 @@ def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
         server = _ReusableServer((CALLBACK_HOST, REDIRECT_PORT), _CallbackHandler)
     except OSError as e:
         if "Address already in use" in str(e):
-            return LoginResult(
-                success=False,
+            return _BrowserAuthResult(
+                jwt=None,
+                auth_url=auth_url,
                 error=f"Port {REDIRECT_PORT} is already in use. Close other applications and try again.",
             )
-        return LoginResult(success=False, error=str(e))
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=str(e))
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-
-    if not webbrowser.open(auth_url):
-        logger.warning("Could not open browser. Open this URL manually:\n  %s", auth_url)
-
+    thread_started = False
     try:
+        server_thread.start()
+        thread_started = True
+
+        try:
+            browser_opened = webbrowser.open(auth_url)
+        except Exception as e:
+            logger.warning("Could not open browser automatically (%s). Open this URL manually:\n  %s", e, auth_url)
+        else:
+            if not browser_opened:
+                logger.warning("Could not open browser. Open this URL manually:\n  %s", auth_url)
+
         callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
     finally:
         server.shutdown()
-        server_thread.join(timeout=2)
+        if thread_started:
+            server_thread.join(timeout=2)
         server.server_close()
 
     if not callback_result.received.is_set():
-        return LoginResult(success=False, error=ERROR_AUTH_TIMEOUT, auth_url=auth_url)
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=ERROR_AUTH_TIMEOUT)
 
     if callback_result.error:
-        return LoginResult(success=False, error=callback_result.error, auth_url=auth_url)
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=callback_result.error)
 
     if callback_result.state != state:
-        return LoginResult(success=False, error=ERROR_STATE_MISMATCH, auth_url=auth_url)
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=ERROR_STATE_MISMATCH)
 
     if not callback_result.code:
-        return LoginResult(success=False, error=ERROR_AUTH_FAILED, auth_url=auth_url)
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=ERROR_AUTH_FAILED)
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
-        api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
-        save_config(api_key)
-        return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
         detail = ""
         try:
             detail = f": {e.response.text}"
         except Exception:
             pass
-        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}", auth_url=auth_url)
+        return _BrowserAuthResult(
+            jwt=None,
+            auth_url=auth_url,
+            error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
+        )
+    except Exception as e:
+        return _BrowserAuthResult(jwt=None, auth_url=auth_url, error=str(e))
+
+    return _BrowserAuthResult(jwt=jwt, auth_url=auth_url)
+
+
+def _complete_auth_flow(
+    jwt: str,
+    auth_url: str,
+    *,
+    key_source: str,
+    signup_source: str = "cli",
+) -> LoginResult:
+    """Provision the Clerk identity and create a Yutori API key."""
+    was_registered = _get_registration_state_for_ux(jwt)
+
+    try:
+        register_user(jwt, signup_source=signup_source)
+    except httpx.HTTPStatusError as e:
+        should_continue = was_registered is True and e.response.status_code >= 500
+        if not should_continue:
+            detail = ""
+            try:
+                detail = f": {e.response.text}"
+            except Exception:
+                pass
+            return LoginResult(
+                success=False,
+                error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
+                auth_url=auth_url,
+            )
+
+        logger.warning(
+            "Register request failed after confirming the account already exists; continuing with key generation: %s",
+            e,
+        )
+    except httpx.RequestError as e:
+        if was_registered is not True:
+            return LoginResult(success=False, error=str(e), auth_url=auth_url)
+
+        logger.warning(
+            "Register request failed after confirming the account already exists; continuing with key generation: %s",
+            e,
+        )
+
+    try:
+        api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
+        save_config(api_key)
+        return LoginResult(
+            success=True,
+            api_key=api_key,
+            auth_url=auth_url,
+            account_created=None if was_registered is None else not was_registered,
+        )
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = f": {e.response.text}"
+        except Exception:
+            pass
+        return LoginResult(
+            success=False,
+            error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
+            auth_url=auth_url,
+        )
     except Exception as e:
         return LoginResult(success=False, error=str(e), auth_url=auth_url)
+
+
+def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
+    """Run the full OAuth 2.0 + PKCE login flow.
+
+    Opens browser for Clerk authentication, runs a local callback server,
+    exchanges the auth code for a JWT, ensures the account is registered,
+    generates an API key, and saves it.
+    Key names are tagged with `key_source` for dashboard visibility.
+
+    Returns a LoginResult — never prints directly.
+    """
+    browser_auth = _authenticate_browser_user()
+    if browser_auth.error or not browser_auth.jwt:
+        return LoginResult(success=False, error=browser_auth.error, auth_url=browser_auth.auth_url)
+
+    return _complete_auth_flow(browser_auth.jwt, browser_auth.auth_url, key_source=key_source)
+
+
+def run_register_flow(key_source: str = "yutori-cli") -> LoginResult:
+    """Run the OAuth 2.0 + PKCE registration flow using Clerk's sign-up screen."""
+    browser_auth = _authenticate_browser_user(screen_hint="sign_up")
+    if browser_auth.error or not browser_auth.jwt:
+        return LoginResult(success=False, error=browser_auth.error, auth_url=browser_auth.auth_url)
+
+    return _complete_auth_flow(
+        browser_auth.jwt,
+        browser_auth.auth_url,
+        key_source=key_source,
+    )
 
 
 def _mask_key(key: str) -> str:

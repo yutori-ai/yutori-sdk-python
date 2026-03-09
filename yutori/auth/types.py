@@ -13,6 +13,7 @@ class LoginResult:
     api_key: str | None = None
     error: str | None = None
     auth_url: str | None = None
+    account_created: bool | None = None
 
 
 @dataclass

@@ -9,10 +9,15 @@ from rich.console import Console
 from rich.markup import escape
 
 from yutori.auth.credentials import clear_config, load_config
-from yutori.auth.flow import get_auth_status, run_login_flow
+from yutori.auth.flow import get_auth_status, run_login_flow, run_register_flow
 
 app = typer.Typer(help="Manage authentication")
 console = Console()
+
+
+_ENV_VAR_PRECEDENCE_MESSAGE = (
+    "[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]"
+)
 
 
 @app.command()
@@ -22,7 +27,7 @@ def login() -> None:
     Opens your browser to log in with Clerk OAuth and saves an API key locally.
     """
     if os.environ.get("YUTORI_API_KEY"):
-        console.print("[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]")
+        console.print(_ENV_VAR_PRECEDENCE_MESSAGE)
         console.print("Unset it first if you want to use browser login.")
         raise typer.Exit(1)
 
@@ -39,10 +44,46 @@ def login() -> None:
     result = run_login_flow()
 
     if result.success:
-        console.print("[green]Successfully authenticated![/green]")
+        if result.account_created:
+            console.print("[green]Account created and authenticated![/green]")
+        else:
+            console.print("[green]Successfully authenticated![/green]")
         console.print("You can now use the Yutori CLI and SDK.")
     else:
         console.print(f"\n[red]Authentication failed: {escape(str(result.error))}[/red]")
+        if result.auth_url:
+            console.print(f"\n[dim]If the browser didn't open, visit:[/dim]\n  {result.auth_url}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def register() -> None:
+    """Create a Yutori account via browser and save an API key locally."""
+    if os.environ.get("YUTORI_API_KEY"):
+        console.print(_ENV_VAR_PRECEDENCE_MESSAGE)
+        console.print("Unset it first if you want to use browser registration.")
+        raise typer.Exit(1)
+
+    config = load_config()
+    existing_key = config.get("api_key") if config else None
+    if existing_key and isinstance(existing_key, str):
+        console.print("[yellow]You are already authenticated.[/yellow]")
+        console.print("Run [bold]yutori auth logout[/bold] first to register again.")
+        raise typer.Exit(1)
+
+    console.print("\n[bold]Opening browser to create your account...[/bold]")
+    console.print("[dim]Waiting for registration...[/dim]\n")
+
+    result = run_register_flow()
+
+    if result.success:
+        if result.account_created is True:
+            console.print("[green]Successfully registered and authenticated![/green]")
+        else:
+            console.print("[green]Successfully authenticated![/green]")
+        console.print("You can now use the Yutori CLI and SDK.")
+    else:
+        console.print(f"\n[red]Registration failed: {escape(str(result.error))}[/red]")
         if result.auth_url:
             console.print(f"\n[dim]If the browser didn't open, visit:[/dim]\n  {result.auth_url}")
         raise typer.Exit(1)

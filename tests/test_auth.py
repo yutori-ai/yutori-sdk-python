@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
 import hashlib
 import io
 import json
-import os
-import stat
-from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -19,30 +16,34 @@ import pytest
 from yutori.auth.constants import (
     CALLBACK_HOST,
     CLERK_CLIENT_ID,
-    CLERK_INSTANCE_URL,
     REDIRECT_PORT,
     REDIRECT_URI,
     build_auth_api_url,
 )
 from yutori.auth.credentials import clear_config, load_config, resolve_api_key, save_config
 from yutori.auth.flow import (
+    _authenticate_browser_user,
+    _build_key_name,
     _CallbackHandler,
     _CallbackResult,
-    _build_key_name,
+    _get_registration_state_for_ux,
     _mask_key,
     build_auth_url,
+    check_registration_status,
     exchange_code_for_token,
     generate_api_key,
     generate_pkce,
     get_auth_status,
+    register_user,
     run_login_flow,
+    run_register_flow,
 )
 from yutori.auth.types import AuthStatus, LoginResult
-
 
 # ---------------------------------------------------------------------------
 # PKCE
 # ---------------------------------------------------------------------------
+
 
 class TestPKCE:
     def test_generate_pkce_returns_pair(self):
@@ -53,9 +54,7 @@ class TestPKCE:
 
     def test_generate_pkce_produces_valid_s256_challenge(self):
         verifier, challenge = generate_pkce()
-        expected = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode()).digest()
-        ).rstrip(b"=").decode()
+        expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         assert challenge == expected
 
     def test_generate_pkce_unique_each_call(self):
@@ -68,6 +67,7 @@ class TestPKCE:
 # ---------------------------------------------------------------------------
 # build_auth_url
 # ---------------------------------------------------------------------------
+
 
 class TestBuildAuthUrl:
     def test_contains_required_params(self):
@@ -84,6 +84,11 @@ class TestBuildAuthUrl:
         assert params["code_challenge_method"] == ["S256"]
         assert params["state"] == ["test_state"]
         assert params["scope"] == ["openid profile email"]
+
+    def test_includes_screen_hint_when_provided(self):
+        url = build_auth_url("test_challenge", "test_state", screen_hint="sign_up")
+        params = parse_qs(urlparse(url).query)
+        assert params["screen_hint"] == ["sign_up"]
 
 
 class TestBuildKeyName:
@@ -106,6 +111,7 @@ class TestBuildKeyName:
 # ---------------------------------------------------------------------------
 # Credentials: save / load / clear / resolve
 # ---------------------------------------------------------------------------
+
 
 class TestCredentials:
     @pytest.fixture(autouse=True)
@@ -230,6 +236,7 @@ class TestResolveApiKey:
 # Callback handler
 # ---------------------------------------------------------------------------
 
+
 class TestCallbackHandler:
     """Tests for the OAuth callback HTTP handler."""
 
@@ -303,6 +310,7 @@ class TestCallbackHandler:
 # Token exchange and API key generation
 # ---------------------------------------------------------------------------
 
+
 class TestTokenExchange:
     def test_exchange_code_for_token_success(self):
         mock_response = MagicMock(spec=httpx.Response)
@@ -353,16 +361,58 @@ class TestGenerateApiKey:
             assert mock_post.call_args[1]["json"] is None
 
 
+class TestRegistrationHelpers:
+    def test_check_registration_status_success(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.json.return_value = {"is_registered": True}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            status = check_registration_status("jwt-token")
+
+        assert status == {"is_registered": True}
+        assert mock_get.call_args[0][0] == build_auth_api_url("/client/registration-status")
+        assert mock_get.call_args[1]["headers"] == {"Authorization": "Bearer jwt-token"}
+
+    def test_register_user_posts_cli_signup_source(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
+            register_user("jwt-token")
+
+        assert mock_post.call_args[0][0] == build_auth_api_url("/client/register")
+        assert mock_post.call_args[1]["headers"] == {"Authorization": "Bearer jwt-token"}
+        assert mock_post.call_args[1]["json"] == {"signup_source": "cli"}
+
+    def test_get_registration_state_for_ux_handles_non_dict_payload(self):
+        with patch("yutori.auth.flow.check_registration_status", return_value=["unexpected"]):
+            result = _get_registration_state_for_ux("jwt-token")
+
+        assert result is None
+
+
 # ---------------------------------------------------------------------------
 # run_login_flow (mocked — no real browser or server)
 # ---------------------------------------------------------------------------
 
+
 class TestRunLoginFlow:
     @patch("yutori.auth.flow.webbrowser.open")
+    @patch("yutori.auth.flow.register_user")
+    @patch("yutori.auth.flow.check_registration_status", return_value={"is_registered": False})
     @patch("yutori.auth.flow.generate_api_key", return_value="yt-new-key")
     @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
     @patch("yutori.auth.flow.save_config")
-    def test_successful_flow(self, mock_save, mock_exchange, mock_gen_key, mock_browser):
+    def test_successful_flow(
+        self,
+        mock_save,
+        mock_exchange,
+        mock_gen_key,
+        mock_check_registration,
+        mock_register_user,
+        mock_browser,
+    ):
         """Mock the callback result to simulate a successful flow."""
 
         def fake_server_init(self, addr, handler):
@@ -375,12 +425,13 @@ class TestRunLoginFlow:
             _CallbackHandler.callback_result.received.set()
 
         # We need a more targeted approach: patch the server and thread
-        with patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init), \
-             patch("yutori.auth.flow.socketserver.TCPServer.serve_forever", fake_serve_forever), \
-             patch("yutori.auth.flow.socketserver.TCPServer.shutdown"), \
-             patch("yutori.auth.flow.socketserver.TCPServer.server_close"), \
-             patch("yutori.auth.flow.threading.Thread") as mock_thread_cls:
-
+        with (
+            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever", fake_serve_forever),
+            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
+            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+        ):
             mock_thread = MagicMock()
             mock_thread_cls.return_value = mock_thread
 
@@ -400,14 +451,84 @@ class TestRunLoginFlow:
                     result = run_login_flow()
                     assert result.success is True
                     assert result.api_key == "yt-new-key"
+                    assert result.account_created is True
                     assert result.auth_url is not None
                     mock_save.assert_called_once_with("yt-new-key")
+                    mock_check_registration.assert_called_once_with("jwt123")
+                    mock_register_user.assert_called_once_with("jwt123", signup_source="cli")
                     mock_gen_key.assert_called_once()
                     assert mock_gen_key.call_args.args[0] == "jwt123"
                     key_name = mock_gen_key.call_args.kwargs["key_name"]
                     assert key_name.endswith("-yutori-cli")
                     date_part = key_name[:10]
                     datetime.strptime(date_part, "%Y-%m-%d")
+
+    @patch("yutori.auth.flow.register_user")
+    @patch(
+        "yutori.auth.flow.check_registration_status",
+        side_effect=httpx.HTTPStatusError("500", request=MagicMock(), response=MagicMock(status_code=500)),
+    )
+    @patch("yutori.auth.flow.generate_api_key", return_value="yt-existing-key")
+    @patch("yutori.auth.flow.save_config")
+    @patch("yutori.auth.flow._authenticate_browser_user")
+    def test_login_continues_when_registration_status_probe_fails(
+        self,
+        mock_authenticate_browser_user,
+        mock_save,
+        mock_gen_key,
+        mock_check_registration,
+        mock_register_user,
+    ):
+        mock_authenticate_browser_user.return_value = MagicMock(
+            jwt="jwt123",
+            auth_url="https://auth.example",
+            error=None,
+        )
+
+        result = run_login_flow()
+
+        assert result.success is True
+        assert result.api_key == "yt-existing-key"
+        assert result.account_created is None
+        mock_check_registration.assert_called_once_with("jwt123")
+        mock_register_user.assert_called_once_with("jwt123", signup_source="cli")
+        mock_save.assert_called_once_with("yt-existing-key")
+
+    @patch(
+        "yutori.auth.flow.register_user",
+        side_effect=httpx.HTTPStatusError(
+            "500",
+            request=MagicMock(),
+            response=MagicMock(status_code=500, text="backend error"),
+        ),
+    )
+    @patch("yutori.auth.flow.check_registration_status", return_value={"is_registered": True})
+    @patch("yutori.auth.flow.generate_api_key", return_value="yt-existing-key")
+    @patch("yutori.auth.flow.save_config")
+    @patch("yutori.auth.flow._authenticate_browser_user")
+    def test_login_continues_when_register_returns_server_error_for_existing_account(
+        self,
+        mock_authenticate_browser_user,
+        mock_save,
+        mock_gen_key,
+        mock_check_registration,
+        mock_register_user,
+    ):
+        mock_authenticate_browser_user.return_value = MagicMock(
+            jwt="jwt123",
+            auth_url="https://auth.example",
+            error=None,
+        )
+
+        result = run_login_flow()
+
+        assert result.success is True
+        assert result.api_key == "yt-existing-key"
+        assert result.account_created is False
+        mock_check_registration.assert_called_once_with("jwt123")
+        mock_register_user.assert_called_once_with("jwt123", signup_source="cli")
+        mock_gen_key.assert_called_once()
+        mock_save.assert_called_once_with("yt-existing-key")
 
     def test_port_in_use(self):
         with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):
@@ -419,13 +540,14 @@ class TestRunLoginFlow:
         def fake_server_init(self, addr, handler):
             pass
 
-        with patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init), \
-             patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"), \
-             patch("yutori.auth.flow.socketserver.TCPServer.shutdown"), \
-             patch("yutori.auth.flow.socketserver.TCPServer.server_close"), \
-             patch("yutori.auth.flow.webbrowser.open"), \
-             patch("yutori.auth.flow.threading.Thread") as mock_thread_cls:
-
+        with (
+            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
+            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
+            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+            patch("yutori.auth.flow.webbrowser.open"),
+            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+        ):
             mock_thread = MagicMock()
             mock_thread_cls.return_value = mock_thread
 
@@ -442,19 +564,21 @@ class TestRunLoginFlow:
         def fake_server_init(self, addr, handler):
             pass
 
-        with patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init), \
-             patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"), \
-             patch("yutori.auth.flow.socketserver.TCPServer.shutdown"), \
-             patch("yutori.auth.flow.socketserver.TCPServer.server_close"), \
-             patch("yutori.auth.flow.webbrowser.open"), \
-             patch("yutori.auth.flow.threading.Thread") as mock_thread_cls:
-
+        with (
+            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
+            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
+            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+            patch("yutori.auth.flow.webbrowser.open"),
+            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+        ):
             mock_thread = MagicMock()
             mock_thread_cls.return_value = mock_thread
 
             original_result = _CallbackResult()
             with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
                 with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="expected_state"):
+
                     def side_effect(*args, **kwargs):
                         original_result.code = "auth_code"
                         original_result.state = "wrong_state"
@@ -467,10 +591,64 @@ class TestRunLoginFlow:
                     assert "state mismatch" in result.error.lower()
                     assert result.auth_url is not None
 
+    def test_browser_open_error_still_cleans_up_callback_server(self):
+        def fake_server_init(self, addr, handler):
+            pass
+
+        with (
+            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+            patch("yutori.auth.flow.socketserver.TCPServer.shutdown") as mock_shutdown,
+            patch("yutori.auth.flow.socketserver.TCPServer.server_close") as mock_close,
+            patch("yutori.auth.flow.webbrowser.open", side_effect=RuntimeError("boom")),
+            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+        ):
+            mock_thread = MagicMock()
+            mock_thread_cls.return_value = mock_thread
+
+            original_result = _CallbackResult()
+            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
+                with patch.object(original_result.received, "wait", return_value=False):
+                    result = _authenticate_browser_user()
+
+        assert result.jwt is None
+        assert result.auth_url is not None
+        assert "timed out" in result.error.lower()
+        mock_shutdown.assert_called_once()
+        mock_thread.start.assert_called_once()
+        mock_thread.join.assert_called_once_with(timeout=2)
+        mock_close.assert_called_once()
+
+
+class TestRunRegisterFlow:
+    @patch("yutori.auth.flow._complete_auth_flow")
+    @patch("yutori.auth.flow._authenticate_browser_user")
+    def test_register_uses_sign_up_screen_hint(self, mock_authenticate_browser_user, mock_complete_auth_flow):
+        mock_authenticate_browser_user.return_value = MagicMock(
+            jwt="jwt123",
+            auth_url="https://auth.example",
+            error=None,
+        )
+        mock_complete_auth_flow.return_value = LoginResult(
+            success=True,
+            api_key="yt-key",
+            account_created=True,
+        )
+
+        result = run_register_flow()
+
+        assert result.success is True
+        mock_authenticate_browser_user.assert_called_once_with(screen_hint="sign_up")
+        mock_complete_auth_flow.assert_called_once_with(
+            "jwt123",
+            "https://auth.example",
+            key_source="yutori-cli",
+        )
+
 
 # ---------------------------------------------------------------------------
 # get_auth_status
 # ---------------------------------------------------------------------------
+
 
 class TestGetAuthStatus:
     @pytest.fixture(autouse=True)
@@ -518,6 +696,7 @@ class TestGetAuthStatus:
 # _mask_key
 # ---------------------------------------------------------------------------
 
+
 class TestMaskKey:
     def test_long_key_shows_prefix_and_suffix(self):
         result = _mask_key("yt-abcdefghijklmnop")  # 20 chars
@@ -548,6 +727,7 @@ class TestMaskKey:
 # Constants
 # ---------------------------------------------------------------------------
 
+
 class TestConstants:
     def test_callback_host_is_ipv4(self):
         assert CALLBACK_HOST == "127.0.0.1"
@@ -566,6 +746,7 @@ class TestConstants:
 # Types
 # ---------------------------------------------------------------------------
 
+
 class TestTypes:
     def test_login_result_success(self):
         r = LoginResult(success=True, api_key="yt-key")
@@ -582,13 +763,19 @@ class TestTypes:
     def test_login_result_auth_url_default_none(self):
         r = LoginResult(success=True, api_key="yt-key")
         assert r.auth_url is None
+        assert r.account_created is None
 
     def test_login_result_auth_url_preserved(self):
         r = LoginResult(success=False, error="timeout", auth_url="https://clerk.yutori.com/oauth/authorize?x=1")
         assert r.auth_url == "https://clerk.yutori.com/oauth/authorize?x=1"
 
     def test_auth_status_authenticated(self):
-        s = AuthStatus(authenticated=True, masked_key="yt-...abc", source="config_file", config_path="/home/.yutori/config.json")
+        s = AuthStatus(
+            authenticated=True,
+            masked_key="yt-...abc",
+            source="config_file",
+            config_path="/home/.yutori/config.json",
+        )
         assert s.authenticated is True
         assert s.source == "config_file"
 
