@@ -27,6 +27,7 @@ class AsyncBrowsingNamespace:
         max_steps: int | None = None,
         agent: str | None = None,
         require_auth: bool | None = None,
+        browser: str | None = None,
         output_schema: object | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
@@ -40,6 +41,8 @@ class AsyncBrowsingNamespace:
             agent: Agent to use ("navigator-n1-latest" or
                    "claude-sonnet-4-5-computer-use-2025-01-24").
             require_auth: Use auth-optimized browser for login flows.
+            browser: "cloud" (default) or "local" to use the desktop app with
+                     the user's logged-in sessions.
             output_schema: JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance.
             webhook_url: URL for completion notifications.
             webhook_format: "scout" (default), "slack", or "zapier".
@@ -58,6 +61,8 @@ class AsyncBrowsingNamespace:
             payload["agent"] = agent
         if require_auth is not None:
             payload["require_auth"] = require_auth
+        if browser is not None:
+            payload["browser"] = browser
         resolved_schema = resolve_output_schema(output_schema)
         if resolved_schema is not None:
             payload["output_schema"] = resolved_schema
