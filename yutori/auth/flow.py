@@ -23,9 +23,11 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from .constants import (
+    AUTH_SIGN_IN_URL,
     AUTH_TIMEOUT_SECONDS,
     CALLBACK_HOST,
     CLERK_CLIENT_ID,
+    CLERK_CONSENT_URL,
     CLERK_INSTANCE_URL,
     ERROR_AUTH_FAILED,
     ERROR_AUTH_TIMEOUT,
@@ -58,7 +60,7 @@ def generate_pkce() -> tuple[str, str]:
 
 
 def build_auth_url(code_challenge: str, state: str) -> str:
-    """Build Clerk OAuth authorization URL."""
+    """Build the platform sign-in URL that leads into Clerk OAuth consent."""
     params = {
         "response_type": "code",
         "client_id": CLERK_CLIENT_ID,
@@ -68,7 +70,8 @@ def build_auth_url(code_challenge: str, state: str) -> str:
         "state": state,
         "scope": "openid profile email",
     }
-    return f"{CLERK_INSTANCE_URL}/oauth/authorize?{urlencode(params)}"
+    consent_url = f"{CLERK_CONSENT_URL}?{urlencode(params)}"
+    return f"{AUTH_SIGN_IN_URL}?{urlencode({'redirect_url': consent_url})}"
 
 
 class _CallbackResult:
