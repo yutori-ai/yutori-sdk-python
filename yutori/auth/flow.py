@@ -7,7 +7,6 @@ All functions return typed results and never print directly (callers handle pres
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
 import hashlib
 import html
 import http.server
@@ -17,7 +16,8 @@ import secrets
 import socketserver
 import threading
 import webbrowser
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -38,6 +38,15 @@ from .credentials import get_config_path, load_config, save_config
 from .types import AuthStatus, LoginResult
 
 logger = logging.getLogger(__name__)
+
+REGISTER_INCOMPATIBLE_STATUS_CODES = {404, 405, 501}
+REGISTER_INCOMPATIBLE_ERROR = (
+    "This CLI version requires backend support for /client/register-api. Deploy the backend update and try again."
+)
+
+
+class RegisterEndpointUnavailableError(RuntimeError):
+    """Raised when the backend does not yet support the registration endpoint."""
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -100,10 +109,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             elif params.get("code"):
                 self.callback_result.code = params["code"][0]
                 self.callback_result.state = params.get("state", [None])[0]
-                self._send_html(
-                    "<h1>Login Successful</h1>"
-                    "<p>You can close this window.</p>"
-                )
+                self._send_html("<h1>Login Successful</h1><p>You can close this window.</p>")
             else:
                 self.callback_result.error = "No authorization code received"
                 self._send_html("<h1>Login Failed</h1><p>No authorization code received.</p>")
@@ -153,7 +159,38 @@ def generate_api_key(jwt: str, key_name: str | None = None) -> str:
         return response.json()["key"]
 
 
-def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
+def check_registration_status(jwt: str) -> bool:
+    """Best-effort registration check. Returns False on any failure."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                build_auth_api_url("/client/registration-status"),
+                headers={"Authorization": f"Bearer {jwt}"},
+            )
+            if response.status_code == 200:
+                return bool(response.json().get("is_registered", False))
+    except Exception:
+        logger.debug("Registration status check failed", exc_info=True)
+    return False
+
+
+def register_user(jwt: str, signup_source: str = "cli") -> None:
+    """Ensure the current Clerk user is registered before key generation."""
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(
+            build_auth_api_url("/client/register-api"),
+            headers={"Authorization": f"Bearer {jwt}"},
+            json={"signup_source": signup_source},
+        )
+        if response.status_code in REGISTER_INCOMPATIBLE_STATUS_CODES:
+            raise RegisterEndpointUnavailableError(f"{REGISTER_INCOMPATIBLE_ERROR} (received {response.status_code})")
+        response.raise_for_status()
+
+
+def run_login_flow(
+    key_source: str = "yutori-cli",
+    on_registration_state: Callable[[str], None] | None = None,
+) -> LoginResult:
     """Run the full OAuth 2.0 + PKCE login flow.
 
     Opens browser for Clerk authentication, runs a local callback server,
@@ -209,6 +246,18 @@ def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
+        is_new_user = not check_registration_status(jwt)
+        if on_registration_state:
+            try:
+                on_registration_state("creating_account" if is_new_user else "logging_in")
+            except Exception:
+                logger.warning("Registration-state callback failed", exc_info=True)
+        try:
+            register_user(jwt)
+        except RegisterEndpointUnavailableError:
+            if is_new_user:
+                raise
+            logger.warning("Registration endpoint unavailable; continuing for existing user", exc_info=True)
         api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
@@ -218,7 +267,11 @@ def run_login_flow(key_source: str = "yutori-cli") -> LoginResult:
             detail = f": {e.response.text}"
         except Exception:
             pass
-        return LoginResult(success=False, error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}", auth_url=auth_url)
+        return LoginResult(
+            success=False,
+            error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
+            auth_url=auth_url,
+        )
     except Exception as e:
         return LoginResult(success=False, error=str(e), auth_url=auth_url)
 
