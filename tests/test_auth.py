@@ -14,8 +14,10 @@ import httpx
 import pytest
 
 from yutori.auth.constants import (
+    AUTH_SIGN_IN_URL,
     CALLBACK_HOST,
     CLERK_CLIENT_ID,
+    CLERK_CONSENT_URL,
     REDIRECT_PORT,
     REDIRECT_URI,
     build_auth_api_url,
@@ -72,16 +74,25 @@ class TestBuildAuthUrl:
         url = build_auth_url("test_challenge", "test_state")
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
+        redirect_url = params["redirect_url"][0]
+        redirect_parsed = urlparse(redirect_url)
+        redirect_params = parse_qs(redirect_parsed.query)
+        sign_in_parsed = urlparse(AUTH_SIGN_IN_URL)
+        consent_parsed = urlparse(CLERK_CONSENT_URL)
 
         assert parsed.scheme == "https"
-        assert "oauth/authorize" in parsed.path
-        assert params["response_type"] == ["code"]
-        assert params["client_id"] == [CLERK_CLIENT_ID]
-        assert params["redirect_uri"] == [REDIRECT_URI]
-        assert params["code_challenge"] == ["test_challenge"]
-        assert params["code_challenge_method"] == ["S256"]
-        assert params["state"] == ["test_state"]
-        assert params["scope"] == ["openid profile email"]
+        assert parsed.netloc == sign_in_parsed.netloc
+        assert parsed.path == sign_in_parsed.path
+        assert redirect_parsed.scheme == "https"
+        assert redirect_parsed.netloc == consent_parsed.netloc
+        assert redirect_parsed.path == consent_parsed.path
+        assert redirect_params["response_type"] == ["code"]
+        assert redirect_params["client_id"] == [CLERK_CLIENT_ID]
+        assert redirect_params["redirect_uri"] == [REDIRECT_URI]
+        assert redirect_params["code_challenge"] == ["test_challenge"]
+        assert redirect_params["code_challenge_method"] == ["S256"]
+        assert redirect_params["state"] == ["test_state"]
+        assert redirect_params["scope"] == ["openid profile email"]
 
 
 class TestBuildKeyName:
