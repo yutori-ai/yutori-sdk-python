@@ -18,6 +18,8 @@ from yutori.auth.constants import (
     CALLBACK_HOST,
     CLERK_CLIENT_ID,
     CLERK_CONSENT_URL,
+    DEFAULT_AUTH_SIGN_IN_URL,
+    DEFAULT_CLERK_CONSENT_URL,
     REDIRECT_PORT,
     REDIRECT_URI,
     build_auth_api_url,
@@ -77,13 +79,13 @@ class TestBuildAuthUrl:
         redirect_url = params["redirect_url"][0]
         redirect_parsed = urlparse(redirect_url)
         redirect_params = parse_qs(redirect_parsed.query)
-        sign_in_parsed = urlparse(AUTH_SIGN_IN_URL)
-        consent_parsed = urlparse(CLERK_CONSENT_URL)
+        sign_in_parsed = urlparse(AUTH_SIGN_IN_URL or DEFAULT_AUTH_SIGN_IN_URL)
+        consent_parsed = urlparse(CLERK_CONSENT_URL or DEFAULT_CLERK_CONSENT_URL)
 
-        assert parsed.scheme == "https"
+        assert parsed.scheme == sign_in_parsed.scheme
         assert parsed.netloc == sign_in_parsed.netloc
         assert parsed.path == sign_in_parsed.path
-        assert redirect_parsed.scheme == "https"
+        assert redirect_parsed.scheme == consent_parsed.scheme
         assert redirect_parsed.netloc == consent_parsed.netloc
         assert redirect_parsed.path == consent_parsed.path
         assert redirect_params["response_type"] == ["code"]
@@ -93,6 +95,21 @@ class TestBuildAuthUrl:
         assert redirect_params["code_challenge_method"] == ["S256"]
         assert redirect_params["state"] == ["test_state"]
         assert redirect_params["scope"] == ["openid profile email"]
+
+    def test_uses_raw_clerk_authorize_url_for_custom_clerk_instance(self, monkeypatch):
+        monkeypatch.setattr("yutori.auth.flow.CLERK_INSTANCE_URL", "https://clerk.staging.yutori.com")
+        monkeypatch.setattr("yutori.auth.flow.AUTH_SIGN_IN_URL", None)
+        monkeypatch.setattr("yutori.auth.flow.CLERK_CONSENT_URL", None)
+
+        url = build_auth_url("test_challenge", "test_state")
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "clerk.staging.yutori.com"
+        assert parsed.path == "/oauth/authorize"
+        assert params["client_id"] == [CLERK_CLIENT_ID]
+        assert params["redirect_uri"] == [REDIRECT_URI]
 
 
 class TestBuildKeyName:

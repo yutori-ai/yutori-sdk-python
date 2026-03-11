@@ -29,6 +29,9 @@ from .constants import (
     CLERK_CLIENT_ID,
     CLERK_CONSENT_URL,
     CLERK_INSTANCE_URL,
+    DEFAULT_AUTH_SIGN_IN_URL,
+    DEFAULT_CLERK_CONSENT_URL,
+    DEFAULT_CLERK_INSTANCE_URL,
     ERROR_AUTH_FAILED,
     ERROR_AUTH_TIMEOUT,
     ERROR_STATE_MISMATCH,
@@ -60,7 +63,7 @@ def generate_pkce() -> tuple[str, str]:
 
 
 def build_auth_url(code_challenge: str, state: str) -> str:
-    """Build the platform sign-in URL that leads into Clerk OAuth consent."""
+    """Build the browser entrypoint for the Clerk OAuth consent flow."""
     params = {
         "response_type": "code",
         "client_id": CLERK_CLIENT_ID,
@@ -70,8 +73,17 @@ def build_auth_url(code_challenge: str, state: str) -> str:
         "state": state,
         "scope": "openid profile email",
     }
-    consent_url = f"{CLERK_CONSENT_URL}?{urlencode(params)}"
-    return f"{AUTH_SIGN_IN_URL}?{urlencode({'redirect_url': consent_url})}"
+    if AUTH_SIGN_IN_URL or CLERK_CONSENT_URL:
+        sign_in_url = AUTH_SIGN_IN_URL or DEFAULT_AUTH_SIGN_IN_URL
+        consent_base_url = CLERK_CONSENT_URL or DEFAULT_CLERK_CONSENT_URL
+        consent_url = f"{consent_base_url}?{urlencode(params)}"
+        return f"{sign_in_url}?{urlencode({'redirect_url': consent_url})}"
+
+    if CLERK_INSTANCE_URL != DEFAULT_CLERK_INSTANCE_URL:
+        return f"{CLERK_INSTANCE_URL}/oauth/authorize?{urlencode(params)}"
+
+    consent_url = f"{DEFAULT_CLERK_CONSENT_URL}?{urlencode(params)}"
+    return f"{DEFAULT_AUTH_SIGN_IN_URL}?{urlencode({'redirect_url': consent_url})}"
 
 
 class _CallbackResult:
