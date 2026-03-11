@@ -15,6 +15,13 @@ app = typer.Typer(help="Manage authentication")
 console = Console()
 
 
+def _print_registration_state(state: str) -> None:
+    if state == "creating_account":
+        console.print("[dim]Creating account...[/dim]")
+    else:
+        console.print("[dim]Logging in...[/dim]")
+
+
 @app.command()
 def login() -> None:
     """Authenticate with Yutori via browser.
@@ -22,7 +29,9 @@ def login() -> None:
     Opens your browser to log in with Clerk OAuth and saves an API key locally.
     """
     if os.environ.get("YUTORI_API_KEY"):
-        console.print("[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]")
+        console.print(
+            "[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]"
+        )
         console.print("Unset it first if you want to use browser login.")
         raise typer.Exit(1)
 
@@ -36,7 +45,7 @@ def login() -> None:
     console.print("\n[bold]Opening browser for authentication...[/bold]")
     console.print("[dim]Waiting for authentication...[/dim]\n")
 
-    result = run_login_flow()
+    result = run_login_flow(on_registration_state=_print_registration_state)
 
     if result.success:
         console.print("[green]Successfully authenticated![/green]")
