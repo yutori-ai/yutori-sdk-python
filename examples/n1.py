@@ -161,6 +161,9 @@ class Agent:
     async def _take_screenshot(self) -> str:
         screenshot_bytes = await self._page.screenshot(type="jpeg", quality=75)
         img = Image.open(io.BytesIO(screenshot_bytes))
+        viewport = (self.viewport_width, self.viewport_height)
+        if img.size != viewport:
+            img = img.resize(viewport, Image.LANCZOS)
         webp_buffer = io.BytesIO()
         img.save(webp_buffer, format="WEBP", quality=90)
         webp_bytes = webp_buffer.getvalue()
