@@ -18,8 +18,7 @@ def extract_text_content(content: Any) -> str | None:
             if isinstance(block, dict):
                 if block.get("type") == "text":
                     text = block.get("text", "")
-                    if isinstance(text, str):
-                        parts.append(text)
+                    parts.append(text if isinstance(text, str) else str(text))
             elif getattr(block, "type", None) == "text":
                 text = getattr(block, "text", "")
                 parts.append(text if isinstance(text, str) else str(text))
