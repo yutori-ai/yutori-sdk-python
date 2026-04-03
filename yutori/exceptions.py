@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 class YutoriSDKError(Exception):
@@ -16,7 +16,7 @@ class AuthenticationError(YutoriSDKError):
 class APIError(YutoriSDKError):
     """Raised when the Yutori API returns a non-successful response."""
 
-    def __init__(self, message: str, status_code: int, response: Optional[Any] = None):
+    def __init__(self, message: str, status_code: int, response: Any | None = None):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
