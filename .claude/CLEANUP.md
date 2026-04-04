@@ -15,6 +15,5 @@ Items identified for future cleanup runs. Pick one per run.
 
 ## halluminate
 
-- [ ] `navi_bench/demo.py:70` — Typo: "generat the task config" should be "generate the task config".
 - [ ] `navi_bench/demo.py:19` — Deprecated `Dict[str, Any]` import; use `dict[str, Any]` (already has `from __future__ import annotations`).
 - [ ] `metrics/opentable/opentable_refresh_dates.py:11` — Deprecated `List, Tuple` imports from `typing`.
