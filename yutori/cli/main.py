@@ -45,7 +45,6 @@ def main(
     ),
 ) -> None:
     """Yutori CLI root callback."""
-    _ = version
 
 
 @app.command()
