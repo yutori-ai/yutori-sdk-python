@@ -9,9 +9,9 @@ Items identified for future cleanup runs. Pick one per run.
 
 ## yutori-mcp
 
-- [ ] `formatters.py:7` — Unused constant `DEFAULT_LIMIT = 10` (never referenced anywhere).
-- [ ] `schemas.py` — Duplicate `validate_webhook_url` method copied identically in 4 classes; extract to shared validator.
-- [ ] `schemas.py:119-127` — `output_fields` field defined after a `@field_validator`, breaking conventional Pydantic class ordering.
+- [x] `formatters.py:7` — Unused constant `DEFAULT_LIMIT = 10` (never referenced anywhere).
+- [x] `schemas.py` — Duplicate `validate_webhook_url` method copied identically in 4 classes; extract to shared validator.
+- [x] `schemas.py:119-127` — `output_fields` field defined after a `@field_validator`, breaking conventional Pydantic class ordering.
 
 ## halluminate
 
