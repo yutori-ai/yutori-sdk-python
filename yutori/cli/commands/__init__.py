@@ -9,6 +9,8 @@ from rich.console import Console
 
 from yutori.auth.credentials import resolve_api_key
 
+__all__ = ["get_authenticated_client"]
+
 _console = Console()
 
 
