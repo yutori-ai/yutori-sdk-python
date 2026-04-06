@@ -4,8 +4,8 @@ Items identified for future cleanup runs. Pick one per run.
 
 ## yutori-sdk-python
 
-- [ ] `cli/main.py:48` — Unused `_ = version` assignment in `main()` callback. Remove or document why the parameter must exist.
-- [ ] `cli/__init__.py`, `cli/commands/__init__.py` — Missing `__all__` exports (other subpackages define them).
+- [ ] `yutori/cli/main.py:48` — Unused `_ = version` assignment in `main()` callback. Remove or document why the parameter must exist.
+- [ ] `yutori/cli/__init__.py`, `yutori/cli/commands/__init__.py` — Missing `__all__` exports (other subpackages define them).
 
 ## yutori-mcp
 
