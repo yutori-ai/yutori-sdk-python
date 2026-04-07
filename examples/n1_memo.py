@@ -20,8 +20,6 @@ Usage:
 
 import argparse
 import asyncio
-import base64
-import io
 import json
 import os
 import sys
@@ -32,12 +30,12 @@ from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-from PIL import Image
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
+from yutori.n1 import aplaywright_screenshot_to_data_url
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -272,15 +270,10 @@ class Agent:
             self._browser = None
 
     async def _take_screenshot(self) -> str:
-        screenshot_bytes = await self._page.screenshot(type="jpeg", quality=75)
-        img = Image.open(io.BytesIO(screenshot_bytes))
-        viewport = (self.viewport_width, self.viewport_height)
-        if img.size != viewport:
-            img = img.resize(viewport, Image.LANCZOS)
-        webp_buffer = io.BytesIO()
-        img.save(webp_buffer, format="WEBP", quality=90)
-        webp_bytes = webp_buffer.getvalue()
-        return base64.b64encode(webp_bytes).decode("utf-8")
+        return await aplaywright_screenshot_to_data_url(
+            self._page,
+            resize_to=(self.viewport_width, self.viewport_height),
+        )
 
     def _convert_coordinates(self, rel_x: int, rel_y: int) -> tuple[int, int]:
         abs_x = int(rel_x / 1000 * self.viewport_width)
@@ -330,7 +323,7 @@ class Agent:
         )
 
     async def _predict(self) -> ChatCompletion:
-        screenshot_b64 = await self._take_screenshot()
+        screenshot_url = await self._take_screenshot()
         current_url = self._page.url
 
         last_content = self._messages[-1]["content"]
@@ -339,7 +332,7 @@ class Agent:
         last_content.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/webp;base64,{screenshot_b64}", "detail": "high"},
+                "image_url": {"url": screenshot_url, "detail": "high"},
             }
         )
 

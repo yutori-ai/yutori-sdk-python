@@ -93,6 +93,26 @@ if message.tool_calls:
         print(f"Arguments: {tool_call.function.arguments}")
 ```
 
+For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
+
+```python
+from yutori.n1 import aplaywright_screenshot_to_data_url
+
+image_url = await aplaywright_screenshot_to_data_url(page)
+
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Describe the screenshot and search for Yutori."},
+            {"type": "image_url", "image_url": {"url": image_url}},
+        ],
+    }
+]
+```
+
+Install the optional image dependency with `pip install "yutori[n1]"` if you want to use these screenshot helpers.
+
 For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
 
 ```python

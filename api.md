@@ -125,10 +125,15 @@ Opt-in helper utilities for custom n1 agent loops. These do not change the raw `
 | `trimmed_messages_to_fit(messages, max_bytes=..., keep_recent=...)` | Return a trimmed copy of the messages list without mutating caller state. |
 | `create_trimmed(completions, messages, ...)` | Trim a copy of the messages list, then call sync chat completions. |
 | `acreate_trimmed(completions, messages, ...)` | Async version of `create_trimmed(...)`. |
+| `screenshot_to_data_url(image_bytes, ...)` | Convert screenshot bytes into a `data:image/webp;base64,...` URL optimized for n1. |
+| `playwright_screenshot_to_data_url(page, ...)` | Capture and convert a sync Playwright screenshot optimized for n1. |
+| `aplaywright_screenshot_to_data_url(page, ...)` | Async version of `playwright_screenshot_to_data_url(...)`. |
 | `extract_text_content(content)` | Normalize assistant content across strings, text blocks, and object-backed forms, returning joined text or `None`. |
 | `RunHooksBase` | Async no-op lifecycle hook base class with `on_agent_start`, `on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, and `on_agent_end`. |
 
 `RunHooksBase` mirrors the lifecycle phases of higher-level agent loops, but it is not wired into `client.chat` automatically. It is intended for consumers building their own orchestration, tracing, or UI layers around n1.
+
+Install the optional image dependency with `pip install "yutori[n1]"` to use the screenshot conversion helpers.
 
 ---
 
