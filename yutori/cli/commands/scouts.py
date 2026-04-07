@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from yutori.cli.commands import get_authenticated_client
+from yutori.cli.commands import get_authenticated_client, print_rejection_reason
 
 app = typer.Typer(help="Manage scouts")
 console = Console()
@@ -34,6 +34,7 @@ def list_scouts(
         table.add_column("Query", max_width=50)
         table.add_column("Status", style="green")
         table.add_column("Interval")
+        table.add_column("Reason", max_width=32)
 
         for scout in scouts:
             interval_secs = scout.get("output_interval") or 0
@@ -53,6 +54,7 @@ def list_scouts(
                 query,
                 scout.get("status", "unknown"),
                 interval_str,
+                escape(scout.get("rejection_reason") or ""),
             )
 
         console.print(table)
@@ -73,6 +75,7 @@ def get(
         console.print(f"\n[bold]Scout: {scout.get('id', scout_id)}[/bold]\n")
         console.print(f"  Query: {escape(scout.get('query', 'N/A'))}")
         console.print(f"  Status: {scout.get('status', 'N/A')}")
+        print_rejection_reason(console, scout)
 
         interval_secs = scout.get("output_interval") or 0
         if interval_secs >= 86400:
@@ -118,10 +121,15 @@ def create(
             user_timezone=timezone,
         )
 
-        console.print("\n[green]Scout created successfully![/green]")
+        status = result.get("status", "N/A")
+        if status == "failed":
+            console.print("\n[red]Scout creation failed.[/red]")
+        else:
+            console.print("\n[green]Scout created successfully![/green]")
         console.print(f"  ID: {result.get('id', 'N/A')}")
         console.print(f"  Query: {escape(result.get('query', query))}")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
+        console.print(f"  Status: {status}")
+        print_rejection_reason(console, result)
     finally:
         client.close()
 

@@ -197,6 +197,27 @@ class TestAsyncBrowsingNamespace:
                 )
                 assert result["task_id"] == "task-123"
 
+    async def test_browsing_create_with_local_browser_and_auth(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "task-456"}'
+        mock_response.json.return_value = {"task_id": "task-456"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.browsing.create(
+                    task="Log in and export data",
+                    start_url="https://example.com/login",
+                    require_auth=True,
+                    browser="local",
+                    webhook_format="zapier",
+                )
+                assert result["task_id"] == "task-456"
+                payload = mock_post.call_args[1]["json"]
+                assert payload["require_auth"] is True
+                assert payload["browser"] == "local"
+                assert payload["webhook_format"] == "zapier"
+
     async def test_browsing_get(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -207,6 +228,22 @@ class TestAsyncBrowsingNamespace:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.browsing.get("task-123")
                 assert result["status"] == "succeeded"
+
+    async def test_browsing_get_with_rejection_reason(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        mock_response.json.return_value = {
+            "task_id": "task-123",
+            "status": "failed",
+            "rejection_reason": "billing_limit_reached",
+        }
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.browsing.get("task-123")
+                assert result["status"] == "failed"
+                assert result["rejection_reason"] == "billing_limit_reached"
 
 
 @pytest.mark.asyncio
@@ -222,6 +259,23 @@ class TestAsyncResearchNamespace:
                 result = await client.research.create(query="Find AI funding")
                 assert result["task_id"] == "research-123"
 
+    async def test_research_create_with_local_browser(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "research-456"}'
+        mock_response.json.return_value = {"task_id": "research-456"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.research.create(
+                    query="Research a vendor portal behind login",
+                    browser="local",
+                )
+                assert result["task_id"] == "research-456"
+                payload = mock_post.call_args[1]["json"]
+                assert payload["query"] == "Research a vendor portal behind login"
+                assert payload["browser"] == "local"
+
     async def test_research_get(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -232,6 +286,22 @@ class TestAsyncResearchNamespace:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.research.get("research-123")
                 assert result["status"] == "succeeded"
+
+    async def test_research_get_with_rejection_reason(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        mock_response.json.return_value = {
+            "task_id": "research-123",
+            "status": "failed",
+            "rejection_reason": "rate_limit_exceeded",
+        }
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.research.get("research-123")
+                assert result["status"] == "failed"
+                assert result["rejection_reason"] == "rate_limit_exceeded"
 
 
 @pytest.mark.asyncio

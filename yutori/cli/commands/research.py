@@ -6,7 +6,11 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from yutori.cli.commands import get_authenticated_client
+from yutori.cli.commands import (
+    get_authenticated_client,
+    print_rejection_reason,
+    print_task_submission_result,
+)
 
 app = typer.Typer(help="Run and manage research tasks")
 console = Console()
@@ -17,6 +21,7 @@ def run(
     query: str = typer.Argument(help="Natural language research query"),
     timezone: str = typer.Option(None, "--timezone", "-tz", help="e.g., America/Los_Angeles"),
     location: str = typer.Option(None, "--location", help="e.g., San Francisco, CA, US"),
+    browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new research task."""
     client = get_authenticated_client()
@@ -26,11 +31,10 @@ def run(
             query=query,
             user_timezone=timezone,
             user_location=location,
+            browser=browser,
         )
 
-        console.print("\n[green]Research task created![/green]")
-        console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
+        print_task_submission_result(console, "Research", result)
     finally:
         client.close()
 
@@ -47,6 +51,7 @@ def get(
 
         console.print(f"\n[bold]Research Task: {result.get('task_id', task_id)}[/bold]\n")
         console.print(f"  Status: {result.get('status', 'N/A')}")
+        print_rejection_reason(console, result)
 
         if result.get("query"):
             console.print(f"  Query: {escape(result['query'])}")

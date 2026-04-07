@@ -93,6 +93,8 @@ if message.tool_calls:
         print(f"Arguments: {tool_call.function.arguments}")
 ```
 
+Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`. The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
+
 For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
 
 ```python
@@ -140,7 +142,7 @@ If you don't want to manage your own browser infrastructure, use the Browsing AP
 
 ## Browsing API
 
-Run one-time browser automation tasks. An AI agent operates a cloud browser to complete your task.
+Run one-time browser automation tasks. An AI agent can operate either Yutori's cloud browser or Yutori Local on the desktop to complete your task.
 
 ```python
 # Create a browsing task
@@ -159,6 +161,28 @@ while True:
 
 print(result)
 ```
+
+For tasks that involve logging in on a cloud browser, use `require_auth` to pick an auth-optimized provider:
+
+```python
+task = client.browsing.create(
+    task="Log in and export the latest invoice.",
+    start_url="https://example.com/login",
+    require_auth=True,
+)
+```
+
+To use Yutori Local with the user's existing logged-in desktop sessions instead of the cloud:
+
+```python
+task = client.browsing.create(
+    task="Export the latest invoice from my dashboard.",
+    start_url="https://example.com/dashboard",
+    browser="local",
+)
+```
+
+Failed browsing tasks may include a `rejection_reason` field to explain why the task was rejected.
 
 ### Structured Output with Webhooks
 
@@ -224,6 +248,17 @@ while True:
 
 print(result)
 ```
+
+If the research task needs access to a logged-in browser session, use Yutori Local:
+
+```python
+task = client.research.create(
+    query="Review the latest updates in our vendor dashboard and summarize them.",
+    browser="local",
+)
+```
+
+Failed research tasks may include a `rejection_reason` field to explain why the task was rejected.
 
 ### Structured Output
 
@@ -323,6 +358,8 @@ scout = client.scouts.create(
     output_schema=NewsItem,  # auto-converted to JSON schema
 )
 ```
+
+Scout responses may also include `rejection_reason` when a run or configuration is rejected.
 
 <details>
 <summary>Using a JSON schema dict instead</summary>
@@ -433,10 +470,11 @@ yutori scouts delete SCOUT_ID               # Delete a scout
 # Browsing
 yutori browse run "extract all prices" https://example.com/products
 yutori browse run "log in and continue" https://example.com/login --require-auth
+yutori browse run "export dashboard data" https://example.com/dashboard --browser local
 yutori browse get TASK_ID
 
 # Research
-yutori research run "latest developments in quantum computing"
+yutori research run "latest developments in quantum computing" --browser local
 yutori research get TASK_ID
 
 # Usage

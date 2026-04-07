@@ -25,6 +25,7 @@ class ResearchNamespace:
         *,
         user_timezone: str | None = None,
         user_location: str | None = None,
+        browser: str | None = None,
         output_schema: object | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
@@ -37,6 +38,8 @@ class ResearchNamespace:
             query: Natural language research query.
             user_timezone: e.g., "America/Los_Angeles".
             user_location: e.g., "San Francisco, CA, US".
+            browser: "cloud" (default) or "local" to use the desktop app with
+                     the user's logged-in sessions.
             output_schema: JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance.
             webhook_url: URL for completion notifications.
             webhook_format: "scout" (default), "slack", or "zapier".
@@ -50,6 +53,8 @@ class ResearchNamespace:
             payload["user_timezone"] = user_timezone
         if user_location is not None:
             payload["user_location"] = user_location
+        if browser is not None:
+            payload["browser"] = browser
         resolved_schema = resolve_output_schema(output_schema)
         if resolved_schema is not None:
             payload["output_schema"] = resolved_schema
