@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.n1 import aplaywright_screenshot_to_data_url
+from yutori.n1 import aplaywright_screenshot_to_data_url, denormalize_coordinates
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -275,11 +275,6 @@ class Agent:
             resize_to=(self.viewport_width, self.viewport_height),
         )
 
-    def _convert_coordinates(self, rel_x: int, rel_y: int) -> tuple[int, int]:
-        abs_x = int(rel_x / 1000 * self.viewport_width)
-        abs_y = int(rel_y / 1000 * self.viewport_height)
-        return abs_x, abs_y
-
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         if url.startswith("data:image"):
             prefix_end = url.find(",") + 1
@@ -355,25 +350,25 @@ class Agent:
         try:
             if action_name == "left_click":
                 coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y)
                 await asyncio.sleep(0.5)
 
             elif action_name == "double_click":
                 coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.dblclick(abs_x, abs_y)
                 await asyncio.sleep(0.5)
 
             elif action_name == "right_click":
                 coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y, button="right")
                 await asyncio.sleep(0.5)
 
             elif action_name == "triple_click":
                 coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y, click_count=3)
                 await asyncio.sleep(0.5)
 
@@ -403,7 +398,7 @@ class Agent:
                 direction = arguments.get("direction", "down")
                 amount = arguments.get("amount", 3)
 
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 scroll_delta = amount * (self.viewport_height * 0.1)
 
                 delta_y = scroll_delta if direction == "down" else (-scroll_delta if direction == "up" else 0)
@@ -415,7 +410,7 @@ class Agent:
 
             elif action_name == "hover":
                 coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = self._convert_coordinates(coords[0], coords[1])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.move(abs_x, abs_y)
                 await asyncio.sleep(0.3)
 
@@ -423,8 +418,8 @@ class Agent:
                 start_coords = arguments.get("start_coordinates") or arguments.get("startCoordinates", [0, 0])
                 end_coords = arguments.get("coordinates") or arguments.get("endCoordinates", [0, 0])
 
-                start_x, start_y = self._convert_coordinates(start_coords[0], start_coords[1])
-                end_x, end_y = self._convert_coordinates(end_coords[0], end_coords[1])
+                start_x, start_y = denormalize_coordinates(start_coords, self.viewport_width, self.viewport_height)
+                end_x, end_y = denormalize_coordinates(end_coords, self.viewport_width, self.viewport_height)
 
                 await self._page.mouse.move(start_x, start_y)
                 await self._page.mouse.down()
