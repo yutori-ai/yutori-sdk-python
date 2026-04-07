@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from yutori.cli.commands import (
     get_authenticated_client,
