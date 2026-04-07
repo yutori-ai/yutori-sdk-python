@@ -244,6 +244,26 @@ class TestBrowsingNamespace:
             assert payload["start_url"] == "https://example.com"
             assert payload["max_steps"] == 10
 
+    def test_browsing_create_with_local_browser_and_auth(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "task-456", "status": "queued"}'
+        mock_response.json.return_value = {"task_id": "task-456", "status": "queued"}
+
+        with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
+            result = client.browsing.create(
+                task="Log in and download the invoice",
+                start_url="https://example.com/login",
+                require_auth=True,
+                browser="local",
+                webhook_format="zapier",
+            )
+            assert result["task_id"] == "task-456"
+            payload = mock_post.call_args[1]["json"]
+            assert payload["require_auth"] is True
+            assert payload["browser"] == "local"
+            assert payload["webhook_format"] == "zapier"
+
     def test_browsing_get(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -253,6 +273,21 @@ class TestBrowsingNamespace:
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.browsing.get("task-123")
             assert result["status"] == "succeeded"
+
+    def test_browsing_get_with_rejection_reason(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        mock_response.json.return_value = {
+            "task_id": "task-123",
+            "status": "failed",
+            "rejection_reason": "billing_limit_reached",
+        }
+
+        with patch.object(httpx.Client, "get", return_value=mock_response):
+            result = client.browsing.get("task-123")
+            assert result["status"] == "failed"
+            assert result["rejection_reason"] == "billing_limit_reached"
 
 
 class TestResearchNamespace:
@@ -271,6 +306,22 @@ class TestResearchNamespace:
             payload = mock_post.call_args[1]["json"]
             assert payload["query"] == "Find AI startup funding"
 
+    def test_research_create_with_local_browser(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "research-456", "status": "queued"}'
+        mock_response.json.return_value = {"task_id": "research-456", "status": "queued"}
+
+        with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
+            result = client.research.create(
+                query="Research competitors with logged-in dashboards",
+                browser="local",
+            )
+            assert result["task_id"] == "research-456"
+            payload = mock_post.call_args[1]["json"]
+            assert payload["query"] == "Research competitors with logged-in dashboards"
+            assert payload["browser"] == "local"
+
     def test_research_get(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -280,6 +331,21 @@ class TestResearchNamespace:
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.research.get("research-123")
             assert result["status"] == "succeeded"
+
+    def test_research_get_with_rejection_reason(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        mock_response.json.return_value = {
+            "task_id": "research-123",
+            "status": "failed",
+            "rejection_reason": "rate_limit_exceeded",
+        }
+
+        with patch.object(httpx.Client, "get", return_value=mock_response):
+            result = client.research.get("research-123")
+            assert result["status"] == "failed"
+            assert result["rejection_reason"] == "rate_limit_exceeded"
 
 
 class TestPydanticSchemaIntegration:

@@ -6,6 +6,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from yutori.auth.credentials import resolve_api_key
 
@@ -22,3 +23,23 @@ def get_authenticated_client() -> Any:
         raise typer.Exit(1)
 
     return YutoriClient(api_key=api_key)
+
+
+def print_rejection_reason(console: Console, result: dict[str, Any]) -> None:
+    """Print rejection_reason from an API response if present."""
+    reason = result.get("rejection_reason")
+    if reason:
+        console.print(f"  Rejection Reason: {escape(str(reason))}")
+
+
+def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
+    """Print a task creation response without implying success on failed creates."""
+    status = result.get("status", "N/A")
+    if status == "failed":
+        console.print(f"\n[red]{task_type} task failed to start.[/red]")
+    else:
+        console.print(f"\n[green]{task_type} task submitted.[/green]")
+
+    console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
+    console.print(f"  Status: {status}")
+    print_rejection_reason(console, result)

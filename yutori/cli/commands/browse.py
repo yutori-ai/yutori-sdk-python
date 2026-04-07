@@ -5,7 +5,11 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 
-from yutori.cli.commands import get_authenticated_client
+from yutori.cli.commands import (
+    get_authenticated_client,
+    print_rejection_reason,
+    print_task_submission_result,
+)
 
 app = typer.Typer(help="Run and manage browsing tasks")
 console = Console()
@@ -18,6 +22,7 @@ def run(
     max_steps: int = typer.Option(None, "--max-steps", help="Maximum number of agent steps"),
     agent: str = typer.Option(None, "--agent", help="Agent to use"),
     require_auth: bool = typer.Option(None, "--require-auth", help="Use auth-optimized browser for login flows"),
+    browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new browsing task."""
     client = get_authenticated_client()
@@ -29,11 +34,10 @@ def run(
             max_steps=max_steps,
             agent=agent,
             require_auth=require_auth,
+            browser=browser,
         )
 
-        console.print("\n[green]Browsing task created![/green]")
-        console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
+        print_task_submission_result(console, "Browsing", result)
     finally:
         client.close()
 
@@ -50,6 +54,7 @@ def get(
 
         console.print(f"\n[bold]Browsing Task: {result.get('task_id', task_id)}[/bold]\n")
         console.print(f"  Status: {result.get('status', 'N/A')}")
+        print_rejection_reason(console, result)
 
         if result.get("start_url"):
             console.print(f"  Start URL: {result['start_url']}")

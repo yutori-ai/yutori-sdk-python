@@ -108,9 +108,11 @@ if message.tool_calls:
 **Parameters:**
 - `messages` (Iterable[ChatCompletionMessageParam]): Chat messages following OpenAI format. Include screenshots as `image_url` content blocks.
 - `model` (str): Model ID. Default: `"n1-latest"`.
-- `**kwargs`: Additional parameters (e.g., `temperature`).
+- `**kwargs`: Additional OpenAI-compatible parameters (e.g., `temperature`, `tools`, `tool_choice`, `response_format`).
 
 **Returns:** `ChatCompletion` object from the OpenAI SDK with `choices[0].message` containing the model's response and optional `tool_calls` for browser actions.
+
+Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`.
 
 ---
 
@@ -155,6 +157,7 @@ task = client.browsing.create(
     max_steps=75,                  # Optional (1-100)
     agent=None,                    # Optional
     require_auth=False,            # Optional, for login flows
+    browser=None,                  # Optional: "cloud" or "local"
     output_schema=None,            # Optional, JSON schema
     webhook_url=None,              # Optional
     webhook_format=None,           # Optional: "scout", "slack", "zapier"
@@ -167,11 +170,12 @@ task = client.browsing.create(
 - `max_steps` (int, optional): Maximum agent steps (1-100).
 - `agent` (str, optional): Agent to use. Options: `"navigator-n1-latest"`, `"claude-sonnet-4-5-computer-use-2025-01-24"`.
 - `require_auth` (bool, optional): Use auth-optimized browser for login flows.
+- `browser` (str, optional): Browser backend - `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
 - `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `webhook_url` (str, optional): URL for completion notifications.
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
 
-**Returns:** Dictionary containing `task_id` and task metadata.
+**Returns:** Dictionary containing `task_id` and task metadata. Failed tasks may include `rejection_reason`.
 
 #### browsing.get
 
@@ -202,6 +206,7 @@ task = client.research.create(
     query="What are the latest developments in quantum computing?",
     user_timezone="America/Los_Angeles",  # Optional
     user_location="San Francisco, CA",    # Optional
+    browser=None,                         # Optional: "cloud" or "local"
     output_schema=None,                   # Optional, JSON schema
     webhook_url=None,                     # Optional
     webhook_format=None,                  # Optional: "scout", "slack", "zapier"
@@ -212,11 +217,12 @@ task = client.research.create(
 - `query` (str): Natural language research query.
 - `user_timezone` (str, optional): Timezone, e.g., `"America/Los_Angeles"`.
 - `user_location` (str, optional): Location, e.g., `"San Francisco, CA, US"`.
+- `browser` (str, optional): Browser backend - `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
 - `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
 - `webhook_url` (str, optional): URL for completion notifications.
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
 
-**Returns:** Dictionary containing `task_id` and task metadata.
+**Returns:** Dictionary containing `task_id` and task metadata. Failed tasks may include `rejection_reason`.
 
 #### research.get
 
@@ -268,7 +274,7 @@ scout = client.scouts.get("scout_id")
 **Parameters:**
 - `scout_id` (str): The unique identifier of the scout.
 
-**Returns:** Dictionary with scout details including `id`, `query`, `status`, `next_run_timestamp`.
+**Returns:** Dictionary with scout details including `id`, `query`, `status`, `next_run_timestamp`, and optional `rejection_reason`.
 
 #### scouts.create
 
@@ -299,7 +305,7 @@ scout = client.scouts.create(
 - `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
 - `is_public` (bool, optional): Whether the scout is publicly visible.
 
-**Returns:** Dictionary containing created scout details.
+**Returns:** Dictionary containing created scout details and optional `rejection_reason`.
 
 #### scouts.update
 
@@ -407,9 +413,9 @@ API keys start with `yt-` and can be created at [platform.yutori.com](https://pl
 
 | Command | Description |
 |---------|-------------|
-| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth` flag) |
+| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth`, `--browser`) |
 | `yutori browse get TASK_ID` | Get browsing task status and result |
-| `yutori research run QUERY [OPTIONS]` | Start a research task (`--timezone`, `--location`) |
+| `yutori research run QUERY [OPTIONS]` | Start a research task (`--timezone`, `--location`, `--browser`) |
 | `yutori research get TASK_ID` | Get research task status and result |
 | `yutori scouts list` | List scouts (`--limit`, `--status`) |
 | `yutori scouts get SCOUT_ID` | Get scout details |
