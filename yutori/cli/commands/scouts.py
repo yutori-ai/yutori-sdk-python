@@ -54,7 +54,7 @@ def list_scouts(
                 query,
                 scout.get("status", "unknown"),
                 interval_str,
-                escape(scout.get("rejection_reason", "")),
+                escape(scout.get("rejection_reason") or ""),
             )
 
         console.print(table)
@@ -121,10 +121,14 @@ def create(
             user_timezone=timezone,
         )
 
-        console.print("\n[green]Scout created successfully![/green]")
+        status = result.get("status", "N/A")
+        if status == "failed":
+            console.print("\n[red]Scout creation failed.[/red]")
+        else:
+            console.print("\n[green]Scout created successfully![/green]")
         console.print(f"  ID: {result.get('id', 'N/A')}")
         console.print(f"  Query: {escape(result.get('query', query))}")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
+        console.print(f"  Status: {status}")
         print_rejection_reason(console, result)
     finally:
         client.close()
