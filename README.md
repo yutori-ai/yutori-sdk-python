@@ -162,14 +162,23 @@ while True:
 print(result)
 ```
 
-For login-heavy flows, you can route the task through Yutori Local and use the auth-optimized browser:
+For tasks that involve logging in on a cloud browser, use `require_auth` to pick an auth-optimized provider:
 
 ```python
 task = client.browsing.create(
     task="Log in and export the latest invoice.",
     start_url="https://example.com/login",
-    browser="local",
     require_auth=True,
+)
+```
+
+To use Yutori Local with the user's existing logged-in desktop sessions instead of the cloud:
+
+```python
+task = client.browsing.create(
+    task="Export the latest invoice from my dashboard.",
+    start_url="https://example.com/dashboard",
+    browser="local",
 )
 ```
 
@@ -460,7 +469,8 @@ yutori scouts delete SCOUT_ID               # Delete a scout
 
 # Browsing
 yutori browse run "extract all prices" https://example.com/products
-yutori browse run "log in and continue" https://example.com/login --browser local --require-auth
+yutori browse run "log in and continue" https://example.com/login --require-auth
+yutori browse run "export dashboard data" https://example.com/dashboard --browser local
 yutori browse get TASK_ID
 
 # Research
