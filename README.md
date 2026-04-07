@@ -115,6 +115,16 @@ messages = [
 
 Install the optional image dependency with `pip install "yutori[n1]"` if you want to use these screenshot helpers.
 
+n1 tool calls use a normalized `1000x1000` coordinate space. The SDK provides public helpers so agent loops do not need to
+re-implement that math:
+
+```python
+from yutori.n1 import denormalize_coordinates
+
+coords = [500, 250]
+x, y = denormalize_coordinates(coords, width=1280, height=800)
+```
+
 For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
 
 ```python
