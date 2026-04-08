@@ -10,6 +10,12 @@ from rich.markup import escape
 
 from yutori.auth.credentials import resolve_api_key
 
+__all__ = [
+    "get_authenticated_client",
+    "print_rejection_reason",
+    "print_task_submission_result",
+]
+
 _console = Console()
 
 
