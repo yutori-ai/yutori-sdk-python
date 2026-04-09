@@ -125,6 +125,20 @@ coords = [500, 250]
 x, y = denormalize_coordinates(coords, width=1280, height=800)
 ```
 
+For local Playwright loops, the SDK also exposes an importable browser-use runtime under `yutori.n1.playwright` so callers
+do not need to reimplement the tool executor, ref resolution, or page-preparation logic:
+
+```python
+from yutori.n1.playwright import (
+    PlaywrightActionContext,
+    PlaywrightActionExecutor,
+)
+
+executor = PlaywrightActionExecutor()
+context = PlaywrightActionContext(page=page, viewport_width=1280, viewport_height=800)
+result = await executor.execute_tool_call(context, tool_call)
+```
+
 For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
 
 ```python

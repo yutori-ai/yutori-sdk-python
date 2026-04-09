@@ -26,6 +26,20 @@ Options:
 - `--headless` - Run browser in headless mode
 - `--max-steps` - Maximum number of steps (default: 100)
 
+## n1_5.py
+
+Demonstrates n1.5 with selectable tool sets, disabled tools, optional structured output, and the SDK's importable
+Playwright executor from `yutori.n1.playwright`.
+
+```bash
+uv run python examples/n1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
+```
+
+Options:
+- `--tool-set` - `core` / `expanded` or the full tool-set name
+- `--disable-tools` - Tool names to remove from the selected tool set
+- `--json-schema` - Request structured JSON output
+
 ## n1_custom_tools.py
 
 Extends the basic agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the n1 API.

@@ -1,0 +1,23 @@
+async (source) => {
+  try {
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const fn = new AsyncFunction(source);
+    const value = await fn();
+
+    if (value === undefined) {
+      return { success: true, hasResult: false, result: null };
+    }
+
+    if (typeof value === "string") {
+      return { success: true, hasResult: true, result: value };
+    }
+
+    try {
+      return { success: true, hasResult: true, result: JSON.stringify(value) };
+    } catch (_) {
+      return { success: true, hasResult: true, result: String(value) };
+    }
+  } catch (error) {
+    return { success: false, message: `Error executing JavaScript: ${error.message || "Unknown error"}` };
+  }
+}

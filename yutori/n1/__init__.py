@@ -6,6 +6,7 @@ Provides reusable helpers for common patterns in n1/n1.5 agent loops:
 - Payload management: trim old screenshots to stay within API size limits
 - Loop helpers: create trimmed requests without mutating caller state
 - Key mapping: convert n1.5 lowercase key names to Playwright-compatible names
+- Playwright runtime: execute browser-use tool calls against a local Playwright page
 - Model constants: canonical model identifiers and tool set names
 """
 
@@ -23,6 +24,14 @@ from .keys import map_key_to_playwright, map_keys_individual
 from .loop import acreate_trimmed, create_trimmed
 from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
+from .playwright import (
+    PlaywrightActionContext,
+    PlaywrightActionError,
+    PlaywrightActionExecutor,
+    PlaywrightToolExecutionResult,
+    prepare_page_for_model,
+    render_action_trace,
+)
 
 __all__ = [
     "acreate_trimmed",
@@ -36,7 +45,13 @@ __all__ = [
     "N1_COORDINATE_SCALE",
     "N1_MODEL",
     "normalize_coordinates",
+    "PlaywrightActionContext",
+    "PlaywrightActionError",
+    "PlaywrightActionExecutor",
+    "PlaywrightToolExecutionResult",
     "playwright_screenshot_to_data_url",
+    "prepare_page_for_model",
+    "render_action_trace",
     "RunHooksBase",
     "screenshot_to_data_url",
     "estimate_messages_size_bytes",
