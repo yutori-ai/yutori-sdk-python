@@ -16,7 +16,21 @@ Key differences from n1:
 
 Usage:
     export YUTORI_API_KEY=...
+
+    # Basic
     python examples/n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
+
+    # Expanded tool set (adds extract_elements, find, set_element_value, execute_js)
+    python examples/n1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
+
+    # Disable specific tools
+    python examples/n1_5.py --disable-tools hold_key drag --task "Search for flights" --start-url "https://google.com/flights"
+
+    # Structured JSON output via --json-schema
+    python examples/n1_5.py \
+        --task "List the team member names" \
+        --start-url "https://www.yutori.com" \
+        --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}'
 """
 
 import argparse
