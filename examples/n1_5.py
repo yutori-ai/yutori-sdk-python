@@ -308,27 +308,36 @@ class Agent:
     # element refs from the expanded tool set.
     # ------------------------------------------------------------------
 
-    async def _resolve_coordinates(self, arguments: dict) -> tuple[int, int]:
-        """Return absolute pixel coordinates from arguments.
+    async def _resolve_coordinates(self, arguments: dict) -> tuple[int, int] | str:
+        """Return absolute pixel coordinates from arguments, or an error string.
 
-        If a ``ref`` is present and ``coordinates`` is missing or empty,
-        resolve the ref to pixel coordinates via the in-page ref store
-        (populated by ``extract_elements``).  Otherwise fall back to
-        denormalizing the provided coordinates from n1's 1000x1000 space.
+        Resolution order (matching the Yutori agent loop):
+        1. If ``ref`` is present, try to resolve it to viewport pixels.
+           Ref resolution also scrolls the element into view.
+        2. If ref resolution fails (or no ref), fall back to denormalizing
+           ``coordinates`` from n1's 1000x1000 space.
+        3. If neither ref nor coordinates are usable, return an error.
         """
         coords = arguments.get("coordinates")
         ref = arguments.get("ref")
 
-        if ref and (not coords or len(coords) != 2):
+        # Try ref first — it also scrolls the element into view.
+        if ref:
             result_json = await _evaluate_js(self._page, "get_element_by_ref.js", ref)
             result = json.loads(result_json)
             if result.get("success"):
-                # Ref resolution returns viewport pixels directly — no denormalization needed.
                 px = result["coordinates"]
                 return int(px[0]), int(px[1])
-            logger.warning(f"Ref resolution failed for {ref}: {result.get('message')}")
+            msg = result.get("message", "Unknown error")
+            if coords and len(coords) == 2:
+                logger.warning(f"Ref {ref} failed ({msg}), falling back to coordinates {coords}")
+            else:
+                return f"[ERROR] Ref resolution failed for {ref}: {msg}"
 
-        return denormalize_coordinates(coords or [0, 0], self.viewport_width, self.viewport_height)
+        if coords and len(coords) == 2:
+            return denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+
+        return "[ERROR] No coordinates or ref provided"
 
     @staticmethod
     def _map_modifier(modifier: str | None) -> str | None:
@@ -354,9 +363,23 @@ class Agent:
         try:
             modifier = self._map_modifier(arguments.get("modifier"))
 
+            # Helper: resolve coordinates, returning error string on failure.
+            async def _coords(args: dict = arguments) -> tuple[int, int] | None:
+                result = await self._resolve_coordinates(args)
+                if isinstance(result, str):
+                    nonlocal _coord_error
+                    _coord_error = result
+                    return None
+                return result
+
+            _coord_error: str | None = None
+
             # ---- Mouse click actions ----
             if action_name in ("left_click", "double_click", "triple_click", "middle_click", "right_click"):
-                abs_x, abs_y = await self._resolve_coordinates(arguments)
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
                 button = {"middle_click": "middle", "right_click": "right"}.get(action_name, "left")
                 click_count = {"double_click": 2, "triple_click": 3}.get(action_name, 1)
 
@@ -371,18 +394,27 @@ class Agent:
 
             # ---- Mouse movement actions ----
             elif action_name == "mouse_move":
-                abs_x, abs_y = await self._resolve_coordinates(arguments)
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await asyncio.sleep(0.3)
 
             elif action_name == "mouse_down":
-                abs_x, abs_y = await self._resolve_coordinates(arguments)
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.down()
                 await asyncio.sleep(0.3)
 
             elif action_name == "mouse_up":
-                abs_x, abs_y = await self._resolve_coordinates(arguments)
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.3)
@@ -391,8 +423,12 @@ class Agent:
                 start_coords = arguments.get("start_coordinates", [0, 0])
                 end_coords = arguments.get("coordinates", [0, 0])
 
-                start_x, start_y = await self._resolve_coordinates({"coordinates": start_coords})
-                end_x, end_y = await self._resolve_coordinates({"coordinates": end_coords})
+                start = await _coords({"coordinates": start_coords})
+                end = await _coords({"coordinates": end_coords})
+                if start is None or end is None:
+                    return _coord_error
+                start_x, start_y = start
+                end_x, end_y = end
 
                 await self._page.mouse.move(start_x, start_y)
                 await self._page.mouse.down()
