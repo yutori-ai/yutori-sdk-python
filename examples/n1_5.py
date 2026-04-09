@@ -75,9 +75,9 @@ def _load_js(name: str) -> str:
 async def _evaluate_js(page, name: str, *args) -> any:
     """Load a JS IIFE from tools/ and evaluate it with the given arguments.
 
-    Mirrors the internal execute_js_from_file pattern: builds a call expression
-    with JSON-serialized arguments so multi-argument JS functions work correctly
-    with Playwright's page.evaluate() (which only passes a single argument).
+    Builds a call expression with JSON-serialized arguments so multi-argument
+    JS functions work correctly with Playwright's page.evaluate() (which only
+    passes a single argument).
     """
     script = _load_js(name)
     escaped_args = ", ".join(json.dumps(arg) for arg in args)
@@ -406,7 +406,7 @@ class Agent:
                 amount = arguments.get("amount", 3)
                 coords = arguments.get("coordinates")
 
-                px = amount * 100  # 1 unit ≈ 100px, consistent with internal implementation
+                px = amount * 100  # 1 unit ≈ 100px
 
                 delta_x, delta_y = 0, 0
                 if direction == "up":
@@ -451,13 +451,17 @@ class Agent:
                 duration = arguments.get("duration")
                 key_presses = map_key_to_playwright(key_expr)
                 if duration is not None and duration > 0:
+                    # keyboard.down/up only accept single keys, so split combos
+                    individual_keys = []
                     for key in key_presses:
+                        individual_keys.extend(key.split("+"))
+                    for key in individual_keys:
                         await self._page.keyboard.down(key)
                     await asyncio.sleep(min(duration, 100))
-                    for key in reversed(key_presses):
+                    for key in reversed(individual_keys):
                         await self._page.keyboard.up(key)
                 else:
-                    # No duration: treat as a regular key press
+                    # No duration: treat as a regular key press (supports combos)
                     for key in key_presses:
                         await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)

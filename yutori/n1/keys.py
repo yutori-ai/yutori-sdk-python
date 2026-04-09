@@ -5,15 +5,13 @@ while Playwright expects Playwright-style names (e.g. ``Control+c``,
 ``Enter``, ``ArrowLeft``).  Use :func:`map_key_to_playwright` to convert
 a full n1.5 key expression to a Playwright-compatible string.
 
-The mapping mirrors the internal ``browser_key_map.KEY_MAP`` — only the
-Playwright ``key`` field is needed here (not ``code`` / ``keyCode``).
+Only the Playwright ``key`` name is needed here (not ``code`` / ``keyCode``).
 """
 
 from __future__ import annotations
 
 # Single key name mapping: n1.5 lowercase → Playwright key name.
-# Derived from the internal browser_key_map.KEY_MAP — every entry here
-# corresponds to one in that authoritative map.
+# n1.5 lowercase key name → Playwright key name.
 _KEY_MAP: dict[str, str] = {
     # Modifier keys
     "ctrl": "Control",

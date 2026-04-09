@@ -18,7 +18,7 @@ def denormalize_coordinates(
 ) -> tuple[int, int]:
     """Convert normalized n1 coordinates into viewport pixels.
 
-    Uses truncation (``int()``) to match the internal implementation.
+    Uses truncation (``int()``) rather than rounding.
 
     When *clamp* is ``True`` (the default), the result is clamped to
     ``[0, width - 1]`` and ``[0, height - 1]`` so the returned pixel
