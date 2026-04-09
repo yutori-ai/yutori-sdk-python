@@ -391,6 +391,7 @@ class Agent:
                 if modifier:
                     await self._page.keyboard.up(modifier)
                 await asyncio.sleep(0.5)
+                return f"Clicked {click_count}x with {button}"
 
             # ---- Mouse movement actions ----
             elif action_name == "mouse_move":
@@ -400,6 +401,7 @@ class Agent:
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await asyncio.sleep(0.3)
+                return "Mouse moved and hovering"
 
             elif action_name == "mouse_down":
                 resolved = await _coords()
@@ -409,6 +411,7 @@ class Agent:
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.down()
                 await asyncio.sleep(0.3)
+                return "Mouse button pressed"
 
             elif action_name == "mouse_up":
                 resolved = await _coords()
@@ -418,6 +421,7 @@ class Agent:
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.3)
+                return "Mouse button released"
 
             elif action_name == "drag":
                 start_coords = arguments.get("start_coordinates", [0, 0])
@@ -435,6 +439,7 @@ class Agent:
                 await self._page.mouse.move(end_x, end_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.5)
+                return "Dragged successfully"
 
             # ---- Scroll ----
             elif action_name == "scroll":
@@ -465,15 +470,16 @@ class Agent:
                 if modifier:
                     await self._page.keyboard.up(modifier)
                 await asyncio.sleep(0.5)
+                return f"Scrolled {direction}"
 
             # ---- Keyboard actions ----
             elif action_name == "type":
                 text = arguments.get("text", "")
-                # Type in chunks to avoid issues with very long text
                 chunk_size = 50
                 for i in range(0, len(text), chunk_size):
                     await self._page.keyboard.type(text[i : i + chunk_size])
                 await asyncio.sleep(0.5)
+                return f"Typed {len(text)} characters"
 
             elif action_name == "key_press":
                 key_expr = arguments.get("key", "")
@@ -481,13 +487,13 @@ class Agent:
                 for key in key_presses:
                     await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)
+                return f"Pressed key: {key_expr}"
 
             elif action_name == "hold_key":
                 key_expr = arguments.get("key", "")
                 duration = arguments.get("duration")
                 key_presses = map_key_to_playwright(key_expr)
                 if duration is not None and duration > 0:
-                    # keyboard.down/up only accept single keys, so split combos
                     individual_keys = []
                     for key in key_presses:
                         individual_keys.extend(key.split("+"))
@@ -496,11 +502,13 @@ class Agent:
                     await asyncio.sleep(min(duration, 100))
                     for key in reversed(individual_keys):
                         await self._page.keyboard.up(key)
+                    await asyncio.sleep(0.3)
+                    return f"Held key '{key_expr}' for {duration}s"
                 else:
-                    # No duration: treat as a regular key press (supports combos)
                     for key in key_presses:
                         await self._page.keyboard.press(key)
-                await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.3)
+                    return f"Pressed key: {key_expr}"
 
             # ---- Navigation actions ----
             elif action_name == "goto_url":
@@ -510,25 +518,30 @@ class Agent:
                 await self._page.goto(url)
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(1)
+                return f"Navigated to {url}"
 
             elif action_name == "go_back":
                 await self._page.go_back()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(0.5)
+                return "Navigated back"
 
             elif action_name == "go_forward":
                 await self._page.go_forward()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(0.5)
+                return "Navigated forward"
 
             elif action_name == "refresh":
                 await self._page.reload()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(1)
+                return "Refreshed the page"
 
             elif action_name == "wait":
                 duration = max(0, min(arguments.get("duration", 5), 100))
                 await asyncio.sleep(duration)
+                return f"Waited {duration}s"
 
             # ---- Expanded tool set actions ----
             elif action_name == "extract_elements":
