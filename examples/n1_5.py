@@ -581,12 +581,6 @@ class Agent:
                 logger.warning(f"Unknown action: {action_name}")
                 return f"[ERROR] Unknown action: {action_name}"
 
-            # Wait for any navigation or dynamic content
-            try:
-                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except Exception:
-                pass
-
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
             return f"[ERROR] Error executing {action_name}: {e}"
