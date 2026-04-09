@@ -62,7 +62,7 @@ from yutori.n1 import (
 
 # ---------------------------------------------------------------------------
 # JavaScript helpers for expanded tool set actions.
-# Loaded from examples/tools/ — verbatim copies from the n1 browser extension.
+# Loaded from examples/tools/
 # ---------------------------------------------------------------------------
 
 _TOOLS_DIR = Path(__file__).parent / "tools"
@@ -332,12 +332,11 @@ class Agent:
 
     @staticmethod
     def _map_modifier(modifier: str | None) -> str | None:
-        """Map n1.5 modifier name to Playwright key name."""
+        """Map n1.5 modifier name to Playwright key name via the full key map."""
         if not modifier:
             return None
-        m = modifier.lower()
-        return {"ctrl": "Control", "alt": "Alt", "shift": "Shift",
-                "meta": "Meta", "command": "Meta", "super": "Meta"}.get(m, modifier)
+        mapped = map_key_to_playwright(modifier)
+        return mapped[0] if mapped else modifier
 
     # ------------------------------------------------------------------
     # Action execution — n1.5 action space
@@ -363,6 +362,8 @@ class Agent:
 
                 if modifier:
                     await self._page.keyboard.down(modifier)
+                await self._page.mouse.move(abs_x, abs_y)
+                await asyncio.sleep(0.1)
                 await self._page.mouse.click(abs_x, abs_y, button=button, click_count=click_count)
                 if modifier:
                     await self._page.keyboard.up(modifier)
@@ -403,8 +404,8 @@ class Agent:
             elif action_name == "scroll":
                 direction = arguments.get("direction", "down")
                 amount = arguments.get("amount", 3)
+                coords = arguments.get("coordinates")
 
-                abs_x, abs_y = await self._resolve_coordinates(arguments)
                 px = amount * 100  # 1 unit ≈ 100px, consistent with internal implementation
 
                 delta_x, delta_y = 0, 0
@@ -419,8 +420,12 @@ class Agent:
 
                 if modifier:
                     await self._page.keyboard.down(modifier)
-                await self._page.mouse.move(abs_x, abs_y)
-                await self._page.mouse.wheel(delta_x, delta_y)
+                if coords and len(coords) == 2:
+                    abs_x, abs_y = await self._resolve_coordinates(arguments)
+                    await self._page.mouse.move(abs_x, abs_y)
+                    await self._page.mouse.wheel(delta_x, delta_y)
+                else:
+                    await self._page.evaluate(f"window.scrollBy({delta_x}, {delta_y})")
                 if modifier:
                     await self._page.keyboard.up(modifier)
                 await asyncio.sleep(0.5)
@@ -443,13 +448,18 @@ class Agent:
 
             elif action_name == "hold_key":
                 key_expr = arguments.get("key", "")
-                duration = min(arguments.get("duration", 1), 100)
+                duration = arguments.get("duration")
                 key_presses = map_key_to_playwright(key_expr)
-                for key in key_presses:
-                    await self._page.keyboard.down(key)
-                await asyncio.sleep(max(0, duration))
-                for key in reversed(key_presses):
-                    await self._page.keyboard.up(key)
+                if duration is not None and duration > 0:
+                    for key in key_presses:
+                        await self._page.keyboard.down(key)
+                    await asyncio.sleep(min(duration, 100))
+                    for key in reversed(key_presses):
+                        await self._page.keyboard.up(key)
+                else:
+                    # No duration: treat as a regular key press
+                    for key in key_presses:
+                        await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)
 
             # ---- Navigation actions ----

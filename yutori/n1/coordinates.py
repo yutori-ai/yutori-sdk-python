@@ -18,6 +18,8 @@ def denormalize_coordinates(
 ) -> tuple[int, int]:
     """Convert normalized n1 coordinates into viewport pixels.
 
+    Uses truncation (``int()``) to match the internal implementation.
+
     When *clamp* is ``True`` (the default), the result is clamped to
     ``[0, width - 1]`` and ``[0, height - 1]`` so the returned pixel
     indices are always valid for a viewport of the given size.
@@ -28,8 +30,8 @@ def denormalize_coordinates(
     _validate_dimension("height", height)
     _validate_scale(scale)
 
-    raw_x = round(x / scale * width)
-    raw_y = round(y / scale * height)
+    raw_x = int(x / scale * width)
+    raw_y = int(y / scale * height)
 
     if not clamp:
         return raw_x, raw_y

@@ -4,38 +4,125 @@ n1.5 returns lowercase key names (e.g. ``ctrl+c``, ``enter``, ``left``)
 while Playwright expects Playwright-style names (e.g. ``Control+c``,
 ``Enter``, ``ArrowLeft``).  Use :func:`map_key_to_playwright` to convert
 a full n1.5 key expression to a Playwright-compatible string.
+
+The mapping mirrors the internal ``browser_key_map.KEY_MAP`` — only the
+Playwright ``key`` field is needed here (not ``code`` / ``keyCode``).
 """
 
 from __future__ import annotations
 
-# Single key name mapping: n1.5 lowercase → Playwright
+# Single key name mapping: n1.5 lowercase → Playwright key name.
+# Derived from the internal browser_key_map.KEY_MAP — every entry here
+# corresponds to one in that authoritative map.
 _KEY_MAP: dict[str, str] = {
-    # Modifiers
+    # Modifier keys
     "ctrl": "Control",
-    "alt": "Alt",
-    "shift": "Shift",
-    "meta": "Meta",
+    "control": "Control",
+    "cmd": "Meta",
     "command": "Meta",
+    "meta": "Meta",
+    "alt": "Alt",
+    "option": "Alt",
+    "shift": "Shift",
     "super": "Meta",
-    # Common
+    # Enter keys
     "enter": "Enter",
-    "backspace": "Backspace",
-    "delete": "Delete",
+    "return": "Enter",
+    "kp_enter": "Enter",
+    # Navigation keys
     "tab": "Tab",
+    "delete": "Delete",
+    "backspace": "Backspace",
+    "escape": "Escape",
     "esc": "Escape",
     "space": " ",
+    " ": " ",
     # Arrow keys
-    "left": "ArrowLeft",
-    "right": "ArrowRight",
+    "arrowup": "ArrowUp",
+    "arrowdown": "ArrowDown",
+    "arrowleft": "ArrowLeft",
+    "arrowright": "ArrowRight",
     "up": "ArrowUp",
     "down": "ArrowDown",
+    "left": "ArrowLeft",
+    "right": "ArrowRight",
     # Page navigation
-    "pageup": "PageUp",
-    "pagedown": "PageDown",
     "home": "Home",
     "end": "End",
+    "pageup": "PageUp",
+    "pagedown": "PageDown",
     # Function keys
     **{f"f{i}": f"F{i}" for i in range(1, 13)},
+    # Special characters
+    ";": ";",
+    "=": "=",
+    ",": ",",
+    "-": "-",
+    ".": ".",
+    "/": "/",
+    "`": "`",
+    "[": "[",
+    "\\": "\\",
+    "]": "]",
+    "'": "'",
+    "!": "!",
+    "@": "@",
+    "#": "#",
+    "$": "$",
+    "%": "%",
+    "^": "^",
+    "&": "&",
+    "*": "*",
+    "(": "(",
+    ")": ")",
+    "_": "_",
+    "+": "+",
+    "{": "{",
+    "}": "}",
+    "|": "|",
+    ":": ":",
+    '"': '"',
+    "<": "<",
+    ">": ">",
+    "?": "?",
+    "~": "~",
+    # Word-form punctuation
+    "plus": "+",
+    "minus": "-",
+    "equal": "=",
+    "comma": ",",
+    "period": ".",
+    "slash": "/",
+    "backslash": "\\",
+    "semicolon": ";",
+    "quote": "'",
+    "backquote": "`",
+    "bracketleft": "[",
+    "bracketright": "]",
+    # Lock keys
+    "capslock": "CapsLock",
+    "numlock": "NumLock",
+    "scrolllock": "ScrollLock",
+    # Media / misc keys
+    "pause": "Pause",
+    "insert": "Insert",
+    "printscreen": "PrintScreen",
+    # Numpad
+    "numpad0": "0",
+    "numpad1": "1",
+    "numpad2": "2",
+    "numpad3": "3",
+    "numpad4": "4",
+    "numpad5": "5",
+    "numpad6": "6",
+    "numpad7": "7",
+    "numpad8": "8",
+    "numpad9": "9",
+    "numpadmultiply": "*",
+    "numpadadd": "+",
+    "numpadsubtract": "-",
+    "numpaddecimal": ".",
+    "numpaddivide": "/",
 }
 
 
