@@ -5,12 +5,13 @@
  * numeric/range, and date/time inputs.  Uses the native property
  * descriptor setter to bypass React/Vue interception.
  *
- * Arguments: (elementRef: string, inputValue: any)
+ * Arguments: [elementRef: string, inputValue: any]  (passed as a single array
+ *   because Playwright's page.evaluate() only passes one argument)
  * Returns JSON: {success, message}
  *
  * Adapted from the n1 browser extension.
  */
-(function (elementRef, inputValue) {
+(function ([elementRef, inputValue]) {
   function response(success, message) {
     return JSON.stringify({ success: success, action: "set_element_value", message: message });
   }
