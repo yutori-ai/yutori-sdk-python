@@ -1,38 +1,50 @@
-/**
- * DOM tree walker for n1.5's expanded tool set.
- *
- * Walks the visible DOM, assigns stable ref IDs to each element
- * (stored in window.__n1ElementRefs), and returns a structured text
- * representation of the page tree.
- *
- * Accepts a single argument `filterType`:
- *   - "visible"     (default) include visible elements in the viewport
- *   - "interactive" only interactive elements (links, buttons, inputs, …)
- *   - "all"         include all elements regardless of viewport position
- *
- * Adapted from the n1 browser extension.
- */
 (function (filterType) {
   var MAX_DEPTH = 15;
   var SKIPPED_TAGS = {
-    script: true, style: true, meta: true, link: true, title: true, noscript: true,
+    script: true,
+    style: true,
+    meta: true,
+    link: true,
+    title: true,
+    noscript: true,
   };
   var INTERACTIVE_TAGS = {
-    a: true, button: true, input: true, select: true, textarea: true, details: true, summary: true,
+    a: true,
+    button: true,
+    input: true,
+    select: true,
+    textarea: true,
+    details: true,
+    summary: true,
   };
   var SEMANTIC_TAGS = {
-    h1: true, h2: true, h3: true, h4: true, h5: true, h6: true,
-    nav: true, main: true, header: true, footer: true, section: true, article: true, aside: true,
+    h1: true,
+    h2: true,
+    h3: true,
+    h4: true,
+    h5: true,
+    h6: true,
+    nav: true,
+    main: true,
+    header: true,
+    footer: true,
+    section: true,
+    article: true,
+    aside: true,
   };
-  var FUNCTIONAL_KEYWORDS = [
-    "search", "dropdown", "menu", "modal", "dialog", "popup", "toolbar", "sidebar", "content", "text",
-  ];
+  var FUNCTIONAL_KEYWORDS = ["search", "dropdown", "menu", "modal", "dialog", "popup", "toolbar", "sidebar", "content", "text"];
 
   // Keep a stable ref for each live element so later actions can target the same node.
   function ensureStore() {
-    if (!window.__n1ElementRefs) window.__n1ElementRefs = {};
-    if (!window.__n1ElementIds) window.__n1ElementIds = new WeakMap();
-    if (!window.__n1RefCounter) window.__n1RefCounter = 0;
+    if (!window.__n1ElementRefs) {
+      window.__n1ElementRefs = {};
+    }
+    if (!window.__n1ElementIds) {
+      window.__n1ElementIds = new WeakMap();
+    }
+    if (!window.__n1RefCounter) {
+      window.__n1RefCounter = 0;
+    }
   }
 
   function compactWhitespace(value) {
@@ -52,66 +64,110 @@
 
   function getRole(element) {
     var explicitRole = element.getAttribute("role");
-    if (explicitRole) return explicitRole;
+    if (explicitRole) {
+      return explicitRole;
+    }
 
     var tag = element.tagName.toLowerCase();
     if (tag === "input") {
       var type = (element.getAttribute("type") || "").toLowerCase();
-      if (type === "submit" || type === "button" || type === "file") return "button";
-      if (type === "checkbox") return "checkbox";
-      if (type === "radio") return "radio";
+      if (type === "submit" || type === "button" || type === "file") {
+        return "button";
+      }
+      if (type === "checkbox") {
+        return "checkbox";
+      }
+      if (type === "radio") {
+        return "radio";
+      }
       return "textbox";
     }
 
     var tagRoles = {
-      a: "link", button: "button", select: "combobox", textarea: "textbox",
-      h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading",
-      img: "image", nav: "navigation", main: "main", header: "banner", footer: "contentinfo",
-      section: "region", article: "article", aside: "complementary", form: "form",
-      table: "table", ul: "list", ol: "list", li: "listitem", label: "label",
+      a: "link",
+      button: "button",
+      select: "combobox",
+      textarea: "textbox",
+      h1: "heading",
+      h2: "heading",
+      h3: "heading",
+      h4: "heading",
+      h5: "heading",
+      h6: "heading",
+      img: "image",
+      nav: "navigation",
+      main: "main",
+      header: "banner",
+      footer: "contentinfo",
+      section: "region",
+      article: "article",
+      aside: "complementary",
+      form: "form",
+      table: "table",
+      ul: "list",
+      ol: "list",
+      li: "listitem",
+      label: "label",
     };
+
     return tagRoles[tag] || "generic";
   }
 
   function getName(element) {
-    var tag = element.tagName.toLowerCase(), candidate = "";
+    var tag = element.tagName.toLowerCase();
+    var candidate = "";
 
     if (tag === "select") {
       var selectedOption = element.options[element.selectedIndex] || element.querySelector("option[selected]");
       if (selectedOption && selectedOption.textContent) {
         candidate = compactWhitespace(selectedOption.textContent);
-        if (candidate) return candidate;
+        if (candidate) {
+          return candidate;
+        }
       }
     }
 
     var attributeNames = ["aria-label", "placeholder", "title", "alt"];
     for (var i = 0; i < attributeNames.length; i++) {
       candidate = compactWhitespace(element.getAttribute(attributeNames[i]) || "");
-      if (candidate) return candidate;
+      if (candidate) {
+        return candidate;
+      }
     }
 
     if (element.id) {
       var label = document.querySelector('label[for="' + element.id.replace(/"/g, '\\"') + '"]');
       candidate = label && label.textContent ? compactWhitespace(label.textContent) : "";
-      if (candidate) return candidate;
+      if (candidate) {
+        return candidate;
+      }
     }
 
     if (tag === "input") {
       var type = (element.getAttribute("type") || "").toLowerCase();
       var rawValue = compactWhitespace(element.getAttribute("value") || "");
-      if (type === "submit" && rawValue) return rawValue;
+      if (type === "submit" && rawValue) {
+        return rawValue;
+      }
+
       candidate = compactWhitespace(element.value || "");
-      if (candidate && candidate.length < 50) return candidate;
+      if (candidate && candidate.length < 50) {
+        return candidate;
+      }
     }
 
     if (tag === "button" || tag === "a" || tag === "summary") {
       candidate = readDirectText(element);
-      if (candidate) return candidate;
+      if (candidate) {
+        return candidate;
+      }
     }
 
     if (/^h[1-6]$/.test(tag)) {
       candidate = compactWhitespace(element.textContent || "");
-      if (candidate) return candidate.slice(0, 100);
+      if (candidate) {
+        return candidate.slice(0, 100);
+      }
     }
 
     if (tag === "img") {
@@ -127,14 +183,18 @@
     if (candidate && candidate.length >= 3) {
       return candidate.length > 50 ? candidate.slice(0, 50) + "..." : candidate;
     }
+
     return "";
   }
 
   function isVisible(element) {
     var style = window.getComputedStyle(element);
     return (
-      style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" &&
-      element.offsetWidth > 0 && element.offsetHeight > 0
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      style.opacity !== "0" &&
+      element.offsetWidth > 0 &&
+      element.offsetHeight > 0
     );
   }
 
@@ -150,7 +210,8 @@
       INTERACTIVE_TAGS[tag] === true ||
       element.getAttribute("onclick") !== null ||
       element.getAttribute("tabindex") !== null ||
-      role === "button" || role === "link" ||
+      role === "button" ||
+      role === "link" ||
       element.getAttribute("contenteditable") === "true"
     );
   }
@@ -165,27 +226,56 @@
     var id = (element.id || "").toLowerCase();
     var className = compactWhitespace(typeof element.className === "string" ? element.className : "").toLowerCase();
 
-    if (role === "search" || role === "form" || role === "group" || role === "toolbar" ||
-        role === "navigation" || tag === "form" || tag === "fieldset" || tag === "nav") {
+    if (
+      role === "search" ||
+      role === "form" ||
+      role === "group" ||
+      role === "toolbar" ||
+      role === "navigation" ||
+      tag === "form" ||
+      tag === "fieldset" ||
+      tag === "nav"
+    ) {
       return true;
     }
+
     for (var i = 0; i < FUNCTIONAL_KEYWORDS.length; i++) {
       var keyword = FUNCTIONAL_KEYWORDS[i];
-      if (id.indexOf(keyword) !== -1 || className.indexOf(keyword) !== -1) return true;
+      if (id.indexOf(keyword) !== -1 || className.indexOf(keyword) !== -1) {
+        return true;
+      }
     }
+
     return false;
   }
 
   function shouldInclude(element) {
     var tag = element.tagName.toLowerCase();
-    if (SKIPPED_TAGS[tag] || element.getAttribute("aria-hidden") === "true") return false;
-    if (!isVisible(element)) return false;
-    if (filterType !== "all" && !isInViewport(element)) return false;
-    if (filterType === "interactive") return isInteractive(element);
-    if (isInteractive(element) || isSemantic(element)) return true;
+    if (SKIPPED_TAGS[tag] || element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+    if (!isVisible(element)) {
+      return false;
+    }
+    if (filterType !== "all" && !isInViewport(element)) {
+      return false;
+    }
+    if (filterType === "interactive") {
+      return isInteractive(element);
+    }
+    if (isInteractive(element) || isSemantic(element)) {
+      return true;
+    }
+
     var cleanName = getName(element);
-    if (cleanName) return true;
-    if (getRole(element) === "generic" && (tag === "div" || tag === "span")) return isContainer(element);
+    if (cleanName) {
+      return true;
+    }
+
+    if (getRole(element) === "generic" && (tag === "div" || tag === "span")) {
+      return isContainer(element);
+    }
+
     return isContainer(element);
   }
 
@@ -194,6 +284,7 @@
     if (existingRef && window.__n1ElementRefs[existingRef] && window.__n1ElementRefs[existingRef].deref() === element) {
       return existingRef;
     }
+
     var ref = "ref_" + ++window.__n1RefCounter;
     window.__n1ElementIds.set(element, ref);
     window.__n1ElementRefs[ref] = new WeakRef(element);
@@ -201,27 +292,56 @@
   }
 
   function quoteAttribute(value) {
-    return String(value).replace(/\\/g, "\\\\").replace(/\r/g, " ").replace(/\n/g, " ")
-      .replace(/\t/g, " ").replace(/"/g, '\\"');
+    return String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/\r/g, " ")
+      .replace(/\n/g, " ")
+      .replace(/\t/g, " ")
+      .replace(/"/g, '\\"');
   }
 
   function formatLine(element, depth) {
-    var role = getRole(element), name = getName(element);
+    var role = getRole(element);
+    var name = getName(element);
     var line = new Array(depth + 1).join("  ") + "- " + role;
-    if (name) line += ' "' + quoteAttribute(compactWhitespace(name).slice(0, 100)) + '"';
+
+    if (name) {
+      line += ' "' + quoteAttribute(compactWhitespace(name).slice(0, 100)) + '"';
+    }
+
     line += " [ref=" + getOrCreateRef(element) + "]";
-    if (element.id) line += ' id="' + quoteAttribute(element.id) + '"';
-    if (element.getAttribute("href")) line += ' href="' + quoteAttribute(element.getAttribute("href")) + '"';
-    if (element.getAttribute("type")) line += ' type="' + quoteAttribute(element.getAttribute("type")) + '"';
-    if (element.getAttribute("placeholder")) line += ' placeholder="' + quoteAttribute(element.getAttribute("placeholder")) + '"';
+
+    if (element.id) {
+      line += ' id="' + quoteAttribute(element.id) + '"';
+    }
+    if (element.getAttribute("href")) {
+      line += ' href="' + quoteAttribute(element.getAttribute("href")) + '"';
+    }
+    if (element.getAttribute("type")) {
+      line += ' type="' + quoteAttribute(element.getAttribute("type")) + '"';
+    }
+    if (element.getAttribute("placeholder")) {
+      line += ' placeholder="' + quoteAttribute(element.getAttribute("placeholder")) + '"';
+    }
+
     return line;
   }
 
   function walk(element, depth, output) {
-    if (!element || !element.tagName || depth > MAX_DEPTH) return;
+    if (!element || !element.tagName || depth > MAX_DEPTH) {
+      return;
+    }
+
     var includeHere = depth === 0 || shouldInclude(element);
-    if (includeHere) output.push(formatLine(element, depth));
-    if (!element.children || depth >= MAX_DEPTH) return;
+    if (includeHere) {
+      output.push(formatLine(element, depth));
+    }
+
+    if (!element.children || depth >= MAX_DEPTH) {
+      return;
+    }
+
+    // Preserve the current indentation level when skipping a purely structural node.
     var childDepth = includeHere ? depth + 1 : depth;
     for (var i = 0; i < element.children.length; i++) {
       walk(element.children[i], childDepth, output);
@@ -229,17 +349,27 @@
   }
 
   function pruneDeadRefs() {
+    // WeakRefs may outlive detached nodes in the map until we sweep them explicitly.
     for (var ref in window.__n1ElementRefs) {
-      if (!window.__n1ElementRefs[ref].deref()) delete window.__n1ElementRefs[ref];
+      if (!window.__n1ElementRefs[ref].deref()) {
+        delete window.__n1ElementRefs[ref];
+      }
     }
   }
 
   ensureStore();
+
   var lines = [];
-  if (document.body) walk(document.body, 0, lines);
+  if (document.body) {
+    walk(document.body, 0, lines);
+  }
   pruneDeadRefs();
 
-  return lines.filter(function (line) {
+  var filteredLines = lines.filter(function (line) {
     return !/^\s*- generic \[ref=ref_\d+\]$/.test(line);
-  }).join("\n");
+  });
+
+  return JSON.stringify({
+    pageContent: filteredLines.join("\n"),
+  });
 })

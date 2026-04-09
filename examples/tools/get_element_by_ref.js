@@ -1,37 +1,44 @@
-/**
- * Resolves an element ref string to viewport pixel coordinates.
- *
- * If the element's center is outside the viewport, it is scrolled into view
- * first. Returns JSON: {success, coordinates?[x,y], message?}.
- *
- * Adapted from the n1 browser extension.
- */
 (function (elementRef) {
   function failure(message) {
-    return JSON.stringify({ success: false, action: "get_element_by_ref", message: message });
+    return JSON.stringify({
+      success: false,
+      action: "get_element_by_ref",
+      message: message,
+    });
   }
 
   function getTrackedElement(ref) {
-    if (!window.__n1ElementRefs || !window.__n1ElementRefs[ref]) return null;
+    if (!window.__n1ElementRefs || !window.__n1ElementRefs[ref]) {
+      return null;
+    }
+
     var weakRef = window.__n1ElementRefs[ref];
     var element = weakRef.deref();
     if (!element || !document.contains(element)) {
       delete window.__n1ElementRefs[ref];
       return null;
     }
+
     return element;
   }
 
   function isViewportVisible(rect) {
-    var vw = window.innerWidth || document.documentElement.clientWidth;
-    var vh = window.innerHeight || document.documentElement.clientHeight;
-    return rect.top < vh && rect.bottom > 0 && rect.left < vw && rect.right > 0 && rect.width > 0 && rect.height > 0;
+    var viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    return (
+      rect.top < viewportHeight &&
+      rect.bottom > 0 &&
+      rect.left < viewportWidth &&
+      rect.right > 0 &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
   }
 
   function isPointInViewport(x, y) {
-    var vw = window.innerWidth || document.documentElement.clientWidth;
-    var vh = window.innerHeight || document.documentElement.clientHeight;
-    return x >= 0 && x <= vw && y >= 0 && y <= vh;
+    var viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    return x >= 0 && x <= viewportWidth && y >= 0 && y <= viewportHeight;
   }
 
   try {
@@ -44,18 +51,24 @@
     var wasVisibleBeforeScroll = isViewportVisible(beforeScrollRect);
     var centerX = beforeScrollRect.left + beforeScrollRect.width / 2;
     var centerY = beforeScrollRect.top + beforeScrollRect.height / 2;
+
     var centerInViewport = isPointInViewport(centerX, centerY);
 
+    // Downstream actions click the element center, so partial visibility is not enough.
     if (!wasVisibleBeforeScroll || !centerInViewport) {
       var htmlEl = document.documentElement;
       var bodyEl = document.body;
       var prevHtml = htmlEl.style.scrollBehavior;
       var prevBody = bodyEl ? bodyEl.style.scrollBehavior : "";
       try {
+        // Some sites force smooth scrolling globally; temporarily disable it so coordinates settle immediately.
         htmlEl.style.scrollBehavior = "auto";
         if (bodyEl) bodyEl.style.scrollBehavior = "auto";
+
         element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
-        element.offsetHeight; // force layout
+
+        // Force layout so getBoundingClientRect reflects the post-scroll position.
+        element.offsetHeight;
       } finally {
         htmlEl.style.scrollBehavior = prevHtml;
         if (bodyEl) bodyEl.style.scrollBehavior = prevBody;

@@ -62,14 +62,27 @@ from yutori.n1 import (
 
 # ---------------------------------------------------------------------------
 # JavaScript helpers for expanded tool set actions.
-# Loaded from examples/scripts/ — adapted from the n1 browser extension.
+# Loaded from examples/tools/ — verbatim copies from the n1 browser extension.
 # ---------------------------------------------------------------------------
 
-_SCRIPTS_DIR = Path(__file__).parent / "scripts"
+_TOOLS_DIR = Path(__file__).parent / "tools"
 
 
 def _load_js(name: str) -> str:
-    return (_SCRIPTS_DIR / name).read_text()
+    return (_TOOLS_DIR / name).read_text()
+
+
+async def _evaluate_js(page, name: str, *args) -> any:
+    """Load a JS IIFE from tools/ and evaluate it with the given arguments.
+
+    Mirrors the internal execute_js_from_file pattern: builds a call expression
+    with JSON-serialized arguments so multi-argument JS functions work correctly
+    with Playwright's page.evaluate() (which only passes a single argument).
+    """
+    script = _load_js(name)
+    escaped_args = ", ".join(json.dumps(arg) for arg in args)
+    return await page.evaluate(f"({script})({escaped_args})")
+
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -307,7 +320,7 @@ class Agent:
         ref = arguments.get("ref")
 
         if ref and (not coords or len(coords) != 2):
-            result_json = await self._page.evaluate(_load_js("get_element_by_ref.js"), ref)
+            result_json = await _evaluate_js(self._page, "get_element_by_ref.js", ref)
             result = json.loads(result_json)
             if result.get("success"):
                 # Ref resolution returns viewport pixels directly — no denormalization needed.
@@ -470,13 +483,16 @@ class Agent:
             # ---- Expanded tool set actions ----
             elif action_name == "extract_elements":
                 filter_type = arguments.get("filter", "visible")
-                result_text = await self._page.evaluate(_load_js("extract_dom_elements.js"), filter_type)
-                return result_text
+                result = await _evaluate_js(self._page, "extract_dom_elements.js", filter_type)
+                dom_data = json.loads(result) if isinstance(result, str) else result
+                return dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
 
             elif action_name == "find":
                 text = arguments.get("text", "")
                 # Get full DOM tree then do a simple text search
-                dom_tree = await self._page.evaluate(_load_js("extract_dom_elements.js"), "all")
+                result = await _evaluate_js(self._page, "extract_dom_elements.js", "all")
+                dom_data = json.loads(result) if isinstance(result, str) else result
+                dom_tree = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
                 lines = [line for line in dom_tree.split("\n") if text.lower() in line.lower()]
                 if lines:
                     return f"Found {len(lines)} element(s) matching \"{text}\":\n" + "\n".join(lines[:20])
@@ -485,7 +501,7 @@ class Agent:
             elif action_name == "set_element_value":
                 ref = arguments.get("ref", "")
                 value = arguments.get("value", "")
-                result_json = await self._page.evaluate(_load_js("set_element_value.js"), [ref, value])
+                result_json = await _evaluate_js(self._page, "set_element_value.js", ref, value)
                 result_data = json.loads(result_json)
                 return result_data.get("message", "set_element_value completed")
 
