@@ -77,6 +77,7 @@ class Config(BaseModel):
     temperature: float = 0.3
     tool_set: str = TOOL_SET_CORE
     disable_tools: list[str] = Field(default_factory=list)
+    json_schema: dict | None = None
     # agent
     max_steps: int = 100
     # browser
@@ -97,6 +98,7 @@ class Agent:
         temperature: float = 0.3,
         tool_set: str = TOOL_SET_CORE,
         disable_tools: list[str] | None = None,
+        json_schema: dict | None = None,
         max_steps: int = 100,
         viewport_width: int = 1280,
         viewport_height: int = 800,
@@ -110,6 +112,7 @@ class Agent:
         self.temperature = temperature
         self.tool_set = tool_set
         self.disable_tools = disable_tools or []
+        self.json_schema = json_schema
         self.max_steps = max_steps
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
@@ -241,17 +244,14 @@ class Agent:
             if removed:
                 logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
-        # Build n1.5-specific extra_body fields
-        extra_body: dict = {"tool_set": self.tool_set}
-        if self.disable_tools:
-            extra_body["disable_tools"] = self.disable_tools
-
         return await asyncio.wait_for(
             self._client.chat.completions.create(
                 model=self.model,
                 messages=self._messages,
                 temperature=self.temperature,
-                extra_body=extra_body,
+                tool_set=self.tool_set,
+                disable_tools=self.disable_tools or None,
+                json_schema=self.json_schema,
             ),
             timeout=120.0,
         )
@@ -534,6 +534,10 @@ async def main():
         "--disable-tools", nargs="*", default=default_config.disable_tools,
         help="Tool names to disable from the tool set",
     )
+    parser.add_argument(
+        "--json-schema", type=json.loads, default=None,
+        help='JSON Schema for structured output, e.g. \'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}\'',
+    )
     parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
@@ -557,6 +561,7 @@ async def main():
         temperature=config.temperature,
         tool_set=config.tool_set,
         disable_tools=config.disable_tools,
+        json_schema=config.json_schema,
         max_steps=config.max_steps,
         viewport_width=config.viewport_width,
         viewport_height=config.viewport_height,
