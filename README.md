@@ -475,16 +475,19 @@ yutori auth logout      # Remove saved credentials
 yutori scouts list                          # List your scouts
 yutori scouts get SCOUT_ID                  # Get scout details
 yutori scouts create -q "monitor for news"  # Create a scout
+yutori scouts create -q "monitor for news" -i daily -tz America/New_York
 yutori scouts delete SCOUT_ID               # Delete a scout
 
 # Browsing
 yutori browse run "extract all prices" https://example.com/products
 yutori browse run "log in and continue" https://example.com/login --require-auth
 yutori browse run "export dashboard data" https://example.com/dashboard --browser local
+yutori browse run "fill out the form" https://example.com --agent n1 --max-steps 50
 yutori browse get TASK_ID
 
 # Research
 yutori research run "latest developments in quantum computing" --browser local
+yutori research run "local events this weekend" -tz America/Los_Angeles --location "San Francisco, CA, US"
 yutori research get TASK_ID
 
 # Usage
