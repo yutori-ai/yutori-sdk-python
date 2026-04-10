@@ -465,33 +465,44 @@ class Agent:
 
             # ---- Scroll ----
             elif action_name == "scroll":
-                resolved = await _coords()
-                if resolved is None:
-                    return _coord_error
-                abs_x, abs_y = resolved
-                direction = arguments.get("direction", "down")
-                amount = arguments.get("amount", 3)
+                ref = arguments.get("ref")
+                coords = arguments.get("coordinates")
 
-                px = amount * 100  # 1 unit ≈ 100px
+                if ref:
+                    # Ref-based scroll: get_element_by_ref.js calls scrollIntoView(),
+                    # which handles the scrolling. No additional mouse.wheel needed.
+                    resolved = await _coords()
+                    if resolved is None:
+                        return _coord_error
+                    await asyncio.sleep(0.5)
+                    return "Scrolled to element"
+                elif coords and len(coords) == 2:
+                    abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                    direction = arguments.get("direction", "down")
+                    amount = arguments.get("amount", 3)
 
-                delta_x, delta_y = 0, 0
-                if direction == "up":
-                    delta_y = -px
-                elif direction == "down":
-                    delta_y = px
-                elif direction == "left":
-                    delta_x = -px
-                elif direction == "right":
-                    delta_x = px
+                    px = amount * 100  # 1 unit ≈ 100px
 
-                if modifier:
-                    await self._page.keyboard.down(modifier)
-                await self._page.mouse.move(abs_x, abs_y)
-                await self._page.mouse.wheel(delta_x, delta_y)
-                if modifier:
-                    await self._page.keyboard.up(modifier)
-                await asyncio.sleep(0.5)
-                return f"Scrolled {direction}"
+                    delta_x, delta_y = 0, 0
+                    if direction == "up":
+                        delta_y = -px
+                    elif direction == "down":
+                        delta_y = px
+                    elif direction == "left":
+                        delta_x = -px
+                    elif direction == "right":
+                        delta_x = px
+
+                    if modifier:
+                        await self._page.keyboard.down(modifier)
+                    await self._page.mouse.move(abs_x, abs_y)
+                    await self._page.mouse.wheel(delta_x, delta_y)
+                    if modifier:
+                        await self._page.keyboard.up(modifier)
+                    await asyncio.sleep(0.5)
+                    return f"Scrolled {direction}"
+                else:
+                    return "[ERROR] No coordinates or ref provided for scroll"
 
             # ---- Keyboard actions ----
             elif action_name == "type":
