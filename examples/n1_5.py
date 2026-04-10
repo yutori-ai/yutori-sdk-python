@@ -200,6 +200,9 @@ class Agent:
                     # Execute the action(s)
                     for tool_call in response.tool_calls:
                         result = await self._execute(tool_call)
+                        # Append current URL to every tool result
+                        if result:
+                            result += self._url_suffix()
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
 
@@ -365,6 +368,10 @@ class Agent:
     # ------------------------------------------------------------------
     # Action execution — n1.5 action space
     # ------------------------------------------------------------------
+
+    def _url_suffix(self) -> str:
+        """Current page URL, appended to every tool result."""
+        return f"\n\nCurrent URL: {self._page.url}"
 
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
