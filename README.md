@@ -166,6 +166,28 @@ await checker.wait_until_ready(page)
 
 Use `PageReadyChecker(...)` for normal SDK loops, or `NoOpPageReadyChecker()` when a site blocks `page.evaluate(...)`.
 
+For custom browser loops, the SDK now also exposes a shared Playwright action executor plus a packaged read-only page
+extraction tool:
+
+```python
+from yutori.n1 import (
+    AsyncPlaywrightActionExecutor,
+    extract_content_and_links_tool_schema,
+)
+
+executor = AsyncPlaywrightActionExecutor(
+    page,
+    viewport_width=1280,
+    viewport_height=800,
+)
+
+tools = [extract_content_and_links_tool_schema()]
+result = await executor.execute("extract_content_and_links", {})
+```
+
+This covers the common n1/n1.5 browser actions, includes the simple `go_back` start-page guardrail used by the examples,
+and removes the need to duplicate action-dispatch code across scripts.
+
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
 ## Browsing API

@@ -3,6 +3,7 @@
 Provides reusable helpers for common patterns in n1/n1.5 agent loops:
 - Screenshot preparation: capture and encode screenshots as optimized WebP data URLs
 - Coordinate conversion: map n1's 1000x1000 tool-call space to viewport pixels
+- Browser execution: run common n1/n1.5 Playwright actions with shared helpers
 - Payload management: trim old screenshots to stay within API size limits
 - Page readiness: wait for Playwright pages to stabilize between agent steps
 - Loop helpers: create trimmed requests without mutating caller state
@@ -12,6 +13,12 @@ Provides reusable helpers for common patterns in n1/n1.5 agent loops:
 
 from __future__ import annotations
 
+from .browser import (
+    EXTRACT_CONTENT_AND_LINKS_TOOL_NAME,
+    AsyncPlaywrightActionExecutor,
+    extract_content_and_links,
+    extract_content_and_links_tool_schema,
+)
 from .content import extract_text_content
 from .coordinates import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
 from .hooks import RunHooksBase
@@ -28,8 +35,12 @@ from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_m
 
 __all__ = [
     "acreate_trimmed",
+    "AsyncPlaywrightActionExecutor",
     "aplaywright_screenshot_to_data_url",
     "denormalize_coordinates",
+    "EXTRACT_CONTENT_AND_LINKS_TOOL_NAME",
+    "extract_content_and_links",
+    "extract_content_and_links_tool_schema",
     "extract_text_content",
     "create_trimmed",
     "map_key_to_playwright",
