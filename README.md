@@ -49,16 +49,18 @@ API key resolution order: explicit parameter > `YUTORI_API_KEY` env var > `~/.yu
 
 The Yutori API provides four main capabilities:
 
-| API          | Description                               | SDK Namespace     |
-| ------------ | ----------------------------------------- | ----------------- |
-| **n1**       | Pixels-to-actions LLM for browser control | `client.chat`     |
-| **Browsing** | One-time browser automation tasks         | `client.browsing` |
-| **Research** | Deep web research using 100+ tools        | `client.research` |
-| **Scouting** | Continuous web monitoring on a schedule   | `client.scouts`   |
+| API          | Description                                    | SDK Namespace     |
+| ------------ | ---------------------------------------------- | ----------------- |
+| **n1 / n1.5** | Pixels-to-actions LLMs for browser control    | `client.chat`     |
+| **Browsing** | One-time browser automation tasks              | `client.browsing` |
+| **Research** | Deep web research using 100+ tools             | `client.research` |
+| **Scouting** | Continuous web monitoring on a schedule        | `client.scouts`   |
 
-## n1 API
+## n1 / n1.5 API
 
-The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface:
+The n1 family of APIs are pixels-to-actions LLMs that process screenshots and predict browser actions (click, type, scroll, etc.). They follow the OpenAI Chat Completions interface.
+
+**n1.5** extends n1 with an expanded action space (mouse_move, drag, hold_key, go_forward, etc.), built-in tool sets for DOM interaction, and JSON structured output. Use `model="n1.5-latest"` to access it:
 
 ```python
 response = client.chat.completions.create(
@@ -93,7 +95,23 @@ if message.tool_calls:
         print(f"Arguments: {tool_call.function.arguments}")
 ```
 
-Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`. The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
+n1.5 adds first-class parameters for tool sets, tool disabling, and structured JSON output:
+
+```python
+from yutori.n1 import N1_5_MODEL, TOOL_SET_EXPANDED
+
+response = client.chat.completions.create(
+    model=N1_5_MODEL,  # "n1.5-latest"
+    messages=messages,
+    tool_set=TOOL_SET_EXPANDED,       # built-in DOM tools (extract_elements, find, etc.)
+    disable_tools=["hold_key"],       # optionally disable specific tools
+    json_schema={"type": "object"},   # structured output
+)
+```
+
+The SDK also provides `map_key_to_playwright` and `map_keys_individual` helpers for converting n1.5's lowercase key names to Playwright-compatible names. See [examples/n1_5.py](examples/n1_5.py) for a complete n1.5 agent loop.
+
+Live model IDs and parameter docs are maintained at [docs.yutori.com/reference/n1](https://docs.yutori.com/reference/n1) and [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5). The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
 
 For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
 
@@ -505,7 +523,7 @@ Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples, including a browser automation agent using the n1 API.
+See [examples/](examples/) for complete working examples, including browser automation agents using the n1 and n1.5 APIs.
 
 ## Contributing
 
