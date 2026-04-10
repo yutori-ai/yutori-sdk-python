@@ -19,6 +19,9 @@ class ChatCompletions:
         messages: Iterable[ChatCompletionMessageParam],
         *,
         model: str = "n1-latest",
+        tool_set: str | None = None,
+        disable_tools: list[str] | None = None,
+        json_schema: dict | None = None,
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create a chat completion using the n1 API.
@@ -26,11 +29,30 @@ class ChatCompletions:
         Args:
             messages: List of messages following OpenAI Chat format.
             model: Model to use (default: "n1-latest").
+            tool_set: (n1.5 only) Built-in tool set to use, e.g.
+                ``"browser_tools_core-20260403"`` or
+                ``"browser_tools_expanded-20260403"``.
+            disable_tools: (n1.5 only) List of tool names to remove from the
+                selected tool set.
+            json_schema: (n1.5 only) JSON Schema for structured output.
+                When provided, the model returns a ``parsed_json`` field
+                on the response.
             **kwargs: Additional parameters (e.g., temperature).
 
         Returns:
             ChatCompletion object.
         """
+        extra_body = kwargs.pop("extra_body", None) or {}
+        if tool_set is not None:
+            extra_body["tool_set"] = tool_set
+        if disable_tools is not None:
+            extra_body["disable_tools"] = disable_tools
+        if json_schema is not None:
+            extra_body["json_schema"] = json_schema
+
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
         return self._client.chat.completions.create(model=model, messages=messages, **kwargs)
 
 
