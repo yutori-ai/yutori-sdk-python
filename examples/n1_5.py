@@ -166,7 +166,8 @@ class Agent:
         self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
-        # Append user context (location, timezone, current date/time) to the task
+        # Keep original task for stop-and-summarize; format with context for the model
+        original_task = task
         task = format_task_with_context(
             task,
             user_timezone=self.user_timezone,
@@ -224,14 +225,14 @@ class Agent:
 
                 if self._step_count >= self.max_steps:
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
-                    final_response = await self._stop_and_summarize(task)
+                    final_response = await self._stop_and_summarize(original_task)
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
-                final_response = await self._stop_and_summarize(task)
+                final_response = await self._stop_and_summarize(original_task)
             except Exception as e:
                 logger.error(f"Agent error: {e}")
-                final_response = await self._stop_and_summarize(task)
+                final_response = await self._stop_and_summarize(original_task)
             finally:
                 await self._close_browser()
 
