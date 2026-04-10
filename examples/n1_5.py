@@ -459,19 +459,23 @@ class Agent:
                 elif direction == "right":
                     delta_x = px
 
-                if modifier:
-                    await self._page.keyboard.down(modifier)
                 if coords and len(coords) == 2:
                     resolved = await _coords()
                     if resolved is None:
                         return _coord_error
                     abs_x, abs_y = resolved
+                    if modifier:
+                        await self._page.keyboard.down(modifier)
                     await self._page.mouse.move(abs_x, abs_y)
                     await self._page.mouse.wheel(delta_x, delta_y)
+                    if modifier:
+                        await self._page.keyboard.up(modifier)
                 else:
+                    if modifier:
+                        await self._page.keyboard.down(modifier)
                     await self._page.evaluate(f"window.scrollBy({delta_x}, {delta_y})")
-                if modifier:
-                    await self._page.keyboard.up(modifier)
+                    if modifier:
+                        await self._page.keyboard.up(modifier)
                 await asyncio.sleep(0.5)
                 return f"Scrolled {direction}"
 
