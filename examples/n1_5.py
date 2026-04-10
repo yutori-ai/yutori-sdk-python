@@ -57,6 +57,7 @@ from yutori.n1 import (
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
     estimate_messages_size_bytes,
+    format_stop_and_summarize,
     format_task_with_context,
     map_key_to_playwright,
     map_keys_individual,
@@ -165,7 +166,8 @@ class Agent:
         self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
-        # Append user context (location, timezone, current date/time) to the task
+        # Keep original task for stop-and-summarize; format with context for the model
+        original_task = task
         task = format_task_with_context(
             task,
             user_timezone=self.user_timezone,
@@ -220,12 +222,17 @@ class Agent:
                             result += self._url_suffix()
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
-
-                if self._step_count >= self.max_steps:
+                else:
+                    # Loop exhausted without break — model was still working when limit hit
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
+                    final_response = await self._stop_and_summarize(original_task)
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
+                final_response = await self._stop_and_summarize(original_task)
+            except Exception as e:
+                logger.error(f"Agent error: {e}")
+                final_response = await self._stop_and_summarize(original_task)
             finally:
                 await self._close_browser()
 
@@ -322,6 +329,34 @@ class Agent:
 
         response = await self._call_llm_with_retries()
         return response.choices[0].message
+
+    async def _stop_and_summarize(self, task: str) -> str:
+        """Send a final stop message to get the model to summarize its progress.
+
+        Takes a screenshot, appends a "Stop here. Summarize..." user message,
+        and calls the model one last time to produce a text summary rather
+        than returning nothing on max steps, errors, or interruption.
+        """
+        try:
+            # Take a final screenshot so the model can see the current state
+            screenshot_url = await self._take_screenshot()
+            stop_message = format_stop_and_summarize(task)
+            self._messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": stop_message},
+                    {"type": "text", "text": "\n\n"},
+                    {"type": "image_url", "image_url": {"url": screenshot_url, "detail": "high"}},
+                ],
+            })
+
+            logger.info("Requesting final summary from model...")
+            response = await self._call_llm_with_retries()
+            message = response.choices[0].message
+            return message.content or ""
+        except Exception as e:
+            logger.error(f"Failed to get stop summary: {e}")
+            return ""
 
     # ------------------------------------------------------------------
     # Coordinate resolution — supports both normalized coordinates and

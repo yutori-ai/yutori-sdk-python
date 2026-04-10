@@ -34,7 +34,6 @@ def format_user_context(
             user_timezone = str(tz)
         except Exception:
             # No IANA timezone data available (e.g. Windows without tzdata).
-            # Fall back to UTC via the stdlib.
             tz = timezone.utc
             user_timezone = "UTC"
 
