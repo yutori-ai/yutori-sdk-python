@@ -35,6 +35,7 @@ from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 from .page_ready import NoOpPageReadyChecker, PageReadyChecker
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
 from .replay import TrajectoryRecorder, generate_visualization_html, log_formatter, make_run_id
+from .stop import format_stop_and_summarize
 
 __all__ = [
     "acreate_trimmed",
@@ -48,6 +49,7 @@ __all__ = [
     "create_trimmed",
     "generate_visualization_html",
     "format_task_with_context",
+    "format_stop_and_summarize",
     "format_user_context",
     "log_formatter",
     "make_run_id",
