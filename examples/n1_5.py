@@ -341,11 +341,23 @@ class Agent:
 
     @staticmethod
     def _map_modifier(modifier: str | None) -> str | None:
-        """Map n1.5 modifier name to Playwright key name via the full key map."""
+        """Map a single n1.5 modifier name to a Playwright key name.
+
+        The modifier field is always a single key (ctrl, shift, alt, meta,
+        command, super) — not a combo. Uses the key map for lookup but
+        rejects combo/sequence expressions since keyboard.down()/up()
+        only accept single key names.
+        """
         if not modifier:
             return None
+        # map_key_to_playwright handles combos/sequences; we only want a
+        # single key, so split the result and take just the first token.
         mapped = map_key_to_playwright(modifier)
-        return mapped[0] if mapped else modifier
+        if not mapped:
+            return modifier
+        # If somehow a combo slipped through (e.g. "ctrl+shift"), take
+        # only the first individual key.
+        return mapped[0].split("+")[0]
 
     # ------------------------------------------------------------------
     # Action execution — n1.5 action space
