@@ -24,6 +24,7 @@ from .keys import map_key_to_playwright, map_keys_individual
 from .loop import acreate_trimmed, create_trimmed
 from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
+from .stop import format_stop_and_summarize
 
 __all__ = [
     "acreate_trimmed",
@@ -32,6 +33,7 @@ __all__ = [
     "extract_text_content",
     "create_trimmed",
     "format_task_with_context",
+    "format_stop_and_summarize",
     "format_user_context",
     "map_key_to_playwright",
     "map_keys_individual",
