@@ -462,7 +462,10 @@ class Agent:
                 if modifier:
                     await self._page.keyboard.down(modifier)
                 if coords and len(coords) == 2:
-                    abs_x, abs_y = await self._resolve_coordinates(arguments)
+                    resolved = await _coords()
+                    if resolved is None:
+                        return _coord_error
+                    abs_x, abs_y = resolved
                     await self._page.mouse.move(abs_x, abs_y)
                     await self._page.mouse.wheel(delta_x, delta_y)
                 else:
