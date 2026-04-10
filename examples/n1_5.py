@@ -371,7 +371,7 @@ class Agent:
 
     def _url_suffix(self) -> str:
         """Current page URL, appended to every tool result."""
-        return f"\n<CURRENT_PAGE_URL>\nCurrent URL: {self._page.url}\n</CURRENT_PAGE_URL>"
+        return f"\nCurrent URL: {self._page.url}"
 
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
