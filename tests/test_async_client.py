@@ -106,7 +106,7 @@ class TestAsyncScoutsNamespace:
                 assert result == {"scouts": []}
                 params = mock_get.call_args[1]["params"]
                 assert params["page_size"] == 10
-                assert params["limit"] == 10
+                assert "limit" not in params
                 assert params["status"] == "active"
 
     async def test_scouts_get(self):
