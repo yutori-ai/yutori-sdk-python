@@ -35,6 +35,7 @@ Usage:
 
 import argparse
 import asyncio
+import functools
 import json
 import os
 import sys
@@ -68,6 +69,7 @@ from yutori.n1 import (
 _TOOLS_DIR = Path(__file__).parent / "tools"
 
 
+@functools.lru_cache(maxsize=None)
 def _load_js(name: str) -> str:
     return (_TOOLS_DIR / name).read_text()
 
