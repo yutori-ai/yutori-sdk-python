@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import asyncio
+import copy
 import os
 import sys
 
@@ -31,9 +32,10 @@ from yutori import AsyncYutoriClient
 from yutori.n1 import (
     AsyncPlaywrightActionExecutor,
     PageReadyChecker,
+    TrajectoryRecorder,
     aplaywright_screenshot_to_data_url,
-    estimate_messages_size_bytes,
-    trimmed_messages_to_fit,
+    make_run_id,
+    update_trimmed_history,
 )
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
@@ -57,6 +59,9 @@ class Config(BaseModel):
     # payload management
     max_request_bytes: int = 9_500_000
     keep_recent_screenshots: int = 6
+    # replay
+    replay_dir: str | None = None
+    replay_id: str | None = None
 
 
 class Agent:
@@ -72,6 +77,8 @@ class Agent:
         headless: bool = False,
         max_request_bytes: int = 9_500_000,
         keep_recent_screenshots: int = 6,
+        replay_dir: str | None = None,
+        replay_id: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -83,11 +90,14 @@ class Agent:
         self.headless = headless
         self.max_request_bytes = max_request_bytes
         self.keep_recent_screenshots = keep_recent_screenshots
+        self.replay_dir = replay_dir
+        self.replay_id = replay_id
 
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
         self._executor: AsyncPlaywrightActionExecutor | None = None
+        self._replay: TrajectoryRecorder | None = None
         self._page_ready_checker = PageReadyChecker(
             timeout=30,
             initial_wait=2.0,
@@ -97,6 +107,8 @@ class Agent:
             disable_printing=True,
         )
         self._messages: list = []
+        self._request_messages: list | None = None
+        self._step_payloads: list[dict] = []
         self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
@@ -104,10 +116,17 @@ class Agent:
         logger.info(f"Starting URL: {start_url}")
 
         self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
+        self._request_messages = None
+        self._step_payloads = []
         self._message_index = 0
         self._step_count = 0
+        self._replay = None
 
         final_response = ""
+        if self.replay_dir:
+            replay_id = self.replay_id or make_run_id(prefix="n1", label=task)
+            self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
+            logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
             AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
@@ -132,6 +151,7 @@ class Agent:
                     # Store the assistant's response
                     self._messages.append(response.model_dump(exclude_none=True))
                     self._message_index = len(self._messages)
+                    await self._persist_replay()
 
                     if response.content:
                         final_response = response.content
@@ -146,6 +166,7 @@ class Agent:
                         result = await self._execute(tool_call)
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
+                    await self._persist_replay()
 
                 if self._step_count >= self.max_steps:
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
@@ -153,6 +174,7 @@ class Agent:
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
             finally:
+                await self._persist_replay()
                 await self._close_browser()
 
         return final_response
@@ -219,24 +241,36 @@ class Agent:
         reraise=True,
     )
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        size_bytes = estimate_messages_size_bytes(self._messages)
-        if size_bytes > self.max_request_bytes:
-            self._messages, size_bytes, removed = trimmed_messages_to_fit(
-                self._messages,
-                max_bytes=self.max_request_bytes,
-                keep_recent=self.keep_recent_screenshots,
-            )
-            if removed:
-                logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
+        self._request_messages, size_bytes, removed = update_trimmed_history(
+            self._messages,
+            self._request_messages,
+            max_bytes=self.max_request_bytes,
+            keep_recent=self.keep_recent_screenshots,
+        )
+        if removed:
+            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
-        return await asyncio.wait_for(
+        request_payload = {
+            "model": self.model,
+            "messages": copy.deepcopy(self._request_messages),
+            "temperature": self.temperature,
+        }
+        response = await asyncio.wait_for(
             self._client.chat.completions.create(
                 model=self.model,
-                messages=self._messages,
+                messages=self._request_messages,
                 temperature=self.temperature,
             ),
             timeout=120.0,  # 2 minutes
         )
+        self._step_payloads.append(
+            {
+                "step_num": self._step_count,
+                "request": request_payload,
+                "response": response.model_dump(exclude_none=True),
+            }
+        )
+        return response
 
     async def _predict(self) -> ChatCompletion:
         screenshot_url = await self._take_screenshot()
@@ -260,6 +294,16 @@ class Agent:
 
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         return await self._executor.execute_tool_call(tool_call)
+
+    async def _persist_replay(self) -> None:
+        if self._replay is None:
+            return
+        try:
+            await self._replay.save_messages(self._messages)
+            await self._replay.save_step_payloads(self._step_payloads)
+            await self._replay.save_html(self._messages, step_payloads=self._step_payloads)
+        except Exception:
+            logger.opt(exception=True).warning("Failed to write replay artifacts")
 
 
 async def main():
@@ -300,6 +344,12 @@ async def main():
         "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
         help="Number of recent screenshots to protect from trimming",
     )
+    parser.add_argument(
+        "--replay-dir",
+        default=default_config.replay_dir,
+        help="Optional directory for replay artifacts",
+    )
+    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
@@ -314,6 +364,8 @@ async def main():
         headless=config.headless,
         max_request_bytes=config.max_request_bytes,
         keep_recent_screenshots=config.keep_recent_screenshots,
+        replay_dir=config.replay_dir,
+        replay_id=config.replay_id,
     )
 
     result = await agent.run(config.task, config.start_url)

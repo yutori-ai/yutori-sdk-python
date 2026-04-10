@@ -125,6 +125,7 @@ Opt-in helper utilities for custom n1 agent loops. These do not change the raw `
 | `estimate_messages_size_bytes(messages)` | Estimate the JSON-serialized byte size of a messages list. |
 | `trim_images_to_fit(messages, max_bytes=..., keep_recent=...)` | Remove older screenshot blocks in place until the payload fits within the target size. |
 | `trimmed_messages_to_fit(messages, max_bytes=..., keep_recent=...)` | Return a trimmed copy of the messages list without mutating caller state. |
+| `update_trimmed_history(messages, request_messages=None, ...)` | Maintain a separately trimmed request copy while preserving the full message history for replay. |
 | `create_trimmed(completions, messages, ...)` | Trim a copy of the messages list, then call sync chat completions. |
 | `acreate_trimmed(completions, messages, ...)` | Async version of `create_trimmed(...)`. |
 | `AsyncPlaywrightActionExecutor(page, ...)` | Shared Playwright action executor for n1/n1.5 browser loops. |
@@ -135,6 +136,10 @@ Opt-in helper utilities for custom n1 agent loops. These do not change the raw `
 | `extract_content_and_links(page)` | Read-only helper that extracts links/content from the current page ARIA snapshot. |
 | `extract_content_and_links_tool_schema()` | OpenAI-style function schema for the packaged read-only extraction tool. |
 | `extract_text_content(content)` | Normalize assistant content across strings, text blocks, and object-backed forms, returning joined text or `None`. |
+| `TrajectoryRecorder(save_dir, run_id)` | Persist `messages.jsonl` plus `visualization.html` replay artifacts for an n1/n1.5 run. |
+| `generate_visualization_html(task_id, messages, result=None, ...)` | Render a static HTML replay with screenshots and action overlays. |
+| `make_run_id(prefix=\"run\", label=None)` | Generate a filesystem-friendly replay id for local runs. |
+| `log_formatter(record, colorize=True)` | Loguru-style formatter shared with replay/task logging utilities. |
 | `RunHooksBase` | Async no-op lifecycle hook base class with `on_agent_start`, `on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, and `on_agent_end`. |
 
 `RunHooksBase` mirrors the lifecycle phases of higher-level agent loops, but it is not wired into `client.chat` automatically. It is intended for consumers building their own orchestration, tracing, or UI layers around n1.

@@ -144,9 +144,8 @@ response = await client.chat.completions.create(
 ```
 
 This keeps the raw OpenAI-compatible `client.chat.completions.create(...)` call unchanged, while giving Yutori users a safer
-message-preparation helper for large screenshot histories. In long-lived loops, assign the trimmed copy back to your owned
-history before the next step so old screenshots do not keep accumulating in memory. The size pre-check is there to avoid
-deep-copying the full history on every step when trimming is not needed.
+message-preparation helper for large screenshot histories. If you want to preserve the full history for replay while sending
+only a trimmed request copy to the API, use `update_trimmed_history(...)` instead of mutating your owned history in place.
 
 For closer parity with Yutori's internal browser-agent loop, `yutori.n1` also exposes a Playwright-style page
 stabilization helper:
@@ -187,6 +186,25 @@ result = await executor.execute("extract_content_and_links", {})
 
 This covers the common n1/n1.5 browser actions, includes the simple `go_back` start-page guardrail used by the examples,
 and removes the need to duplicate action-dispatch code across scripts.
+
+For replayable trajectories, the SDK also exposes a recorder plus static HTML visualizer:
+
+```python
+from yutori.n1 import TrajectoryRecorder, update_trimmed_history
+
+recorder = TrajectoryRecorder("runs", "demo")
+request_messages, _, _ = update_trimmed_history(messages)
+
+response = await client.chat.completions.create(
+    model="n1-latest",
+    messages=request_messages,
+)
+
+await recorder.save_messages(messages)
+await recorder.save_html(messages)
+```
+
+The generated `visualization.html` renders the saved message trajectory with screenshots and action overlays.
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
