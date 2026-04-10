@@ -99,7 +99,7 @@ class Config(BaseModel):
     start_url: str = "https://www.yutori.com"
     # model
     api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
-    base_url: str = "https://api.dev.yutori.com/v1"
+    base_url: str = "https://api.yutori.com/v1"
     model: str = N1_5_MODEL
     temperature: float = 0.3
     tool_set: str = TOOL_SET_CORE
