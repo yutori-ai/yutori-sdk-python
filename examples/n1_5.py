@@ -280,7 +280,7 @@ class Agent:
                 disable_tools=self.disable_tools or None,
                 json_schema=self.json_schema,
             ),
-            timeout=120.0,
+            timeout=120.0,  # 2 minutes
         )
 
     async def _predict(self) -> ChatCompletion:
@@ -611,7 +611,7 @@ async def main():
     )
     parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1.5 base URL")
     parser.add_argument("--model", default=default_config.model, help="Yutori n1.5 model")
-    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Temperature")
+    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1.5 temperature")
     parser.add_argument(
         "--tool-set", default=default_config.tool_set,
         choices=[TOOL_SET_CORE, TOOL_SET_EXPANDED, "core", "expanded"],
