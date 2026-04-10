@@ -411,6 +411,58 @@ class TestAsyncChatNamespace:
                 )
                 assert result.choices[0].message.content == "click"
 
+    async def test_chat_completions_n1_5_forwards_extra_body_options(self):
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
+
+        from yutori.n1 import TOOL_SET_CORE
+
+        json_schema = {
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+            "additionalProperties": False,
+        }
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content='{"status":"ok"}'),
+                )
+            ],
+            created=1234567890,
+            model="n1.5-latest",
+            object="chat.completion",
+        )
+
+        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+            mock_openai_client.close = AsyncMock()
+            MockAsyncOpenAI.return_value = mock_openai_client
+
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": "Reply with JSON."}],
+                    model="n1.5-latest",
+                    tool_set=TOOL_SET_CORE,
+                    disable_tools=["hold_key"],
+                    json_schema=json_schema,
+                    extra_body={"trace_id": "trace-123"},
+                )
+                assert result.choices[0].message.content == '{"status":"ok"}'
+
+        call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+        assert call_kwargs["model"] == "n1.5-latest"
+        assert call_kwargs["extra_body"] == {
+            "trace_id": "trace-123",
+            "tool_set": TOOL_SET_CORE,
+            "disable_tools": ["hold_key"],
+            "json_schema": json_schema,
+        }
+
     async def test_n1_helper_acreate_trimmed_public_helper_uses_trimmed_copy(self):
         from copy import deepcopy
 
