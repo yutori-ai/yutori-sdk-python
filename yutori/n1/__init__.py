@@ -19,7 +19,7 @@ from .images import (
     playwright_screenshot_to_data_url,
     screenshot_to_data_url,
 )
-from .keys import map_key_to_playwright
+from .keys import map_key_to_playwright, map_keys_individual
 from .loop import acreate_trimmed, create_trimmed
 from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
@@ -31,6 +31,7 @@ __all__ = [
     "extract_text_content",
     "create_trimmed",
     "map_key_to_playwright",
+    "map_keys_individual",
     "N1_5_MODEL",
     "N1_COORDINATE_SCALE",
     "N1_MODEL",

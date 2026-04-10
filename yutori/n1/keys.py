@@ -140,7 +140,10 @@ def map_key_to_playwright(key_expr: str) -> list[str]:
     * ``"ctrl+shift+t"``   → ``["Control+Shift+t"]``
 
     Returns a list because sequential presses need separate
-    ``keyboard.press()`` calls.
+    ``keyboard.press()`` calls.  The returned strings use ``+`` as a
+    combo delimiter and are suitable for ``keyboard.press()`` which
+    understands combos.  For ``keyboard.down()``/``keyboard.up()``
+    (which only accept single keys), use :func:`map_keys_individual`.
     """
     parts = key_expr.strip().split(" ")
     result: list[str] = []
@@ -151,3 +154,24 @@ def map_key_to_playwright(key_expr: str) -> list[str]:
         mapped = "+".join(_map_single_key(t) for t in tokens)
         result.append(mapped)
     return result
+
+
+def map_keys_individual(key_expr: str) -> list[str]:
+    """Convert an n1.5 key expression to a flat list of individual Playwright keys.
+
+    Unlike :func:`map_key_to_playwright`, this never joins keys with ``+``.
+    Each token is mapped individually, making the result safe for
+    ``keyboard.down()`` / ``keyboard.up()`` which only accept single keys.
+
+    * ``"ctrl+c"``          → ``["Control", "c"]``
+    * ``"down down enter"``  → ``["ArrowDown", "ArrowDown", "Enter"]``
+    * ``"ctrl+plus"``        → ``["Control", "+"]``
+    """
+    keys: list[str] = []
+    for part in key_expr.strip().split(" "):
+        if not part:
+            continue
+        for token in part.split("+"):
+            if token:
+                keys.append(_map_single_key(token))
+    return keys

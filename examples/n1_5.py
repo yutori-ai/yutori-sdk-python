@@ -58,6 +58,7 @@ from yutori.n1 import (
     denormalize_coordinates,
     estimate_messages_size_bytes,
     map_key_to_playwright,
+    map_keys_individual,
     trimmed_messages_to_fit,
 )
 
@@ -513,11 +514,8 @@ class Agent:
             elif action_name == "hold_key":
                 key_expr = arguments.get("key", "")
                 duration = arguments.get("duration")
-                key_presses = map_key_to_playwright(key_expr)
                 if duration is not None and duration > 0:
-                    individual_keys = []
-                    for key in key_presses:
-                        individual_keys.extend(key.split("+"))
+                    individual_keys = map_keys_individual(key_expr)
                     for key in individual_keys:
                         await self._page.keyboard.down(key)
                     await asyncio.sleep(min(duration, 100))
@@ -526,6 +524,7 @@ class Agent:
                     await asyncio.sleep(0.3)
                     return f"Held key '{key_expr}' for {duration}s"
                 else:
+                    key_presses = map_key_to_playwright(key_expr)
                     for key in key_presses:
                         await self._page.keyboard.press(key)
                     await asyncio.sleep(0.3)
