@@ -351,14 +351,7 @@ class Agent:
             })
 
             logger.info("Requesting final summary from model...")
-            response = await asyncio.wait_for(
-                self._client.chat.completions.create(
-                    model=self.model,
-                    messages=self._messages,
-                    temperature=self.temperature,
-                ),
-                timeout=120.0,
-            )
+            response = await self._call_llm_with_retries()
             message = response.choices[0].message
             return message.content or ""
         except Exception as e:
