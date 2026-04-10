@@ -306,11 +306,8 @@ class Agent:
 
     async def _predict(self) -> ChatCompletion:
         screenshot_url = await self._take_screenshot()
-        current_url = self._page.url
 
         last_content = self._messages[-1]["content"]
-        if len(last_content) == 0:
-            last_content.append({"type": "text", "text": f"Current URL: {current_url}"})
         # Content separator between text and image, matching Praxis prompt builder
         if last_content:
             last_content.append({"type": "text", "text": "\n\n"})
