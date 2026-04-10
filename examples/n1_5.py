@@ -308,9 +308,8 @@ class Agent:
         screenshot_url = await self._take_screenshot()
 
         last_content = self._messages[-1]["content"]
-        # Content separator between text and image, matching Praxis prompt builder
-        if last_content:
-            last_content.append({"type": "text", "text": "\n\n"})
+        # Content separator between text and image
+        last_content.append({"type": "text", "text": "\n\n"})
         last_content.append(
             {
                 "type": "image_url",
