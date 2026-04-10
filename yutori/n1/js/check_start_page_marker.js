@@ -1,0 +1,1 @@
+() => history.state?.isYutoriStartMarker === true

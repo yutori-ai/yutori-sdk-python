@@ -41,7 +41,7 @@ async def test_page_ready_checker_includes_optional_js_injections() -> None:
     expression = page.expressions[0]
     assert "document.readyState !== 'complete'" in expression
     assert "yutori-custom-dropdown-element" in expression
-    assert "Object.defineProperty(window, 'open'" in expression
+    assert 'Object.defineProperty(window, "open"' in expression
     assert "window.__printGuardInstalled__" in expression
 
 
