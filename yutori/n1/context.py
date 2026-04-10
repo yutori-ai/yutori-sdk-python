@@ -7,7 +7,7 @@ string, giving the model awareness of the user's environment.
 from __future__ import annotations
 
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 
@@ -35,7 +35,7 @@ def format_user_context(
         except Exception:
             # No IANA timezone data available (e.g. Windows without tzdata).
             # Fall back to UTC via the stdlib.
-            tz = None
+            tz = timezone.utc
             user_timezone = "UTC"
 
     now = datetime.now(tz)
