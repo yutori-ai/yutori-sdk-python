@@ -22,7 +22,7 @@ class TestDenormalizeCoordinates:
     def test_accepts_float_coordinates(self):
         x, y = denormalize_coordinates([500.7, 250.3], width=1280, height=800)
         assert isinstance(x, int) and isinstance(y, int)
-        assert (x, y) == (int(500.7 / 1000 * 1280), int(250.3 / 1000 * 800))
+        assert (x, y) == (round(500.7 / 1000 * 1280), round(250.3 / 1000 * 800))
 
     def test_accepts_tuple_input(self):
         assert denormalize_coordinates((500, 250), width=1280, height=800) == (640, 200)
