@@ -30,6 +30,7 @@ def format_user_context(
         tz = ZoneInfo(user_timezone)
     except (KeyError, Exception):
         tz = ZoneInfo("America/Los_Angeles")
+        user_timezone = str(tz)
 
     now = datetime.now(tz)
 
