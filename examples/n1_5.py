@@ -9,7 +9,7 @@ Key differences from n1:
 - model: "n1.5-latest" (instead of "n1-latest")
 - tool_set / disable_tools: select which built-in tools the model can use
 - json_schema: request structured output (returned as parsed_json on the response)
-- Renamed actions: hover → mouse_move, key_comb → key_press (param: key)
+- Renamed actions: hover → mouse_move; key_press param renamed from key_comb → key
 - New actions: middle_click, mouse_down, mouse_up, go_forward, hold_key
 - type no longer has press_enter_after / clear_before_typing
 - Key names are lowercase (e.g. ctrl+c, enter, left) instead of Playwright names
