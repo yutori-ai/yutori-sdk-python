@@ -28,9 +28,15 @@ def format_user_context(
     """
     try:
         tz = ZoneInfo(user_timezone)
-    except (KeyError, Exception):
-        tz = ZoneInfo("America/Los_Angeles")
-        user_timezone = str(tz)
+    except Exception:
+        try:
+            tz = ZoneInfo("America/Los_Angeles")
+            user_timezone = str(tz)
+        except Exception:
+            # No IANA timezone data available (e.g. Windows without tzdata).
+            # Fall back to UTC via the stdlib.
+            tz = None
+            user_timezone = "UTC"
 
     now = datetime.now(tz)
 
