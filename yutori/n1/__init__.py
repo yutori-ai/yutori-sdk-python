@@ -12,6 +12,7 @@ Provides reusable helpers for common patterns in n1/n1.5 agent loops:
 from __future__ import annotations
 
 from .content import extract_text_content
+from .context import format_task_with_context, format_user_context
 from .coordinates import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
 from .hooks import RunHooksBase
 from .images import (
@@ -30,6 +31,8 @@ __all__ = [
     "denormalize_coordinates",
     "extract_text_content",
     "create_trimmed",
+    "format_task_with_context",
+    "format_user_context",
     "map_key_to_playwright",
     "map_keys_individual",
     "N1_5_MODEL",
