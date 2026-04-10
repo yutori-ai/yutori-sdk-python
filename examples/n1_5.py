@@ -669,8 +669,8 @@ async def main():
         "--json-schema", type=json.loads, default=None,
         help='JSON Schema for structured output, e.g. \'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}\'',
     )
-    parser.add_argument("--timezone", default=default_config.user_timezone, help="User timezone (e.g. America/New_York)")
-    parser.add_argument("--location", default=default_config.user_location, help="User location (e.g. New York, NY, US)")
+    parser.add_argument("--timezone", dest="user_timezone", default=default_config.user_timezone, help="User timezone (e.g. America/New_York)")
+    parser.add_argument("--location", dest="user_location", default=default_config.user_location, help="User location (e.g. New York, NY, US)")
     parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
@@ -685,9 +685,6 @@ async def main():
     )
     args = parser.parse_args()
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
-    args.user_timezone = args.timezone
-    args.user_location = args.location
-    del args.timezone, args.location
     config = Config.model_validate(vars(args))
 
     agent = Agent(
