@@ -143,7 +143,7 @@ class TestScoutsNamespace:
             mock_get.assert_called_once()
             params = mock_get.call_args[1]["params"]
             assert params["page_size"] == 10
-            assert params["limit"] == 10
+            assert "limit" not in params
             assert params["status"] == "active"
 
     def test_scouts_get(self, client):
@@ -442,6 +442,57 @@ class TestChatNamespace:
             mock_openai_client.chat.completions.create.assert_called_once()
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
             assert call_kwargs["model"] == "n1-latest"
+            client.close()
+
+    def test_chat_completions_n1_5_forwards_extra_body_options(self):
+        from openai.types.chat import ChatCompletion, ChatCompletionMessage
+        from openai.types.chat.chat_completion import Choice
+
+        from yutori.n1 import TOOL_SET_CORE
+
+        json_schema = {
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+            "additionalProperties": False,
+        }
+        mock_completion = ChatCompletion(
+            id="chatcmpl-123",
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content='{"status":"ok"}'),
+                )
+            ],
+            created=1234567890,
+            model="n1.5-latest",
+            object="chat.completion",
+        )
+
+        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
+            mock_openai_client = MagicMock()
+            mock_openai_client.chat.completions.create.return_value = mock_completion
+            MockOpenAI.return_value = mock_openai_client
+
+            client = YutoriClient(api_key="yt-test")
+            result = client.chat.completions.create(
+                messages=[{"role": "user", "content": "Reply with JSON."}],
+                model="n1.5-latest",
+                tool_set=TOOL_SET_CORE,
+                disable_tools=["hold_key"],
+                json_schema=json_schema,
+                extra_body={"trace_id": "trace-123"},
+            )
+            assert result.choices[0].message.content == '{"status":"ok"}'
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["model"] == "n1.5-latest"
+            assert call_kwargs["extra_body"] == {
+                "trace_id": "trace-123",
+                "tool_set": TOOL_SET_CORE,
+                "disable_tools": ["hold_key"],
+                "json_schema": json_schema,
+            }
             client.close()
 
     def test_n1_helper_create_trimmed_public_helper_uses_trimmed_copy(self):

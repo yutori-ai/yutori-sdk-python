@@ -21,6 +21,7 @@ from .browser import (
     extract_content_and_links_tool_schema,
 )
 from .content import extract_text_content
+from .context import format_task_with_context, format_user_context
 from .coordinates import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
 from .hooks import RunHooksBase
 from .images import (
@@ -46,6 +47,8 @@ __all__ = [
     "extract_text_content",
     "create_trimmed",
     "generate_visualization_html",
+    "format_task_with_context",
+    "format_user_context",
     "log_formatter",
     "make_run_id",
     "map_key_to_playwright",
