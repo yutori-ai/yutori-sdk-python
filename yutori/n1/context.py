@@ -7,7 +7,7 @@ string, giving the model awareness of the user's environment.
 from __future__ import annotations
 
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 
