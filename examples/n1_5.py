@@ -222,8 +222,8 @@ class Agent:
                             result += self._url_suffix()
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
-
-                if self._step_count >= self.max_steps:
+                else:
+                    # Loop exhausted without break — model was still working when limit hit
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
                     final_response = await self._stop_and_summarize(original_task)
 
