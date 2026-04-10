@@ -57,6 +57,7 @@ from yutori.n1 import (
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
     estimate_messages_size_bytes,
+    format_task_with_context,
     map_key_to_playwright,
     map_keys_individual,
     trimmed_messages_to_fit,
@@ -108,6 +109,9 @@ class Config(BaseModel):
     tool_set: str = TOOL_SET_CORE
     disable_tools: list[str] = Field(default_factory=list)
     json_schema: dict | None = None
+    # user context
+    user_timezone: str = "America/Los_Angeles"
+    user_location: str = "San Francisco, CA, US"
     # agent
     max_steps: int = 100
     # browser
@@ -129,6 +133,8 @@ class Agent:
         tool_set: str = TOOL_SET_CORE,
         disable_tools: list[str] | None = None,
         json_schema: dict | None = None,
+        user_timezone: str = "America/Los_Angeles",
+        user_location: str = "San Francisco, CA, US",
         max_steps: int = 100,
         viewport_width: int = 1280,
         viewport_height: int = 800,
@@ -143,6 +149,8 @@ class Agent:
         self.tool_set = tool_set
         self.disable_tools = disable_tools or []
         self.json_schema = json_schema
+        self.user_timezone = user_timezone
+        self.user_location = user_location
         self.max_steps = max_steps
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
@@ -157,6 +165,13 @@ class Agent:
         self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
+        # Append user context (location, timezone, current date/time) to the task
+        task = format_task_with_context(
+            task,
+            user_timezone=self.user_timezone,
+            user_location=self.user_location,
+        )
+
         logger.info(f"Task: {task}")
         logger.info(f"Starting URL: {start_url}")
 
@@ -655,6 +670,8 @@ async def main():
         "--json-schema", type=json.loads, default=None,
         help='JSON Schema for structured output, e.g. \'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}\'',
     )
+    parser.add_argument("--timezone", default=default_config.user_timezone, help="User timezone (e.g. America/New_York)")
+    parser.add_argument("--location", default=default_config.user_location, help="User location (e.g. New York, NY, US)")
     parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
@@ -669,6 +686,9 @@ async def main():
     )
     args = parser.parse_args()
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
+    args.user_timezone = args.timezone
+    args.user_location = args.location
+    del args.timezone, args.location
     config = Config.model_validate(vars(args))
 
     agent = Agent(
@@ -679,6 +699,8 @@ async def main():
         tool_set=config.tool_set,
         disable_tools=config.disable_tools,
         json_schema=config.json_schema,
+        user_timezone=config.user_timezone,
+        user_location=config.user_location,
         max_steps=config.max_steps,
         viewport_width=config.viewport_width,
         viewport_height=config.viewport_height,
