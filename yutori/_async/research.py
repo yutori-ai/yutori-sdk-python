@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._http import build_headers, handle_response
+from .._http import build_headers, build_payload, handle_response
 from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
@@ -47,21 +47,15 @@ class AsyncResearchNamespace:
         Returns:
             Dictionary containing task details including task_id.
         """
-        payload: dict[str, Any] = {"query": query}
-
-        if user_timezone is not None:
-            payload["user_timezone"] = user_timezone
-        if user_location is not None:
-            payload["user_location"] = user_location
-        if browser is not None:
-            payload["browser"] = browser
-        resolved_schema = resolve_output_schema(output_schema)
-        if resolved_schema is not None:
-            payload["output_schema"] = resolved_schema
-        if webhook_url is not None:
-            payload["webhook_url"] = webhook_url
-        if webhook_format is not None:
-            payload["webhook_format"] = webhook_format
+        payload = build_payload(
+            query=query,
+            user_timezone=user_timezone,
+            user_location=user_location,
+            browser=browser,
+            output_schema=resolve_output_schema(output_schema),
+            webhook_url=webhook_url,
+            webhook_format=webhook_format,
+        )
 
         response = await self._client.post(
             f"{self._base_url}/research/tasks",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._http import build_headers, build_query_params, handle_response
+from .._http import build_headers, build_payload, build_query_params, handle_response
 from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
@@ -89,28 +89,18 @@ class AsyncScoutsNamespace:
         Returns:
             Dictionary containing created scout details.
         """
-        payload: dict[str, Any] = {
-            "query": query,
-            "output_interval": output_interval,
-        }
-
-        if start_timestamp is not None:
-            payload["start_timestamp"] = start_timestamp
-        if user_timezone is not None:
-            payload["user_timezone"] = user_timezone
-        if user_location is not None:
-            payload["user_location"] = user_location
-        resolved_schema = resolve_output_schema(output_schema)
-        if resolved_schema is not None:
-            payload["output_schema"] = resolved_schema
-        if skip_email is not None:
-            payload["skip_email"] = skip_email
-        if webhook_url is not None:
-            payload["webhook_url"] = webhook_url
-        if webhook_format is not None:
-            payload["webhook_format"] = webhook_format
-        if is_public is not None:
-            payload["is_public"] = is_public
+        payload = build_payload(
+            query=query,
+            output_interval=output_interval,
+            start_timestamp=start_timestamp,
+            user_timezone=user_timezone,
+            user_location=user_location,
+            output_schema=resolve_output_schema(output_schema),
+            skip_email=skip_email,
+            webhook_url=webhook_url,
+            webhook_format=webhook_format,
+            is_public=is_public,
+        )
 
         response = await self._client.post(
             f"{self._base_url}/scouting/tasks",
@@ -155,23 +145,16 @@ class AsyncScoutsNamespace:
         Raises:
             ValueError: If status is provided along with other fields (API limitation).
         """
-        resolved_schema = resolve_output_schema(output_schema)
-
-        # Build payload from non-None field values (single source of truth for field list)
-        payload: dict[str, Any] = {
-            k: v
-            for k, v in {
-                "query": query,
-                "output_interval": output_interval,
-                "user_timezone": user_timezone,
-                "user_location": user_location,
-                "output_schema": resolved_schema,
-                "skip_email": skip_email,
-                "webhook_url": webhook_url,
-                "webhook_format": webhook_format,
-            }.items()
-            if v is not None
-        }
+        payload = build_payload(
+            query=query,
+            output_interval=output_interval,
+            user_timezone=user_timezone,
+            user_location=user_location,
+            output_schema=resolve_output_schema(output_schema),
+            skip_email=skip_email,
+            webhook_url=webhook_url,
+            webhook_format=webhook_format,
+        )
 
         # Check for conflicting parameters - API doesn't support both in one call
         if status is not None and payload:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._http import build_headers, handle_response
+from .._http import build_headers, build_payload, handle_response
 from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
@@ -50,26 +50,17 @@ class AsyncBrowsingNamespace:
         Returns:
             Dictionary containing task details including task_id.
         """
-        payload: dict[str, Any] = {
-            "task": task,
-            "start_url": start_url,
-        }
-
-        if max_steps is not None:
-            payload["max_steps"] = max_steps
-        if agent is not None:
-            payload["agent"] = agent
-        if require_auth is not None:
-            payload["require_auth"] = require_auth
-        if browser is not None:
-            payload["browser"] = browser
-        resolved_schema = resolve_output_schema(output_schema)
-        if resolved_schema is not None:
-            payload["output_schema"] = resolved_schema
-        if webhook_url is not None:
-            payload["webhook_url"] = webhook_url
-        if webhook_format is not None:
-            payload["webhook_format"] = webhook_format
+        payload = build_payload(
+            task=task,
+            start_url=start_url,
+            max_steps=max_steps,
+            agent=agent,
+            require_auth=require_auth,
+            browser=browser,
+            output_schema=resolve_output_schema(output_schema),
+            webhook_url=webhook_url,
+            webhook_format=webhook_format,
+        )
 
         response = await self._client.post(
             f"{self._base_url}/browsing/tasks",

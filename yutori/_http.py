@@ -37,3 +37,12 @@ def handle_response(response: httpx.Response) -> dict[str, Any]:
 def build_query_params(**kwargs: Any) -> dict[str, Any]:
     """Build query parameters, filtering out None values."""
     return {k: v for k, v in kwargs.items() if v is not None}
+
+
+def build_payload(**fields: Any) -> dict[str, Any]:
+    """Build a JSON request payload, filtering out None values.
+
+    Required fields (always non-None) and optional fields can be passed
+    together — any field whose value is ``None`` is omitted.
+    """
+    return {k: v for k, v in fields.items() if v is not None}
