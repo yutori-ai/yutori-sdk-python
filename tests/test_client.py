@@ -143,7 +143,7 @@ class TestScoutsNamespace:
             mock_get.assert_called_once()
             params = mock_get.call_args[1]["params"]
             assert params["page_size"] == 10
-            assert params["limit"] == 10
+            assert "limit" not in params
             assert params["status"] == "active"
 
     def test_scouts_get(self, client):
