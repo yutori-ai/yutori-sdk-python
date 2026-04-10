@@ -130,6 +130,7 @@ Opt-in helper utilities for custom n1 agent loops. These do not change the raw `
 | `screenshot_to_data_url(image_bytes, ...)` | Convert screenshot bytes into a `data:image/webp;base64,...` URL optimized for n1. |
 | `playwright_screenshot_to_data_url(page, ...)` | Capture and convert a sync Playwright screenshot optimized for n1. |
 | `aplaywright_screenshot_to_data_url(page, ...)` | Async version of `playwright_screenshot_to_data_url(...)`. |
+| `PageReadyChecker(...)` | Generic Playwright-style page stabilization helper for custom agent loops. |
 | `extract_text_content(content)` | Normalize assistant content across strings, text blocks, and object-backed forms, returning joined text or `None`. |
 | `RunHooksBase` | Async no-op lifecycle hook base class with `on_agent_start`, `on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, and `on_agent_end`. |
 

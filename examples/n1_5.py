@@ -30,7 +30,7 @@ Usage:
     python examples/n1_5.py \
         --task "List the team member names" \
         --start-url "https://www.yutori.com" \
-        --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}'
+        --json-schema '{"type":"object","properties":{"names":{"type":"array"}},"required":["names"]}'
 """
 
 import argparse
@@ -54,6 +54,7 @@ from yutori.n1 import (
     N1_5_MODEL,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
+    PageReadyChecker,
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
     estimate_messages_size_bytes,
@@ -153,6 +154,14 @@ class Agent:
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
+        self._page_ready_checker = PageReadyChecker(
+            timeout=30,
+            initial_wait=2.0,
+            wait_after_ready=1.0,
+            replace_native_select_dropdown=True,
+            disable_new_tabs=True,
+            disable_printing=True,
+        )
         self._messages: list = []
         self._step_count = 0
 
@@ -173,8 +182,8 @@ class Agent:
             try:
                 self._client = client
                 await self._init_browser(playwright)
-                await self._page.goto(start_url)
-                await self._page.wait_for_load_state("domcontentloaded")
+                await self._page.goto(start_url, wait_until="load")
+                await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
                     self._step_count += 1
@@ -230,10 +239,15 @@ class Agent:
             self._browser = None
 
     async def _take_screenshot(self) -> str:
+        await self._wait_for_page_ready(fast_mode=True)
         return await aplaywright_screenshot_to_data_url(
             self._page,
             resize_to=(self.viewport_width, self.viewport_height),
         )
+
+    async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
+            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         if url.startswith("data:image"):
@@ -408,11 +422,10 @@ class Agent:
                 if modifier:
                     await self._page.keyboard.down(modifier)
                 await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.1)
                 await self._page.mouse.click(abs_x, abs_y, button=button, click_count=click_count)
                 if modifier:
                     await self._page.keyboard.up(modifier)
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
                 return f"Clicked {click_count}x with {button}"
 
             # ---- Mouse movement actions ----
@@ -422,7 +435,7 @@ class Agent:
                     return _coord_error
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
                 return "Mouse moved and hovering"
 
             elif action_name == "mouse_down":
@@ -432,7 +445,7 @@ class Agent:
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.down()
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
                 return "Mouse button pressed"
 
             elif action_name == "mouse_up":
@@ -442,7 +455,7 @@ class Agent:
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.up()
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
                 return "Mouse button released"
 
             elif action_name == "drag":
@@ -460,7 +473,7 @@ class Agent:
                 await self._page.mouse.down()
                 await self._page.mouse.move(end_x, end_y)
                 await self._page.mouse.up()
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
                 return "Dragged successfully"
 
             # ---- Scroll ----
@@ -474,7 +487,7 @@ class Agent:
                     resolved = await _coords()
                     if resolved is None:
                         return _coord_error
-                    await asyncio.sleep(0.5)
+                    await self._wait_for_page_ready()
                     return "Scrolled to element"
                 elif coords and len(coords) == 2:
                     abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
@@ -499,7 +512,7 @@ class Agent:
                     await self._page.mouse.wheel(delta_x, delta_y)
                     if modifier:
                         await self._page.keyboard.up(modifier)
-                    await asyncio.sleep(0.5)
+                    await self._wait_for_page_ready()
                     return f"Scrolled {direction}"
                 else:
                     return "[ERROR] No coordinates or ref provided for scroll"
@@ -510,7 +523,7 @@ class Agent:
                 chunk_size = 50
                 for i in range(0, len(text), chunk_size):
                     await self._page.keyboard.type(text[i : i + chunk_size])
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
                 return f"Typed {len(text)} characters"
 
             elif action_name == "key_press":
@@ -518,7 +531,7 @@ class Agent:
                 key_presses = map_key_to_playwright(key_expr)
                 for key in key_presses:
                     await self._page.keyboard.press(key)
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
                 return f"Pressed key: {key_expr}"
 
             elif action_name == "hold_key":
@@ -531,13 +544,13 @@ class Agent:
                     await asyncio.sleep(min(duration, 100))
                     for key in reversed(individual_keys):
                         await self._page.keyboard.up(key)
-                    await asyncio.sleep(0.3)
+                    await self._wait_for_page_ready()
                     return f"Held key '{key_expr}' for {duration}s"
                 else:
                     key_presses = map_key_to_playwright(key_expr)
                     for key in key_presses:
                         await self._page.keyboard.press(key)
-                    await asyncio.sleep(0.3)
+                    await self._wait_for_page_ready()
                     return f"Pressed key: {key_expr}"
 
             # ---- Navigation actions ----
@@ -545,42 +558,41 @@ class Agent:
                 url = arguments.get("url", "")
                 if "://" not in url:
                     url = f"https://{url}"
-                await self._page.goto(url)
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
+                await self._page.goto(url, wait_until="load")
+                await self._wait_for_page_ready()
                 return f"Navigated to {url}"
 
             elif action_name == "go_back":
                 await self._page.go_back()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
                 return "Navigated back"
 
             elif action_name == "go_forward":
                 await self._page.go_forward()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
                 return "Navigated forward"
 
             elif action_name == "refresh":
                 await self._page.reload()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
+                await self._wait_for_page_ready()
                 return "Refreshed the page"
 
             elif action_name == "wait":
                 duration = max(0, min(arguments.get("duration", 5), 100))
                 await asyncio.sleep(duration)
+                await self._wait_for_page_ready()
                 return f"Waited {duration}s"
 
             # ---- Expanded tool set actions ----
             elif action_name == "extract_elements":
+                await self._wait_for_page_ready()
                 filter_type = arguments.get("filter", "visible")
                 result = await _evaluate_js(self._page, "extract_dom_elements.js", filter_type)
                 dom_data = json.loads(result) if isinstance(result, str) else result
                 return dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
 
             elif action_name == "find":
+                await self._wait_for_page_ready()
                 text = arguments.get("text", "")
                 # Get full DOM tree then do a simple text search
                 result = await _evaluate_js(self._page, "extract_dom_elements.js", "all")
@@ -596,11 +608,13 @@ class Agent:
                 value = arguments.get("value", "")
                 result_json = await _evaluate_js(self._page, "set_element_value.js", ref, value)
                 result_data = json.loads(result_json)
+                await self._wait_for_page_ready()
                 return result_data.get("message", "set_element_value completed")
 
             elif action_name == "execute_js":
                 js_code = arguments.get("text", "")
                 raw = await self._page.evaluate(js_code)
+                await self._wait_for_page_ready()
                 if raw is None:
                     return "undefined"
                 if isinstance(raw, (dict, list)):
@@ -652,8 +666,10 @@ async def main():
         help="Tool names to disable from the tool set",
     )
     parser.add_argument(
-        "--json-schema", type=json.loads, default=None,
-        help='JSON Schema for structured output, e.g. \'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}\'',
+        "--json-schema",
+        type=json.loads,
+        default=None,
+        help="JSON Schema for structured output; see the example at the top of this file",
     )
     parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")

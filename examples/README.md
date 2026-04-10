@@ -14,7 +14,7 @@ uv run playwright install chromium
 
 ## n1.py
 
-A complete browsing agent using the n1 API. Launches a local Playwright browser, captures screenshots through `yutori.n1.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.n1.denormalize_coordinates(...)`, sends them to n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
+A complete browsing agent using the n1 API. Launches a local Playwright browser, waits for pages to stabilize with `yutori.n1.PageReadyChecker(...)`, captures screenshots through `yutori.n1.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.n1.denormalize_coordinates(...)`, sends them to n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
 
 ```bash
 uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"

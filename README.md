@@ -148,6 +148,24 @@ message-preparation helper for large screenshot histories. In long-lived loops, 
 history before the next step so old screenshots do not keep accumulating in memory. The size pre-check is there to avoid
 deep-copying the full history on every step when trimming is not needed.
 
+For closer parity with Yutori's internal browser-agent loop, `yutori.n1` also exposes a Playwright-style page
+stabilization helper:
+
+```python
+from yutori.n1 import PageReadyChecker
+
+checker = PageReadyChecker(
+    wait_after_ready=1.0,
+    replace_native_select_dropdown=True,
+    disable_new_tabs=True,
+    disable_printing=True,
+)
+
+await checker.wait_until_ready(page)
+```
+
+Use `PageReadyChecker(...)` for normal SDK loops, or `NoOpPageReadyChecker()` when a site blocks `page.evaluate(...)`.
+
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
 ## Browsing API

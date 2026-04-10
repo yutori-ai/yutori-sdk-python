@@ -30,6 +30,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from yutori import AsyncYutoriClient
 from yutori.n1 import (
+    PageReadyChecker,
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
     estimate_messages_size_bytes,
@@ -87,6 +88,14 @@ class Agent:
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
+        self._page_ready_checker = PageReadyChecker(
+            timeout=30,
+            initial_wait=2.0,
+            wait_after_ready=1.0,
+            replace_native_select_dropdown=True,
+            disable_new_tabs=True,
+            disable_printing=True,
+        )
         self._messages: list = []
         self._step_count = 0
 
@@ -107,8 +116,8 @@ class Agent:
             try:
                 self._client = client
                 await self._init_browser(playwright)
-                await self._page.goto(start_url)
-                await self._page.wait_for_load_state("domcontentloaded")
+                await self._page.goto(start_url, wait_until="load")
+                await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
                     self._step_count += 1
@@ -161,10 +170,15 @@ class Agent:
             self._browser = None
 
     async def _take_screenshot(self) -> str:
+        await self._wait_for_page_ready(fast_mode=True)
         return await aplaywright_screenshot_to_data_url(
             self._page,
             resize_to=(self.viewport_width, self.viewport_height),
         )
+
+    async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
+            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         if url.startswith("data:image"):
@@ -251,25 +265,25 @@ class Agent:
                 coords = arguments.get("coordinates", [0, 0])
                 abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y)
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "double_click":
                 coords = arguments.get("coordinates", [0, 0])
                 abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.dblclick(abs_x, abs_y)
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "right_click":
                 coords = arguments.get("coordinates", [0, 0])
                 abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y, button="right")
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "triple_click":
                 coords = arguments.get("coordinates", [0, 0])
                 abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.click(abs_x, abs_y, click_count=3)
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "type":
                 text = arguments.get("text", "")
@@ -284,13 +298,13 @@ class Agent:
 
                 if press_enter:
                     await self._page.keyboard.press("Enter")
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name in ("key", "key_press"):
                 key = arguments.get("key") or arguments.get("key_comb", "")
                 key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
                 await self._page.keyboard.press(key)
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
 
             elif action_name == "scroll":
                 coords = arguments.get("coordinates") or arguments.get("coordinate", [500, 500])
@@ -305,13 +319,13 @@ class Agent:
 
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.wheel(delta_x, delta_y)
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "hover":
                 coords = arguments.get("coordinates", [0, 0])
                 abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                 await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.3)
+                await self._wait_for_page_ready()
 
             elif action_name == "drag":
                 start_coords = arguments.get("start_coordinates") or arguments.get("startCoordinates", [0, 0])
@@ -324,36 +338,28 @@ class Agent:
                 await self._page.mouse.down()
                 await self._page.mouse.move(end_x, end_y)
                 await self._page.mouse.up()
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name in ("goto", "goto_url"):
                 url = arguments.get("url", "")
-                await self._page.goto(url)
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
+                await self._page.goto(url, wait_until="load")
+                await self._wait_for_page_ready()
 
             elif action_name in ("back", "go_back"):
                 await self._page.go_back()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
+                await self._wait_for_page_ready()
 
             elif action_name == "refresh":
                 await self._page.reload()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
+                await self._wait_for_page_ready()
 
             elif action_name == "wait":
                 await asyncio.sleep(5)
+                await self._wait_for_page_ready()
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
                 return f"[ERROR] Unknown action: {action_name}"
-
-            # Wait for any navigation or dynamic content
-            try:
-                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except Exception:
-                pass
 
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
