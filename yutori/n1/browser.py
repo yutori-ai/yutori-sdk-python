@@ -110,6 +110,8 @@ class AsyncPlaywrightActionExecutor:
         viewport_height: int,
         page_ready_checker: PageReadyChecker | None = None,
         custom_tools: dict[str, ToolHandler] | None = None,
+        default_clear_before_typing: bool = True,
+        default_press_enter_after_typing: bool = True,
         tool_call_timeout: float = 30.0,
         num_tool_retries: int = 1,
         retry_delay: float = 1.0,
@@ -120,6 +122,8 @@ class AsyncPlaywrightActionExecutor:
         self.viewport_height = viewport_height
         self.page_ready_checker = page_ready_checker or PageReadyChecker()
         self.custom_tools = custom_tools or {}
+        self.default_clear_before_typing = default_clear_before_typing
+        self.default_press_enter_after_typing = default_press_enter_after_typing
         self.tool_call_timeout = tool_call_timeout
         self.num_tool_retries = max(1, num_tool_retries)
         self.retry_delay = retry_delay
@@ -267,8 +271,8 @@ class AsyncPlaywrightActionExecutor:
 
         if action_name == "type":
             text = arguments.get("text", "")
-            clear_first = arguments.get("clear_before_typing", False)
-            press_enter = arguments.get("press_enter_after", False)
+            clear_first = arguments.get("clear_before_typing", self.default_clear_before_typing)
+            press_enter = arguments.get("press_enter_after", self.default_press_enter_after_typing)
 
             if clear_first:
                 await self.page.keyboard.press("Control+a" if sys.platform != "darwin" else "Meta+a")

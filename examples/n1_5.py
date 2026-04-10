@@ -246,6 +246,8 @@ class Agent:
             viewport_width=self.viewport_width,
             viewport_height=self.viewport_height,
             page_ready_checker=self._page_ready_checker,
+            default_clear_before_typing=False,
+            default_press_enter_after_typing=False,
         )
         await asyncio.sleep(1)
 

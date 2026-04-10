@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from yutori.n1.browser import (
@@ -183,3 +185,47 @@ async def test_action_executor_go_back_guardrail_restores_start_page() -> None:
     assert page.back_calls == 1
     assert page.forward_calls == 1
     assert checker.calls == [False, False]
+
+
+@pytest.mark.asyncio
+async def test_action_executor_type_defaults_match_n1_behavior() -> None:
+    page = FakePage()
+    checker = FakeReadyChecker()
+    executor = AsyncPlaywrightActionExecutor(
+        page,
+        viewport_width=1280,
+        viewport_height=800,
+        page_ready_checker=checker,
+    )
+
+    result = await executor.execute("type", {"text": "hello"})
+
+    assert result == "Typed 5 characters"
+    expected_select_all = "Meta+a" if sys.platform == "darwin" else "Control+a"
+    assert page.keyboard.calls == [
+        ("press", expected_select_all),
+        ("press", "Backspace"),
+        ("type", "hello"),
+        ("press", "Enter"),
+    ]
+    assert checker.calls == [False]
+
+
+@pytest.mark.asyncio
+async def test_action_executor_type_can_disable_n1_defaults_for_n1_5() -> None:
+    page = FakePage()
+    checker = FakeReadyChecker()
+    executor = AsyncPlaywrightActionExecutor(
+        page,
+        viewport_width=1280,
+        viewport_height=800,
+        page_ready_checker=checker,
+        default_clear_before_typing=False,
+        default_press_enter_after_typing=False,
+    )
+
+    result = await executor.execute("type", {"text": "hello"})
+
+    assert result == "Typed 5 characters"
+    assert page.keyboard.calls == [("type", "hello")]
+    assert checker.calls == [False]

@@ -35,7 +35,7 @@ class ScoutsNamespace:
             Dictionary containing list of scouts.
         """
         # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
-        params = build_query_params(limit=limit, page_size=limit, status=status)
+        params = build_query_params(page_size=limit, status=status)
         response = self._client.get(
             f"{self._base_url}/scouting/tasks",
             headers=build_headers(self._api_key),
