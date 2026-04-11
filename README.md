@@ -58,60 +58,46 @@ The Yutori API provides four main capabilities:
 
 ## n1 API
 
-The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface:
+The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface. In a typical agent loop you capture a screenshot, send it to the model, and execute the returned tool calls:
 
 ```python
-response = client.chat.completions.create(
-    model="n1-latest",
-    messages=[
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Describe the screenshot and search for Yutori."
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_homepage_%28as_of_January_2024%29.jpg/1280px-Google_homepage_%28as_of_January_2024%29.jpg"
-                    }
-                }
-            ]
-        }
-    ]
-)
-
-# Get the thoughts
-message = response.choices[0].message
-print(message.content)
-
-# Get the tool calls, such as browser interaction actions
-if message.tool_calls:
-    for tool_call in message.tool_calls:
-        print(f"Action: {tool_call.function.name}")
-        print(f"Arguments: {tool_call.function.arguments}")
-```
-
-Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`. The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
-
-For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
-
-```python
+from yutori import AsyncYutoriClient
 from yutori.n1 import aplaywright_screenshot_to_data_url
+from playwright.async_api import async_playwright
 
-image_url = await aplaywright_screenshot_to_data_url(page)
+async with AsyncYutoriClient() as client, async_playwright() as p:
+    browser = await p.chromium.launch()
+    page = await browser.new_page()
+    await page.goto("https://www.yutori.com")
 
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "Describe the screenshot and search for Yutori."},
-            {"type": "image_url", "image_url": {"url": image_url}},
+    # Capture a screenshot optimized for n1
+    image_url = await aplaywright_screenshot_to_data_url(page)
+
+    response = await client.chat.completions.create(
+        model="n1.5-latest",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "List the team member names."},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }
         ],
-    }
-]
+    )
+
+    # Get the thoughts
+    message = response.choices[0].message
+    print(message.content)
+
+    # Get the tool calls, such as browser interaction actions
+    if message.tool_calls:
+        for tool_call in message.tool_calls:
+            print(f"Action: {tool_call.function.name}")
+            print(f"Arguments: {tool_call.function.arguments}")
 ```
+
+Live model IDs and parameter docs: [`n1`](https://docs.yutori.com/reference/n1) and [`n1.5`](https://docs.yutori.com/reference/n1-5). The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`. n1.5 also supports `tool_set`, `disable_tools`, and `json_schema` via `extra_body` — see the [n1.5 reference](https://docs.yutori.com/reference/n1-5) for details.
 
 Install the optional image dependency with `pip install "yutori[n1]"` if you want to use these screenshot helpers.
 
