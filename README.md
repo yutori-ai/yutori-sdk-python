@@ -95,6 +95,15 @@ if message.tool_calls:
 
 Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`. The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
 
+The SDK exports canonical model constants so you don't need to hardcode strings:
+
+```python
+from yutori.n1 import N1_MODEL, N1_5_MODEL
+
+# N1_MODEL   = "n1-latest"
+# N1_5_MODEL = "n1.5-latest"
+```
+
 For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
 
 ```python
@@ -125,6 +134,31 @@ coords = [500, 250]
 x, y = denormalize_coordinates(coords, width=1280, height=800)
 ```
 
+For agent loops that need user context (location, timezone, current date/time), the SDK provides formatting helpers:
+
+```python
+from yutori.n1 import format_task_with_context, format_stop_and_summarize
+
+# Append user context to a task string
+task = format_task_with_context(
+    "Book a table for 2 tonight",
+    user_timezone="America/Los_Angeles",
+    user_location="San Francisco, CA, US",
+)
+# Result:
+#   Book a table for 2 tonight
+#
+#   User's location: San Francisco, CA, US
+#   User's timezone: America/Los_Angeles
+#   Current Date: April 11, 2026
+#   Current Time: 14:05:49 PDT
+#   Today is: Saturday
+
+# When hitting max steps or an error, send a stop-and-summarize message
+# so the model returns a summary instead of nothing
+stop_message = format_stop_and_summarize("Book a table for 2 tonight")
+```
+
 For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
 
 ```python
@@ -149,6 +183,46 @@ history before the next step so old screenshots do not keep accumulating in memo
 deep-copying the full history on every step when trimming is not needed.
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
+
+### n1.5
+
+n1.5 extends the n1 API with selectable tool sets, structured JSON output, and a redesigned action space. It uses the same `client.chat.completions.create(...)` call with three additional parameters:
+
+```python
+from yutori.n1 import N1_5_MODEL, TOOL_SET_EXPANDED
+
+response = client.chat.completions.create(
+    model=N1_5_MODEL,
+    messages=messages,
+    tool_set=TOOL_SET_EXPANDED,               # Built-in tool set
+    disable_tools=["hold_key", "drag"],        # Remove specific tools
+    json_schema={                              # Request structured output
+        "type": "object",
+        "properties": {"names": {"type": "array", "items": {"type": "string"}}},
+        "required": ["names"],
+    },
+)
+```
+
+**Parameters:**
+- `tool_set` — Built-in tool set to activate. Use the constants `TOOL_SET_CORE` (`"browser_tools_core-20260403"`) or `TOOL_SET_EXPANDED` (`"browser_tools_expanded-20260403"`), which adds `extract_elements`, `find`, `set_element_value`, and `execute_js`.
+- `disable_tools` — List of tool names to remove from the selected tool set.
+- `json_schema` — JSON Schema dict for structured output. When provided, the model returns a `parsed_json` field on the response.
+
+n1.5 also uses lowercase key names (e.g. `ctrl+c`, `enter`) instead of Playwright names. The SDK provides helpers to convert them:
+
+```python
+from yutori.n1 import map_key_to_playwright, map_keys_individual
+
+# Single key or combo → Playwright format
+map_key_to_playwright("ctrl+c")    # "Control+c"
+map_key_to_playwright("enter")     # "Enter"
+
+# For keyboard.down()/up() which need individual keys
+map_keys_individual("ctrl+shift")  # ["Control", "Shift"]
+```
+
+See [examples/n1_5.py](examples/n1_5.py) for a complete n1.5 browsing agent.
 
 ## Browsing API
 
@@ -505,7 +579,11 @@ Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples, including a browser automation agent using the n1 API.
+See [examples/](examples/) for complete working examples:
+- [`n1.py`](examples/n1.py) — Browser automation agent using the n1 API
+- [`n1_5.py`](examples/n1_5.py) — Browser automation agent using n1.5 with tool sets, structured output, and key mapping
+- [`n1_custom_tools.py`](examples/n1_custom_tools.py) — n1 agent with custom tools for content extraction
+- [`n1_memo.py`](examples/n1_memo.py) — n1 agent with custom tools for memorizing information
 
 ## Contributing
 
