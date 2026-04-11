@@ -64,7 +64,7 @@ from yutori.n1 import (
 )
 from yutori.n1.loop import update_trimmed_history
 from yutori.n1.page_ready import PageReadyChecker
-from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
+from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 # ---------------------------------------------------------------------------
 # JavaScript helpers for expanded tool set actions.
@@ -179,9 +179,11 @@ class Agent:
             disable_new_tabs=True,
             disable_printing=True,
         )
+        # Replay bookkeeping is optional and only used when writing local artifacts.
         self._replay: TrajectoryRecorder | None = None
         self._messages: list = []
         self._request_messages: list | None = None
+        # Stored only so the replay viewer can show raw request/response JSON per step.
         self._step_payloads: list[dict] = []
         self._step_count = 0
 
@@ -205,6 +207,7 @@ class Agent:
         self._replay = None
 
         final_response = ""
+        # Replay output is opt-in; the loop still works without any of this.
         if self.replay_dir:
             replay_id = self.replay_id or make_run_id(prefix="n1_5", label=task)
             self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
@@ -335,6 +338,7 @@ class Agent:
         if removed:
             logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
+        # This copy is only for replay output; the request itself just uses the same fields directly.
         request_payload = {
             "model": self.model,
             "messages": self._request_messages,
@@ -354,6 +358,7 @@ class Agent:
             ),
             timeout=120.0,  # 2 minutes
         )
+        # Replay output records the sanitized raw request/response pair for this step.
         self._step_payloads.append(
             sanitize_step_payload(
                 {
@@ -727,6 +732,7 @@ class Agent:
             return f"[ERROR] Error executing {action_name}: {e}"
 
     async def _persist_replay(self) -> None:
+        # Replay persistence is best-effort and not part of the agent loop itself.
         if self._replay is None:
             return
         try:
