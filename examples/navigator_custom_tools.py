@@ -12,14 +12,14 @@ agent trajectory to local files so you can inspect screenshots, actions, and
 raw request/response payloads in `visualization.html` after the run.
 
 Usage:
-    export YUTORI_API_KEY=...
-    python examples/n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
+    yutori auth login  # or export YUTORI_API_KEY=...
+    uv sync --extra examples
+    uv run python examples/navigator_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
 """
 
 import argparse
 import asyncio
 import json
-import os
 import re
 import sys
 from functools import cached_property
@@ -33,9 +33,9 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.n1 import aplaywright_screenshot_to_data_url, denormalize_coordinates
-from yutori.n1.page_ready import PageReadyChecker
-from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
+from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -45,7 +45,6 @@ class Config(BaseModel):
     task: str = Field(default="Get the titles and links of all the blog posts")
     start_url: str = "https://www.yutori.com"
     # model
-    api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
     base_url: str = "https://api.yutori.com/v1"
     model: str = "n1-latest"
     temperature: float = 0.3
@@ -130,7 +129,6 @@ class ExtractContentAndLinksTool:
 class Agent:
     def __init__(
         self,
-        api_key: str,
         base_url: str = "https://api.yutori.com/v1",
         model: str = "n1-latest",
         temperature: float = 0.3,
@@ -141,7 +139,6 @@ class Agent:
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
@@ -191,7 +188,7 @@ class Agent:
             logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
-            AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
+            AsyncYutoriClient(base_url=self.base_url) as client,
             async_playwright() as playwright,
         ):
             try:
@@ -503,11 +500,6 @@ async def main():
     parser = argparse.ArgumentParser(description="Example of using Yutori n1 API to perform a web browsing task")
     parser.add_argument("--task", default=default_config.task, help="The task to perform")
     parser.add_argument("--start-url", default=default_config.start_url, help="Starting URL")
-    parser.add_argument(
-        "--api-key",
-        default=default_config.api_key,
-        help="Yutori API key, or set YUTORI_API_KEY in environment variables",
-    )
     parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1 base URL")
     parser.add_argument("--model", default=default_config.model, help="Yutori n1 model")
     parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1 temperature")
@@ -525,7 +517,6 @@ async def main():
     config = Config.model_validate(vars(args))
 
     agent = Agent(
-        api_key=config.api_key,
         base_url=config.base_url,
         model=config.model,
         temperature=config.temperature,

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from yutori.n1.page_ready import NoOpPageReadyChecker, PageReadyChecker
+from yutori.navigator.page_ready import NoOpPageReadyChecker, PageReadyChecker
 
 
 class FakeAsyncPage:

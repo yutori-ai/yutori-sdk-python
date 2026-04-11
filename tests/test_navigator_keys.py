@@ -2,7 +2,7 @@
 
 import pytest
 
-from yutori.n1.keys import map_key_to_playwright, map_keys_individual
+from yutori.navigator.keys import map_key_to_playwright, map_keys_individual
 
 
 class TestMapKeyToPlaywright:

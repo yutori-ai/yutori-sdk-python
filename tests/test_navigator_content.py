@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from yutori.n1 import extract_text_content
+from yutori.navigator import extract_text_content
 
 
 class TestExtractTextContent:

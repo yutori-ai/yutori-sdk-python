@@ -1,6 +1,6 @@
-"""Tests for yutori.n1.payload – payload management utilities."""
+"""Tests for yutori.navigator.payload - payload management utilities."""
 
-from yutori.n1.payload import (
+from yutori.navigator.payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
     _strip_one_image,

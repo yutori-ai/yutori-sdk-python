@@ -7,18 +7,18 @@
     for (var key in payload) {
       result[key] = payload[key];
     }
-    return JSON.stringify(result);
+    return result;
   }
 
   function getTrackedElement(ref) {
-    if (!window.__n1ElementRefs || !window.__n1ElementRefs[ref]) {
+    if (!window.__yutoriElementRefs || !window.__yutoriElementRefs[ref]) {
       return null;
     }
 
-    var weakRef = window.__n1ElementRefs[ref];
+    var weakRef = window.__yutoriElementRefs[ref];
     var element = weakRef.deref();
     if (!element || !document.contains(element)) {
-      delete window.__n1ElementRefs[ref];
+      delete window.__yutoriElementRefs[ref];
       return null;
     }
 

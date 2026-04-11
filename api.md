@@ -108,17 +108,17 @@ if message.tool_calls:
 **Parameters:**
 - `messages` (Iterable[ChatCompletionMessageParam]): Chat messages following OpenAI format. Include screenshots as `image_url` content blocks.
 - `model` (str): Model ID. Default: `"n1-latest"`.
-- `**kwargs`: Additional OpenAI-compatible parameters (e.g., `temperature`, `tools`, `tool_choice`, `response_format`).
+- `**kwargs`: Additional OpenAI-compatible parameters (e.g., `temperature`, `tools`, `tool_choice`, `response_format`). n1.5 also accepts `tool_set`, `disable_tools`, and `json_schema`.
 
-**Returns:** `ChatCompletion` object from the OpenAI SDK with `choices[0].message` containing the model's response and optional `tool_calls` for browser actions.
+**Returns:** `ChatCompletion` object from the OpenAI SDK with `choices[0].message` containing the model's response and optional `tool_calls` for browser actions. When `json_schema` is provided on n1.5, the parsed structured output is available on the top-level completion object as `response.parsed_json`.
 
-Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`.
+Live model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1` and `https://docs.yutori.com/reference/n1-5`.
 
 ---
 
-### yutori.n1
+### yutori.navigator
 
-Opt-in helper utilities for custom n1 agent loops. These do not change the raw `client.chat.completions.create(...)` interface.
+Opt-in helper utilities for custom navigator agent loops. These do not change the raw `client.chat.completions.create(...)` interface.
 
 | Helper | Description |
 |--------|-------------|
@@ -135,7 +135,28 @@ Opt-in helper utilities for custom n1 agent loops. These do not change the raw `
 
 `RunHooksBase` mirrors the lifecycle phases of higher-level agent loops, but it is not wired into `client.chat` automatically. It is intended for consumers building their own orchestration, tracing, or UI layers around n1.
 
-Install the optional image dependency with `pip install "yutori[n1]"` to use the screenshot conversion helpers.
+Pillow is included in the base SDK install, so no extra is needed to use the screenshot conversion helpers.
+
+### yutori.navigator.tools
+
+Packaged JavaScript reference implementations for n1.5 expanded browser tools.
+
+| Helper | Description |
+|--------|-------------|
+| `EXTRACT_ELEMENTS_SCRIPT` | JS source for the `extract_elements` reference implementation. |
+| `FIND_SCRIPT` | JS source for the `find` reference implementation. |
+| `GET_ELEMENT_BY_REF_SCRIPT` | JS source for resolving an element ref to viewport coordinates. |
+| `SET_ELEMENT_VALUE_SCRIPT` | JS source for the `set_element_value` reference implementation. |
+| `EXECUTE_JS_SCRIPT` | JS source for the `execute_js` reference implementation. |
+| `load_tool_script(name)` | Load a packaged tool script by filename. |
+| `evaluate_tool_script(page, script, *args)` | Async helper that runs a packaged tool script via `page.evaluate(...)` and normalizes the result. |
+| `coerce_result(raw)` | Normalize raw Playwright evaluation output into a dict payload. |
+
+```python
+from yutori.navigator.tools import FIND_SCRIPT, evaluate_tool_script
+
+result = await evaluate_tool_script(page, FIND_SCRIPT, "pricing")
+```
 
 ---
 

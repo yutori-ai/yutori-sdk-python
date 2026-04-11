@@ -1,6 +1,6 @@
-"""Tests for n1/n1.5 model constants and tool set identifiers."""
+"""Tests for navigator model constants and tool set identifiers."""
 
-from yutori.n1 import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
+from yutori.navigator import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 
 
 class TestModelConstants:

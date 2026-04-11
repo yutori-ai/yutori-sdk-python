@@ -448,7 +448,7 @@ class TestChatNamespace:
         from openai.types.chat import ChatCompletion, ChatCompletionMessage
         from openai.types.chat.chat_completion import Choice
 
-        from yutori.n1 import TOOL_SET_CORE
+        from yutori.navigator import TOOL_SET_CORE
 
         json_schema = {
             "type": "object",
@@ -501,8 +501,8 @@ class TestChatNamespace:
         from openai.types.chat import ChatCompletion, ChatCompletionMessage
         from openai.types.chat.chat_completion import Choice
 
-        from yutori.n1 import create_trimmed
-        from yutori.n1.payload import trimmed_messages_to_fit
+        from yutori.navigator import create_trimmed
+        from yutori.navigator.payload import trimmed_messages_to_fit
 
         mock_completion = ChatCompletion(
             id="chatcmpl-123",
@@ -562,7 +562,7 @@ class TestChatNamespace:
         from openai.types.chat import ChatCompletion, ChatCompletionMessage
         from openai.types.chat.chat_completion import Choice
 
-        from yutori.n1 import trimmed_messages_to_fit
+        from yutori.navigator import trimmed_messages_to_fit
 
         mock_completion = ChatCompletion(
             id="chatcmpl-123",

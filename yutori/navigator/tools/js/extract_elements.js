@@ -36,14 +36,14 @@
 
   // Keep a stable ref for each live element so later actions can target the same node.
   function ensureStore() {
-    if (!window.__n1ElementRefs) {
-      window.__n1ElementRefs = {};
+    if (!window.__yutoriElementRefs) {
+      window.__yutoriElementRefs = {};
     }
-    if (!window.__n1ElementIds) {
-      window.__n1ElementIds = new WeakMap();
+    if (!window.__yutoriElementIds) {
+      window.__yutoriElementIds = new WeakMap();
     }
-    if (!window.__n1RefCounter) {
-      window.__n1RefCounter = 0;
+    if (!window.__yutoriRefCounter) {
+      window.__yutoriRefCounter = 0;
     }
   }
 
@@ -280,14 +280,14 @@
   }
 
   function getOrCreateRef(element) {
-    var existingRef = window.__n1ElementIds.get(element);
-    if (existingRef && window.__n1ElementRefs[existingRef] && window.__n1ElementRefs[existingRef].deref() === element) {
+    var existingRef = window.__yutoriElementIds.get(element);
+    if (existingRef && window.__yutoriElementRefs[existingRef] && window.__yutoriElementRefs[existingRef].deref() === element) {
       return existingRef;
     }
 
-    var ref = "ref_" + ++window.__n1RefCounter;
-    window.__n1ElementIds.set(element, ref);
-    window.__n1ElementRefs[ref] = new WeakRef(element);
+    var ref = "ref_" + ++window.__yutoriRefCounter;
+    window.__yutoriElementIds.set(element, ref);
+    window.__yutoriElementRefs[ref] = new WeakRef(element);
     return ref;
   }
 
@@ -350,9 +350,9 @@
 
   function pruneDeadRefs() {
     // WeakRefs may outlive detached nodes in the map until we sweep them explicitly.
-    for (var ref in window.__n1ElementRefs) {
-      if (!window.__n1ElementRefs[ref].deref()) {
-        delete window.__n1ElementRefs[ref];
+    for (var ref in window.__yutoriElementRefs) {
+      if (!window.__yutoriElementRefs[ref].deref()) {
+        delete window.__yutoriElementRefs[ref];
       }
     }
   }
@@ -369,7 +369,9 @@
     return !/^\s*- generic \[ref=ref_\d+\]$/.test(line);
   });
 
-  return JSON.stringify({
+  return {
+    success: true,
     pageContent: filteredLines.join("\n"),
-  });
+    totalLines: filteredLines.length,
+  };
 })

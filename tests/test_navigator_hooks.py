@@ -4,7 +4,7 @@ import inspect
 
 import pytest
 
-from yutori.n1 import RunHooksBase
+from yutori.navigator import RunHooksBase
 
 
 class RecordingHooks(RunHooksBase):
