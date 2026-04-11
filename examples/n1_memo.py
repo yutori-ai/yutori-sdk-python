@@ -20,7 +20,6 @@ Usage:
 
 import argparse
 import asyncio
-import copy
 import json
 import os
 import sys
@@ -41,6 +40,7 @@ from yutori.n1 import (
     TrajectoryRecorder,
     aplaywright_screenshot_to_data_url,
     make_run_id,
+    sanitize_step_payload,
 )
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
@@ -360,9 +360,9 @@ class Agent:
     async def _call_llm_with_retries(self) -> ChatCompletion:
         request_payload = {
             "model": self.model,
-            "messages": copy.deepcopy(self._messages),
+            "messages": self._messages,
             "temperature": self.temperature,
-            "tools": copy.deepcopy(self._memo_tool_suite.input_schemas),
+            "tools": self._memo_tool_suite.input_schemas,
         }
         response = await asyncio.wait_for(
             self._client.chat.completions.create(
@@ -374,11 +374,13 @@ class Agent:
             timeout=120.0,  # 2 minutes
         )
         self._step_payloads.append(
-            {
-                "step_num": self._step_count,
-                "request": request_payload,
-                "response": response.model_dump(exclude_none=True),
-            }
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
         )
         return response
 

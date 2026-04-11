@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import copy
+
 import pytest
 
-from yutori.n1 import TrajectoryRecorder, generate_visualization_html, make_run_id, update_trimmed_history
+from yutori.n1 import (
+    TrajectoryRecorder,
+    generate_visualization_html,
+    make_run_id,
+    sanitize_step_payload,
+    update_trimmed_history,
+)
 
 
 def _image_message(role: str, *, url: str = "data:image/png;base64,abc", text: str | None = None) -> dict:
@@ -39,6 +47,44 @@ def test_update_trimmed_history_keeps_full_history_intact() -> None:
     assert removed > 0
     assert request_messages is not messages
     assert messages[0]["content"][1]["image_url"]["url"] == large_url
+
+
+def test_update_trimmed_history_reuses_existing_request_copy_when_trimming() -> None:
+    large_url = "data:image/png;base64," + ("A" * 5000)
+    messages = [
+        _image_message("user", url=large_url, text="one"),
+        _image_message("tool", url=large_url, text="two"),
+        _image_message("tool", url=large_url, text="three"),
+    ]
+    request_messages = copy.deepcopy(messages)
+
+    updated_request_messages, _, removed = update_trimmed_history(
+        messages,
+        request_messages,
+        max_bytes=12_000,
+        keep_recent=1,
+    )
+
+    assert removed > 0
+    assert updated_request_messages is request_messages
+    assert messages[0]["content"][1]["image_url"]["url"] == large_url
+
+
+def test_sanitize_step_payload_clips_images_before_storage() -> None:
+    large_url = "data:image/png;base64," + ("A" * 400)
+
+    sanitized = sanitize_step_payload(
+        {
+            "step_num": 1,
+            "request": {
+                "model": "n1-latest",
+                "messages": [_image_message("user", url=large_url, text="Inspect page")],
+            },
+            "response": {"id": "resp_123"},
+        }
+    )
+
+    assert sanitized["request"]["messages"][0]["content"][1]["image_url"]["url"].endswith("...[clipped]")
 
 
 def test_generate_visualization_html_includes_steps_and_result() -> None:

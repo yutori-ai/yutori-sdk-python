@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import asyncio
-import copy
 import os
 import sys
 
@@ -34,6 +33,7 @@ from yutori.n1 import (
     aplaywright_screenshot_to_data_url,
     extract_content_and_links_tool_schema,
     make_run_id,
+    sanitize_step_payload,
 )
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
@@ -232,7 +232,7 @@ class Agent:
     async def _call_llm_with_retries(self) -> ChatCompletion:
         request_payload = {
             "model": self.model,
-            "messages": copy.deepcopy(self._messages),
+            "messages": self._messages,
             "temperature": self.temperature,
             "tools": [extract_content_and_links_tool_schema()],
         }
@@ -246,11 +246,13 @@ class Agent:
             timeout=120.0,  # 2 minutes
         )
         self._step_payloads.append(
-            {
-                "step_num": self._step_count,
-                "request": request_payload,
-                "response": response.model_dump(exclude_none=True),
-            }
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
         )
         return response
 

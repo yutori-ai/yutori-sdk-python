@@ -16,7 +16,6 @@ Usage:
 
 import argparse
 import asyncio
-import copy
 import os
 import sys
 
@@ -35,6 +34,7 @@ from yutori.n1 import (
     TrajectoryRecorder,
     aplaywright_screenshot_to_data_url,
     make_run_id,
+    sanitize_step_payload,
     update_trimmed_history,
 )
 
@@ -252,7 +252,7 @@ class Agent:
 
         request_payload = {
             "model": self.model,
-            "messages": copy.deepcopy(self._request_messages),
+            "messages": self._request_messages,
             "temperature": self.temperature,
         }
         response = await asyncio.wait_for(
@@ -264,11 +264,13 @@ class Agent:
             timeout=120.0,  # 2 minutes
         )
         self._step_payloads.append(
-            {
-                "step_num": self._step_count,
-                "request": request_payload,
-                "response": response.model_dump(exclude_none=True),
-            }
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
         )
         return response
 

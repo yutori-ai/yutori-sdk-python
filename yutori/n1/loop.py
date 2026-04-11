@@ -11,6 +11,7 @@ from .payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
     estimate_messages_size_bytes,
+    trim_images_to_fit,
     trimmed_messages_to_fit,
 )
 
@@ -63,7 +64,7 @@ def update_trimmed_history(
     size_bytes = estimate_messages_size_bytes(request_messages)
     removed = 0
     if size_bytes > max_bytes:
-        request_messages, size_bytes, removed = trimmed_messages_to_fit(
+        size_bytes, removed = trim_images_to_fit(
             request_messages,
             max_bytes=max_bytes,
             keep_recent=keep_recent,

@@ -35,7 +35,6 @@ Usage:
 
 import argparse
 import asyncio
-import copy
 import json
 import os
 import sys
@@ -60,6 +59,7 @@ from yutori.n1 import (
     format_stop_and_summarize,
     format_task_with_context,
     make_run_id,
+    sanitize_step_payload,
     update_trimmed_history,
 )
 
@@ -318,7 +318,7 @@ class Agent:
 
         request_payload = {
             "model": self.model,
-            "messages": copy.deepcopy(self._request_messages),
+            "messages": self._request_messages,
             "temperature": self.temperature,
             "tool_set": self.tool_set,
             "disable_tools": self.disable_tools or None,
@@ -336,11 +336,13 @@ class Agent:
             timeout=120.0,  # 2 minutes
         )
         self._step_payloads.append(
-            {
-                "step_num": self._step_count,
-                "request": request_payload,
-                "response": response.model_dump(exclude_none=True),
-            }
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
         )
         return response
 

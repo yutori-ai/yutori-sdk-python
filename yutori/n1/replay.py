@@ -131,7 +131,7 @@ class TrajectoryRecorder:
         return await self.load_jsonl("messages.jsonl")
 
     async def save_step_payloads(self, step_payloads: list[dict[str, Any]]) -> None:
-        sanitized = [_sanitize_step_payload(payload) for payload in step_payloads]
+        sanitized = [sanitize_step_payload(payload) for payload in step_payloads]
         await self.save_jsonl("step_payloads.jsonl", sanitized)
 
     async def load_step_payloads(self) -> list[dict[str, Any]]:
@@ -604,7 +604,7 @@ def _format_value(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _sanitize_step_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def sanitize_step_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sanitized = dict(payload)
     if "request" in sanitized:
         sanitized["request"] = _sanitize_for_replay(sanitized["request"])

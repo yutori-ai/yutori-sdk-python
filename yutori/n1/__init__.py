@@ -34,7 +34,13 @@ from .loop import acreate_trimmed, create_trimmed, update_trimmed_history
 from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
 from .page_ready import NoOpPageReadyChecker, PageReadyChecker
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
-from .replay import TrajectoryRecorder, generate_visualization_html, log_formatter, make_run_id
+from .replay import (
+    TrajectoryRecorder,
+    generate_visualization_html,
+    log_formatter,
+    make_run_id,
+    sanitize_step_payload,
+)
 from .stop import format_stop_and_summarize
 
 __all__ = [
@@ -63,6 +69,7 @@ __all__ = [
     "PageReadyChecker",
     "playwright_screenshot_to_data_url",
     "RunHooksBase",
+    "sanitize_step_payload",
     "screenshot_to_data_url",
     "estimate_messages_size_bytes",
     "TOOL_SET_CORE",
