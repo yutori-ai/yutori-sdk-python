@@ -7,6 +7,10 @@ calls the n1 API to get actions, executes them, and iterates until the task is c
 
 In addition, we implement a custom tool to extract content and links from the page.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 Usage:
     export YUTORI_API_KEY=...
     python examples/n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
@@ -30,6 +34,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from yutori import AsyncYutoriClient
 from yutori.n1 import aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.n1.page_ready import PageReadyChecker
+from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -49,6 +55,9 @@ class Config(BaseModel):
     viewport_width: int = 1280
     viewport_height: int = 800
     headless: bool = False
+    # optional local replay artifacts
+    replay_dir: str | None = None
+    replay_id: str | None = None
 
 
 class ExtractContentAndLinksTool:
@@ -129,6 +138,8 @@ class Agent:
         viewport_width: int = 1280,
         viewport_height: int = 800,
         headless: bool = False,
+        replay_dir: str | None = None,
+        replay_id: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -138,11 +149,25 @@ class Agent:
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
         self.headless = headless
+        self.replay_dir = replay_dir
+        self.replay_id = replay_id
 
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
+        self._page_ready_checker = PageReadyChecker(
+            timeout=30,
+            initial_wait=2.0,
+            wait_after_ready=1.0,
+            replace_native_select_dropdown=True,
+            disable_new_tabs=True,
+            disable_printing=True,
+        )
+        # Replay bookkeeping is optional and only used when writing local artifacts.
+        self._replay: TrajectoryRecorder | None = None
         self._messages: list = []
+        # Stored only so the replay viewer can show raw request/response JSON per step.
+        self._step_payloads: list[dict] = []
         self._step_count = 0
 
         # Custom tools
@@ -155,8 +180,15 @@ class Agent:
         self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
         self._message_index = 0
         self._step_count = 0
+        self._step_payloads = []
+        self._replay = None
 
         final_response = ""
+        # Replay output is opt-in; the loop still works without any of this.
+        if self.replay_dir:
+            replay_id = self.replay_id or make_run_id(prefix="n1_custom", label=task)
+            self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
+            logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
             AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
@@ -167,6 +199,7 @@ class Agent:
                 await self._init_browser(playwright)
                 await self._page.goto(start_url)
                 await self._page.wait_for_load_state("domcontentloaded")
+                await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
                     self._step_count += 1
@@ -180,6 +213,7 @@ class Agent:
                     # Store the assistant's response
                     self._messages.append(response.model_dump(exclude_none=True))
                     self._message_index = len(self._messages)
+                    await self._persist_replay()
 
                     if response.content:
                         final_response = response.content
@@ -194,6 +228,7 @@ class Agent:
                         result = await self._execute(tool_call)
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
+                    await self._persist_replay()
 
                 if self._step_count >= self.max_steps:
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
@@ -201,6 +236,7 @@ class Agent:
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
             finally:
+                await self._persist_replay()
                 await self._close_browser()
 
         return final_response
@@ -219,10 +255,15 @@ class Agent:
             self._browser = None
 
     async def _take_screenshot(self) -> str:
+        await self._wait_for_page_ready(fast_mode=True)
         return await aplaywright_screenshot_to_data_url(
             self._page,
             resize_to=(self.viewport_width, self.viewport_height),
         )
+
+    async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
+            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         if url.startswith("data:image"):
@@ -256,7 +297,14 @@ class Agent:
         reraise=True,
     )
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        return await asyncio.wait_for(
+        # This copy is only for replay output; the request itself just uses the same fields directly.
+        request_payload = {
+            "model": self.model,
+            "messages": self._messages,
+            "temperature": self.temperature,
+            "tools": [self._extract_content_and_links_tool.input_schema],
+        }
+        response = await asyncio.wait_for(
             self._client.chat.completions.create(
                 model=self.model,
                 messages=self._messages,
@@ -265,6 +313,17 @@ class Agent:
             ),
             timeout=120.0,  # 2 minutes
         )
+        # Replay output records the sanitized raw request/response pair for this step.
+        self._step_payloads.append(
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
+        )
+        return response
 
     async def _predict(self) -> ChatCompletion:
         screenshot_url = await self._take_screenshot()
@@ -395,6 +454,7 @@ class Agent:
                 await asyncio.sleep(5)
 
             elif action_name == "extract_content_and_links":
+                await self._wait_for_page_ready()
                 result = await self._extract_content_and_links_tool(self._page)
                 return result
 
@@ -407,10 +467,22 @@ class Agent:
                 await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
             except Exception:
                 pass
+            await self._wait_for_page_ready()
 
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
             return f"[ERROR] Error executing {action_name}: {e}"
+
+    async def _persist_replay(self) -> None:
+        # Replay persistence is best-effort and not part of the agent loop itself.
+        if self._replay is None:
+            return
+        try:
+            await self._replay.save_messages(self._messages)
+            await self._replay.save_step_payloads(self._step_payloads)
+            await self._replay.save_html(self._messages, step_payloads=self._step_payloads)
+        except Exception:
+            logger.opt(exception=True).warning("Failed to write replay artifacts")
 
 
 async def main():
@@ -443,6 +515,12 @@ async def main():
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    parser.add_argument(
+        "--replay-dir",
+        default=default_config.replay_dir,
+        help="Optional directory for replay artifacts",
+    )
+    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
@@ -455,6 +533,8 @@ async def main():
         viewport_width=config.viewport_width,
         viewport_height=config.viewport_height,
         headless=config.headless,
+        replay_dir=config.replay_dir,
+        replay_id=config.replay_id,
     )
 
     result = await agent.run(config.task, config.start_url)

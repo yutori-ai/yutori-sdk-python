@@ -5,6 +5,10 @@ A web browsing agent using Yutori's n1.5 API.
 n1.5 introduces a new action space with renamed tools, selectable tool sets,
 optional structured JSON output, and lowercase key names.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 Key differences from n1:
 - model: "n1.5-latest" (instead of "n1-latest")
 - tool_set / disable_tools: select which built-in tools the model can use
@@ -30,7 +34,8 @@ Usage:
     python examples/n1_5.py \
         --task "List the team member names" \
         --start-url "https://www.yutori.com" \
-        --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}'
+        --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},\
+"required":["names"]}'
 """
 
 import argparse
@@ -56,13 +61,14 @@ from yutori.n1 import (
     TOOL_SET_EXPANDED,
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
-    estimate_messages_size_bytes,
     format_stop_and_summarize,
     format_task_with_context,
     map_key_to_playwright,
     map_keys_individual,
-    trimmed_messages_to_fit,
 )
+from yutori.n1.loop import update_trimmed_history
+from yutori.n1.page_ready import PageReadyChecker
+from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 # ---------------------------------------------------------------------------
 # JavaScript helpers for expanded tool set actions.
@@ -122,6 +128,9 @@ class Config(BaseModel):
     # payload management
     max_request_bytes: int = 9_500_000
     keep_recent_screenshots: int = 6
+    # optional local replay artifacts
+    replay_dir: str | None = None
+    replay_id: str | None = None
 
 
 class Agent:
@@ -142,6 +151,8 @@ class Agent:
         headless: bool = False,
         max_request_bytes: int = 9_500_000,
         keep_recent_screenshots: int = 6,
+        replay_dir: str | None = None,
+        replay_id: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -158,11 +169,26 @@ class Agent:
         self.headless = headless
         self.max_request_bytes = max_request_bytes
         self.keep_recent_screenshots = keep_recent_screenshots
+        self.replay_dir = replay_dir
+        self.replay_id = replay_id
 
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
+        self._page_ready_checker = PageReadyChecker(
+            timeout=30,
+            initial_wait=2.0,
+            wait_after_ready=1.0,
+            replace_native_select_dropdown=True,
+            disable_new_tabs=True,
+            disable_printing=True,
+        )
+        # Replay bookkeeping is optional and only used when writing local artifacts.
+        self._replay: TrajectoryRecorder | None = None
         self._messages: list = []
+        self._request_messages: list | None = None
+        # Stored only so the replay viewer can show raw request/response JSON per step.
+        self._step_payloads: list[dict] = []
         self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
@@ -180,8 +206,16 @@ class Agent:
         self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
         self._message_index = 0
         self._step_count = 0
+        self._request_messages = None
+        self._step_payloads = []
+        self._replay = None
 
         final_response = ""
+        # Replay output is opt-in; the loop still works without any of this.
+        if self.replay_dir:
+            replay_id = self.replay_id or make_run_id(prefix="n1_5", label=task)
+            self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
+            logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
             AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
@@ -192,6 +226,7 @@ class Agent:
                 await self._init_browser(playwright)
                 await self._page.goto(start_url)
                 await self._page.wait_for_load_state("domcontentloaded")
+                await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
                     self._step_count += 1
@@ -205,6 +240,7 @@ class Agent:
                     # Store the assistant's response
                     self._messages.append(response.model_dump(exclude_none=True))
                     self._message_index = len(self._messages)
+                    await self._persist_replay()
 
                     if response.content:
                         final_response = response.content
@@ -222,10 +258,12 @@ class Agent:
                             result += self._url_suffix()
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
+                    await self._persist_replay()
                 else:
                     # Loop exhausted without break — model was still working when limit hit
                     logger.warning(f"Reached maximum steps ({self.max_steps})")
                     final_response = await self._stop_and_summarize(original_task)
+                    await self._persist_replay()
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
@@ -234,6 +272,7 @@ class Agent:
                 logger.error(f"Agent error: {e}")
                 final_response = await self._stop_and_summarize(original_task)
             finally:
+                await self._persist_replay()
                 await self._close_browser()
 
         return final_response
@@ -252,10 +291,15 @@ class Agent:
             self._browser = None
 
     async def _take_screenshot(self) -> str:
+        await self._wait_for_page_ready(fast_mode=True)
         return await aplaywright_screenshot_to_data_url(
             self._page,
             resize_to=(self.viewport_width, self.viewport_height),
         )
+
+    async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
+            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         if url.startswith("data:image"):
@@ -289,20 +333,28 @@ class Agent:
         reraise=True,
     )
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        size_bytes = estimate_messages_size_bytes(self._messages)
-        if size_bytes > self.max_request_bytes:
-            self._messages, size_bytes, removed = trimmed_messages_to_fit(
-                self._messages,
-                max_bytes=self.max_request_bytes,
-                keep_recent=self.keep_recent_screenshots,
-            )
-            if removed:
-                logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
+        self._request_messages, size_bytes, removed = update_trimmed_history(
+            self._messages,
+            self._request_messages,
+            max_bytes=self.max_request_bytes,
+            keep_recent=self.keep_recent_screenshots,
+        )
+        if removed:
+            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
-        return await asyncio.wait_for(
+        # This copy is only for replay output; the request itself just uses the same fields directly.
+        request_payload = {
+            "model": self.model,
+            "messages": self._request_messages,
+            "temperature": self.temperature,
+            "tool_set": self.tool_set,
+            "disable_tools": self.disable_tools or None,
+            "json_schema": self.json_schema,
+        }
+        response = await asyncio.wait_for(
             self._client.chat.completions.create(
                 model=self.model,
-                messages=self._messages,
+                messages=self._request_messages,
                 temperature=self.temperature,
                 tool_set=self.tool_set,
                 disable_tools=self.disable_tools or None,
@@ -310,6 +362,17 @@ class Agent:
             ),
             timeout=120.0,  # 2 minutes
         )
+        # Replay output records the sanitized raw request/response pair for this step.
+        self._step_payloads.append(
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
+        )
+        return response
 
     async def _predict(self) -> ChatCompletion:
         screenshot_url = await self._take_screenshot()
@@ -353,6 +416,7 @@ class Agent:
             logger.info("Requesting final summary from model...")
             response = await self._call_llm_with_retries()
             message = response.choices[0].message
+            self._messages.append(message.model_dump(exclude_none=True))
             return message.content or ""
         except Exception as e:
             logger.error(f"Failed to get stop summary: {e}")
@@ -422,6 +486,10 @@ class Agent:
         """Current page URL, appended to every tool result."""
         return f"\nCurrent URL: {self._page.url}"
 
+    async def _finish_action(self, result: str | None) -> str | None:
+        await self._wait_for_page_ready()
+        return result
+
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
 
@@ -462,7 +530,7 @@ class Agent:
                 if modifier:
                     await self._page.keyboard.up(modifier)
                 await asyncio.sleep(0.5)
-                return f"Clicked {click_count}x with {button}"
+                return await self._finish_action(f"Clicked {click_count}x with {button}")
 
             # ---- Mouse movement actions ----
             elif action_name == "mouse_move":
@@ -472,7 +540,7 @@ class Agent:
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await asyncio.sleep(0.3)
-                return "Mouse moved and hovering"
+                return await self._finish_action("Mouse moved and hovering")
 
             elif action_name == "mouse_down":
                 resolved = await _coords()
@@ -482,7 +550,7 @@ class Agent:
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.down()
                 await asyncio.sleep(0.3)
-                return "Mouse button pressed"
+                return await self._finish_action("Mouse button pressed")
 
             elif action_name == "mouse_up":
                 resolved = await _coords()
@@ -492,7 +560,7 @@ class Agent:
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.3)
-                return "Mouse button released"
+                return await self._finish_action("Mouse button released")
 
             elif action_name == "drag":
                 start_coords = arguments.get("start_coordinates", [0, 0])
@@ -510,7 +578,7 @@ class Agent:
                 await self._page.mouse.move(end_x, end_y)
                 await self._page.mouse.up()
                 await asyncio.sleep(0.5)
-                return "Dragged successfully"
+                return await self._finish_action("Dragged successfully")
 
             # ---- Scroll ----
             elif action_name == "scroll":
@@ -524,7 +592,7 @@ class Agent:
                     if resolved is None:
                         return _coord_error
                     await asyncio.sleep(0.5)
-                    return "Scrolled to element"
+                    return await self._finish_action("Scrolled to element")
                 elif coords and len(coords) == 2:
                     abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
                     direction = arguments.get("direction", "down")
@@ -549,7 +617,7 @@ class Agent:
                     if modifier:
                         await self._page.keyboard.up(modifier)
                     await asyncio.sleep(0.5)
-                    return f"Scrolled {direction}"
+                    return await self._finish_action(f"Scrolled {direction}")
                 else:
                     return "[ERROR] No coordinates or ref provided for scroll"
 
@@ -560,7 +628,7 @@ class Agent:
                 for i in range(0, len(text), chunk_size):
                     await self._page.keyboard.type(text[i : i + chunk_size])
                 await asyncio.sleep(0.5)
-                return f"Typed {len(text)} characters"
+                return await self._finish_action(f"Typed {len(text)} characters")
 
             elif action_name == "key_press":
                 key_expr = arguments.get("key", "")
@@ -568,7 +636,7 @@ class Agent:
                 for key in key_presses:
                     await self._page.keyboard.press(key)
                 await asyncio.sleep(0.3)
-                return f"Pressed key: {key_expr}"
+                return await self._finish_action(f"Pressed key: {key_expr}")
 
             elif action_name == "hold_key":
                 key_expr = arguments.get("key", "")
@@ -581,13 +649,13 @@ class Agent:
                     for key in reversed(individual_keys):
                         await self._page.keyboard.up(key)
                     await asyncio.sleep(0.3)
-                    return f"Held key '{key_expr}' for {duration}s"
+                    return await self._finish_action(f"Held key '{key_expr}' for {duration}s")
                 else:
                     key_presses = map_key_to_playwright(key_expr)
                     for key in key_presses:
                         await self._page.keyboard.press(key)
                     await asyncio.sleep(0.3)
-                    return f"Pressed key: {key_expr}"
+                    return await self._finish_action(f"Pressed key: {key_expr}")
 
             # ---- Navigation actions ----
             elif action_name == "goto_url":
@@ -597,37 +665,38 @@ class Agent:
                 await self._page.goto(url)
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(1)
-                return f"Navigated to {url}"
+                return await self._finish_action(f"Navigated to {url}")
 
             elif action_name == "go_back":
                 await self._page.go_back()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(0.5)
-                return "Navigated back"
+                return await self._finish_action("Navigated back")
 
             elif action_name == "go_forward":
                 await self._page.go_forward()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(0.5)
-                return "Navigated forward"
+                return await self._finish_action("Navigated forward")
 
             elif action_name == "refresh":
                 await self._page.reload()
                 await self._page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(1)
-                return "Refreshed the page"
+                return await self._finish_action("Refreshed the page")
 
             elif action_name == "wait":
                 duration = max(0, min(arguments.get("duration", 5), 100))
                 await asyncio.sleep(duration)
-                return f"Waited {duration}s"
+                return await self._finish_action(f"Waited {duration}s")
 
             # ---- Expanded tool set actions ----
             elif action_name == "extract_elements":
                 filter_type = arguments.get("filter", "visible")
                 result = await _evaluate_js(self._page, "extract_dom_elements.js", filter_type)
                 dom_data = json.loads(result) if isinstance(result, str) else result
-                return dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
+                content = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
+                return await self._finish_action(content)
 
             elif action_name == "find":
                 text = arguments.get("text", "")
@@ -637,24 +706,26 @@ class Agent:
                 dom_tree = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
                 lines = [line for line in dom_tree.split("\n") if text.lower() in line.lower()]
                 if lines:
-                    return f"Found {len(lines)} element(s) matching \"{text}\":\n" + "\n".join(lines[:20])
-                return f'No elements matching "{text}" found on the page.'
+                    return await self._finish_action(
+                        f"Found {len(lines)} element(s) matching \"{text}\":\n" + "\n".join(lines[:20])
+                    )
+                return await self._finish_action(f'No elements matching "{text}" found on the page.')
 
             elif action_name == "set_element_value":
                 ref = arguments.get("ref", "")
                 value = arguments.get("value", "")
                 result_json = await _evaluate_js(self._page, "set_element_value.js", ref, value)
                 result_data = json.loads(result_json)
-                return result_data.get("message", "set_element_value completed")
+                return await self._finish_action(result_data.get("message", "set_element_value completed"))
 
             elif action_name == "execute_js":
                 js_code = arguments.get("text", "")
                 raw = await self._page.evaluate(js_code)
                 if raw is None:
-                    return "undefined"
+                    return await self._finish_action("undefined")
                 if isinstance(raw, (dict, list)):
-                    return json.dumps(raw, indent=2)
-                return str(raw)
+                    return await self._finish_action(json.dumps(raw, indent=2))
+                return await self._finish_action(str(raw))
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
@@ -663,6 +734,17 @@ class Agent:
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
             return f"[ERROR] Error executing {action_name}: {e}"
+
+    async def _persist_replay(self) -> None:
+        # Replay persistence is best-effort and not part of the agent loop itself.
+        if self._replay is None:
+            return
+        try:
+            await self._replay.save_messages(self._messages)
+            await self._replay.save_step_payloads(self._step_payloads)
+            await self._replay.save_html(self._messages, step_payloads=self._step_payloads)
+        except Exception:
+            logger.opt(exception=True).warning("Failed to write replay artifacts")
 
 
 async def main():
@@ -701,11 +783,27 @@ async def main():
         help="Tool names to disable from the tool set",
     )
     parser.add_argument(
-        "--json-schema", type=json.loads, default=None,
-        help='JSON Schema for structured output, e.g. \'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"required":["names"]}\'',
+        "--json-schema",
+        type=json.loads,
+        default=None,
+        help=(
+            'JSON Schema for structured output, e.g. '
+            '\'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},'
+            '"required":["names"]}\''
+        ),
     )
-    parser.add_argument("--timezone", dest="user_timezone", default=default_config.user_timezone, help="User timezone (e.g. America/New_York)")
-    parser.add_argument("--location", dest="user_location", default=default_config.user_location, help="User location (e.g. New York, NY, US)")
+    parser.add_argument(
+        "--timezone",
+        dest="user_timezone",
+        default=default_config.user_timezone,
+        help="User timezone (e.g. America/New_York)",
+    )
+    parser.add_argument(
+        "--location",
+        dest="user_location",
+        default=default_config.user_location,
+        help="User location (e.g. New York, NY, US)",
+    )
     parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
     parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
     parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
@@ -718,6 +816,12 @@ async def main():
         "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
         help="Number of recent screenshots to protect from trimming",
     )
+    parser.add_argument(
+        "--replay-dir",
+        default=default_config.replay_dir,
+        help="Optional directory for replay artifacts",
+    )
+    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
     args = parser.parse_args()
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
     config = Config.model_validate(vars(args))
@@ -738,6 +842,8 @@ async def main():
         headless=config.headless,
         max_request_bytes=config.max_request_bytes,
         keep_recent_screenshots=config.keep_recent_screenshots,
+        replay_dir=config.replay_dir,
+        replay_id=config.replay_id,
     )
 
     result = await agent.run(config.task, config.start_url)

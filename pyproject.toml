@@ -52,6 +52,9 @@ examples = [
 where = ["."]
 include = ["yutori*"]
 
+[tool.setuptools.package-data]
+"yutori.n1" = ["js/*.js"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py39"
