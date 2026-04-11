@@ -11,12 +11,33 @@ from rich.markup import escape
 from yutori.auth.credentials import resolve_api_key
 
 __all__ = [
+    "format_interval",
     "get_authenticated_client",
     "print_rejection_reason",
     "print_task_submission_result",
 ]
 
 _console = Console()
+
+
+def format_interval(seconds: int, *, compact: bool = False) -> str:
+    """Format an interval in seconds as a human-readable string.
+
+    Args:
+        seconds: Duration in seconds.
+        compact: Use short suffixes (``"1d"``) instead of verbose
+            (``"1 day(s)"``).
+    """
+    if seconds >= 86400:
+        value = seconds // 86400
+        unit = "d" if compact else " day(s)"
+    elif seconds >= 3600:
+        value = seconds // 3600
+        unit = "h" if compact else " hour(s)"
+    else:
+        value = seconds // 60
+        unit = "m" if compact else " minute(s)"
+    return f"{value}{unit}"
 
 
 def get_authenticated_client() -> Any:

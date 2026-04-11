@@ -2,9 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from yutori import __version__
+from yutori.cli.commands import format_interval
 from yutori.cli.main import app
 
 runner = CliRunner()
@@ -176,3 +178,26 @@ def test_scouts_list_shows_rejection_reason_column():
     assert result.exit_code == 0
     assert "invalid_query" in result.stdout
     client.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "seconds, compact, expected",
+    [
+        (86400, True, "1d"),
+        (86400, False, "1 day(s)"),
+        (172800, True, "2d"),
+        (172800, False, "2 day(s)"),
+        (3600, True, "1h"),
+        (3600, False, "1 hour(s)"),
+        (7200, True, "2h"),
+        (7200, False, "2 hour(s)"),
+        (60, True, "1m"),
+        (60, False, "1 minute(s)"),
+        (300, True, "5m"),
+        (300, False, "5 minute(s)"),
+        (0, True, "0m"),
+        (0, False, "0 minute(s)"),
+    ],
+)
+def test_format_interval(seconds: int, compact: bool, expected: str) -> None:
+    assert format_interval(seconds, compact=compact) == expected
