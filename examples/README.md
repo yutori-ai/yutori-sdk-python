@@ -26,6 +26,25 @@ Options:
 - `--headless` - Run browser in headless mode
 - `--max-steps` - Maximum number of steps (default: 100)
 
+## n1_5.py
+
+A complete browsing agent using the n1.5 API. n1.5 introduces selectable tool sets (`TOOL_SET_CORE`, `TOOL_SET_EXPANDED`), optional structured JSON output via `--json-schema`, and a redesigned action space with lowercase key names. The example uses `format_task_with_context(...)` to append user context, `map_key_to_playwright(...)` / `map_keys_individual(...)` for key mapping, and `format_stop_and_summarize(...)` for graceful termination when hitting max steps.
+
+```bash
+uv run python examples/n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
+```
+
+Options:
+- `--task` - The task to perform
+- `--start-url` - Starting URL
+- `--headless` - Run browser in headless mode
+- `--max-steps` - Maximum number of steps (default: 100)
+- `--tool-set` - Tool set to use: `core` or `expanded` (default: core)
+- `--disable-tools` - Space-separated list of tools to disable
+- `--json-schema` - JSON schema string for structured output
+- `--timezone` - User timezone (default: America/Los_Angeles)
+- `--location` - User location (default: San Francisco, CA, US)
+
 ## n1_custom_tools.py
 
 Extends the basic agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the n1 API.
