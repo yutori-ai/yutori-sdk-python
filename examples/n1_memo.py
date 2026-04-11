@@ -24,6 +24,7 @@ import json
 import os
 import sys
 from datetime import datetime
+from functools import cached_property
 
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -34,14 +35,9 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.n1 import (
-    AsyncPlaywrightActionExecutor,
-    PageReadyChecker,
-    TrajectoryRecorder,
-    aplaywright_screenshot_to_data_url,
-    make_run_id,
-    sanitize_step_payload,
-)
+from yutori.n1 import aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.n1.page_ready import PageReadyChecker
+from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -63,7 +59,7 @@ class Config(BaseModel):
     viewport_width: int = 1280
     viewport_height: int = 800
     headless: bool = False
-    # replay
+    # optional local replay artifacts
     replay_dir: str | None = None
     replay_id: str | None = None
 
@@ -78,7 +74,7 @@ class MemoToolSuite:
 
         logger.info(f"Memo file path: {self.file_path}")
 
-    @property
+    @cached_property
     def input_schemas(self) -> list[dict]:
         return [
             {
@@ -203,8 +199,6 @@ class Agent:
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
-        self._executor: AsyncPlaywrightActionExecutor | None = None
-        self._replay: TrajectoryRecorder | None = None
         self._page_ready_checker = PageReadyChecker(
             timeout=30,
             initial_wait=2.0,
@@ -213,6 +207,7 @@ class Agent:
             disable_new_tabs=True,
             disable_printing=True,
         )
+        self._replay: TrajectoryRecorder | None = None
         self._messages: list = []
         self._step_payloads: list[dict] = []
         self._step_count = 0
@@ -225,9 +220,9 @@ class Agent:
         logger.info(f"Starting URL: {start_url}")
 
         self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
-        self._step_payloads = []
         self._message_index = 0
         self._step_count = 0
+        self._step_payloads = []
         self._replay = None
 
         final_response = ""
@@ -243,8 +238,8 @@ class Agent:
             try:
                 self._client = client
                 await self._init_browser(playwright)
-                await self._page.goto(start_url, wait_until="load")
-                await self._executor.mark_current_page_as_start()
+                await self._page.goto(start_url)
+                await self._page.wait_for_load_state("domcontentloaded")
                 await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
@@ -297,17 +292,6 @@ class Agent:
             viewport={"width": self.viewport_width, "height": self.viewport_height}
         )
         self._page = await context.new_page()
-        self._executor = AsyncPlaywrightActionExecutor(
-            self._page,
-            viewport_width=self.viewport_width,
-            viewport_height=self.viewport_height,
-            page_ready_checker=self._page_ready_checker,
-            custom_tools={
-                "add_question": self._memo_tool_suite.add_question,
-                "add_options": self._memo_tool_suite.add_options,
-                "list_records": self._memo_tool_suite.list_records,
-            },
-        )
         await asyncio.sleep(1)
 
     async def _close_browser(self) -> None:
@@ -323,7 +307,7 @@ class Agent:
         )
 
     async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
-        if not await self._executor.wait_until_ready(fast_mode=fast_mode):
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
             logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
@@ -406,9 +390,141 @@ class Agent:
 
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
         # Returns (should_exit, result)
-        should_exit = tool_call.function.name == "list_records"
-        result = await self._executor.execute_tool_call(tool_call)
-        return should_exit, result
+        action_name = tool_call.function.name
+
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
+            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+
+        try:
+            if action_name == "left_click":
+                coords = arguments.get("coordinates", [0, 0])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                await self._page.mouse.click(abs_x, abs_y)
+                await asyncio.sleep(0.5)
+
+            elif action_name == "double_click":
+                coords = arguments.get("coordinates", [0, 0])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                await self._page.mouse.dblclick(abs_x, abs_y)
+                await asyncio.sleep(0.5)
+
+            elif action_name == "right_click":
+                coords = arguments.get("coordinates", [0, 0])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                await self._page.mouse.click(abs_x, abs_y, button="right")
+                await asyncio.sleep(0.5)
+
+            elif action_name == "triple_click":
+                coords = arguments.get("coordinates", [0, 0])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                await self._page.mouse.click(abs_x, abs_y, click_count=3)
+                await asyncio.sleep(0.5)
+
+            elif action_name == "type":
+                text = arguments.get("text", "")
+                press_enter = arguments.get("press_enter_after", True)
+                clear_first = arguments.get("clear_before_typing", True)
+
+                if clear_first:
+                    await self._page.keyboard.press("Control+a" if sys.platform != "darwin" else "Meta+a")
+                    await self._page.keyboard.press("Backspace")
+
+                await self._page.keyboard.type(text)
+
+                if press_enter:
+                    await self._page.keyboard.press("Enter")
+                await asyncio.sleep(0.5)
+
+            elif action_name in ("key", "key_press"):
+                key = arguments.get("key") or arguments.get("key_comb", "")
+                key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
+                await self._page.keyboard.press(key)
+                await asyncio.sleep(0.3)
+
+            elif action_name == "scroll":
+                coords = arguments.get("coordinates") or arguments.get("coordinate", [500, 500])
+                direction = arguments.get("direction", "down")
+                amount = arguments.get("amount", 3)
+
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                scroll_delta = amount * (self.viewport_height * 0.1)
+
+                delta_y = scroll_delta if direction == "down" else (-scroll_delta if direction == "up" else 0)
+                delta_x = scroll_delta if direction == "right" else (-scroll_delta if direction == "left" else 0)
+
+                await self._page.mouse.move(abs_x, abs_y)
+                await self._page.mouse.wheel(delta_x, delta_y)
+                await asyncio.sleep(0.5)
+
+            elif action_name == "hover":
+                coords = arguments.get("coordinates", [0, 0])
+                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                await self._page.mouse.move(abs_x, abs_y)
+                await asyncio.sleep(0.3)
+
+            elif action_name == "drag":
+                start_coords = arguments.get("start_coordinates") or arguments.get("startCoordinates", [0, 0])
+                end_coords = arguments.get("coordinates") or arguments.get("endCoordinates", [0, 0])
+
+                start_x, start_y = denormalize_coordinates(start_coords, self.viewport_width, self.viewport_height)
+                end_x, end_y = denormalize_coordinates(end_coords, self.viewport_width, self.viewport_height)
+
+                await self._page.mouse.move(start_x, start_y)
+                await self._page.mouse.down()
+                await self._page.mouse.move(end_x, end_y)
+                await self._page.mouse.up()
+                await asyncio.sleep(0.5)
+
+            elif action_name in ("goto", "goto_url"):
+                url = arguments.get("url", "")
+                await self._page.goto(url)
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(1)
+
+            elif action_name in ("back", "go_back"):
+                await self._page.go_back()
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(0.5)
+
+            elif action_name == "refresh":
+                await self._page.reload()
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(1)
+
+            elif action_name == "wait":
+                await asyncio.sleep(5)
+
+            elif action_name == "add_question":
+                result = await self._memo_tool_suite.add_question(**arguments)
+                return False, result
+
+            elif action_name == "add_options":
+                result = await self._memo_tool_suite.add_options(**arguments)
+                return False, result
+
+            elif action_name == "list_records":
+                result = await self._memo_tool_suite.list_records()
+                return True, result
+
+            else:
+                logger.warning(f"Unknown action: {action_name}")
+                return False, f"[ERROR] Unknown action: {action_name}"
+
+            # Wait for any navigation or dynamic content
+            try:
+                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
+            except Exception:
+                pass
+            await self._wait_for_page_ready()
+
+        except Exception as e:
+            logger.error(f"Error executing {action_name}: {e}")
+            return False, f"[ERROR] Error executing {action_name}: {e}"
+
+        return False, None
 
     async def _persist_replay(self) -> None:
         if self._replay is None:

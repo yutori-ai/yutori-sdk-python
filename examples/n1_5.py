@@ -30,14 +30,17 @@ Usage:
     python examples/n1_5.py \
         --task "List the team member names" \
         --start-url "https://www.yutori.com" \
-        --json-schema '{"type":"object","properties":{"names":{"type":"array"}},"required":["names"]}'
+        --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},\
+"required":["names"]}'
 """
 
 import argparse
 import asyncio
+import functools
 import json
 import os
 import sys
+from pathlib import Path
 
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -52,16 +55,41 @@ from yutori.n1 import (
     N1_5_MODEL,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
-    AsyncPlaywrightActionExecutor,
-    PageReadyChecker,
-    TrajectoryRecorder,
     aplaywright_screenshot_to_data_url,
+    denormalize_coordinates,
     format_stop_and_summarize,
     format_task_with_context,
-    make_run_id,
-    sanitize_step_payload,
-    update_trimmed_history,
+    map_key_to_playwright,
+    map_keys_individual,
 )
+from yutori.n1.loop import update_trimmed_history
+from yutori.n1.page_ready import PageReadyChecker
+from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
+
+# ---------------------------------------------------------------------------
+# JavaScript helpers for expanded tool set actions.
+# Loaded from examples/tools/
+# ---------------------------------------------------------------------------
+
+_TOOLS_DIR = Path(__file__).parent / "tools"
+
+
+@functools.lru_cache(maxsize=None)
+def _load_js(name: str) -> str:
+    return (_TOOLS_DIR / name).read_text()
+
+
+async def _evaluate_js(page, name: str, *args) -> any:
+    """Load a JS IIFE from tools/ and evaluate it with the given arguments.
+
+    Builds a call expression with JSON-serialized arguments so multi-argument
+    JS functions work correctly with Playwright's page.evaluate() (which only
+    passes a single argument).
+    """
+    script = _load_js(name)
+    escaped_args = ", ".join(json.dumps(arg) for arg in args)
+    return await page.evaluate(f"({script})({escaped_args})")
+
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -96,7 +124,7 @@ class Config(BaseModel):
     # payload management
     max_request_bytes: int = 9_500_000
     keep_recent_screenshots: int = 6
-    # replay
+    # optional local replay artifacts
     replay_dir: str | None = None
     replay_id: str | None = None
 
@@ -143,8 +171,6 @@ class Agent:
         self._client: AsyncYutoriClient | None = None
         self._browser: Browser | None = None
         self._page: Page | None = None
-        self._executor: AsyncPlaywrightActionExecutor | None = None
-        self._replay: TrajectoryRecorder | None = None
         self._page_ready_checker = PageReadyChecker(
             timeout=30,
             initial_wait=2.0,
@@ -153,6 +179,7 @@ class Agent:
             disable_new_tabs=True,
             disable_printing=True,
         )
+        self._replay: TrajectoryRecorder | None = None
         self._messages: list = []
         self._request_messages: list | None = None
         self._step_payloads: list[dict] = []
@@ -171,10 +198,10 @@ class Agent:
         logger.info(f"Starting URL: {start_url}")
 
         self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
-        self._request_messages = None
-        self._step_payloads = []
         self._message_index = 0
         self._step_count = 0
+        self._request_messages = None
+        self._step_payloads = []
         self._replay = None
 
         final_response = ""
@@ -190,8 +217,8 @@ class Agent:
             try:
                 self._client = client
                 await self._init_browser(playwright)
-                await self._page.goto(start_url, wait_until="load")
-                await self._executor.mark_current_page_as_start()
+                await self._page.goto(start_url)
+                await self._page.wait_for_load_state("domcontentloaded")
                 await self._wait_for_page_ready()
 
                 while self._step_count < self.max_steps:
@@ -249,14 +276,6 @@ class Agent:
             viewport={"width": self.viewport_width, "height": self.viewport_height}
         )
         self._page = await context.new_page()
-        self._executor = AsyncPlaywrightActionExecutor(
-            self._page,
-            viewport_width=self.viewport_width,
-            viewport_height=self.viewport_height,
-            page_ready_checker=self._page_ready_checker,
-            default_clear_before_typing=False,
-            default_press_enter_after_typing=False,
-        )
         await asyncio.sleep(1)
 
     async def _close_browser(self) -> None:
@@ -272,7 +291,7 @@ class Agent:
         )
 
     async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
-        if not await self._executor.wait_until_ready(fast_mode=fast_mode):
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
             logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
@@ -389,18 +408,323 @@ class Agent:
             response = await self._call_llm_with_retries()
             message = response.choices[0].message
             self._messages.append(message.model_dump(exclude_none=True))
-            self._message_index = len(self._messages)
             return message.content or ""
         except Exception as e:
             logger.error(f"Failed to get stop summary: {e}")
             return ""
 
+    # ------------------------------------------------------------------
+    # Coordinate resolution — supports both normalized coordinates and
+    # element refs from the expanded tool set.
+    # ------------------------------------------------------------------
+
+    async def _resolve_coordinates(self, arguments: dict) -> tuple[int, int] | str:
+        """Return absolute pixel coordinates from arguments, or an error string.
+
+        Resolution order (matching the Yutori agent loop):
+        1. If ``ref`` is present, try to resolve it to viewport pixels.
+           Ref resolution also scrolls the element into view.
+        2. If ref resolution fails (or no ref), fall back to denormalizing
+           ``coordinates`` from n1's 1000x1000 space.
+        3. If neither ref nor coordinates are usable, return an error.
+        """
+        coords = arguments.get("coordinates")
+        ref = arguments.get("ref")
+
+        # Try ref first — it also scrolls the element into view.
+        if ref:
+            result_json = await _evaluate_js(self._page, "get_element_by_ref.js", ref)
+            result = json.loads(result_json)
+            if result.get("success"):
+                px = result["coordinates"]
+                return int(px[0]), int(px[1])
+            msg = result.get("message", "Unknown error")
+            if coords and len(coords) == 2:
+                logger.warning(f"Ref {ref} failed ({msg}), falling back to coordinates {coords}")
+            else:
+                return f"[ERROR] Ref resolution failed for {ref}: {msg}"
+
+        if coords and len(coords) == 2:
+            return denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+
+        return "[ERROR] No coordinates or ref provided"
+
+    @staticmethod
+    def _map_modifier(modifier: str | None) -> str | None:
+        """Map a single n1.5 modifier name to a Playwright key name.
+
+        The modifier field is always a single key (ctrl, shift, alt, meta,
+        command, super) — not a combo. Uses the key map for lookup but
+        rejects combo/sequence expressions since keyboard.down()/up()
+        only accept single key names.
+        """
+        if not modifier:
+            return None
+        # map_key_to_playwright handles combos/sequences; we only want a
+        # single key, so split the result and take just the first token.
+        mapped = map_key_to_playwright(modifier)
+        if not mapped:
+            return modifier
+        # If somehow a combo slipped through (e.g. "ctrl+shift"), take
+        # only the first individual key.
+        return mapped[0].split("+")[0]
+
+    # ------------------------------------------------------------------
+    # Action execution — n1.5 action space
+    # ------------------------------------------------------------------
+
     def _url_suffix(self) -> str:
         """Current page URL, appended to every tool result."""
         return f"\nCurrent URL: {self._page.url}"
 
+    async def _finish_action(self, result: str | None) -> str | None:
+        await self._wait_for_page_ready()
+        return result
+
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
-        return await self._executor.execute_tool_call(tool_call)
+        action_name = tool_call.function.name
+
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
+            return f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+
+        try:
+            modifier = self._map_modifier(arguments.get("modifier"))
+
+            # Helper: resolve coordinates, returning error string on failure.
+            async def _coords(args: dict = arguments) -> tuple[int, int] | None:
+                result = await self._resolve_coordinates(args)
+                if isinstance(result, str):
+                    nonlocal _coord_error
+                    _coord_error = result
+                    return None
+                return result
+
+            _coord_error: str | None = None
+
+            # ---- Mouse click actions ----
+            if action_name in ("left_click", "double_click", "triple_click", "middle_click", "right_click"):
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
+                button = {"middle_click": "middle", "right_click": "right"}.get(action_name, "left")
+                click_count = {"double_click": 2, "triple_click": 3}.get(action_name, 1)
+
+                if modifier:
+                    await self._page.keyboard.down(modifier)
+                await self._page.mouse.move(abs_x, abs_y)
+                await asyncio.sleep(0.1)
+                await self._page.mouse.click(abs_x, abs_y, button=button, click_count=click_count)
+                if modifier:
+                    await self._page.keyboard.up(modifier)
+                await asyncio.sleep(0.5)
+                return await self._finish_action(f"Clicked {click_count}x with {button}")
+
+            # ---- Mouse movement actions ----
+            elif action_name == "mouse_move":
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
+                await self._page.mouse.move(abs_x, abs_y)
+                await asyncio.sleep(0.3)
+                return await self._finish_action("Mouse moved and hovering")
+
+            elif action_name == "mouse_down":
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
+                await self._page.mouse.move(abs_x, abs_y)
+                await self._page.mouse.down()
+                await asyncio.sleep(0.3)
+                return await self._finish_action("Mouse button pressed")
+
+            elif action_name == "mouse_up":
+                resolved = await _coords()
+                if resolved is None:
+                    return _coord_error
+                abs_x, abs_y = resolved
+                await self._page.mouse.move(abs_x, abs_y)
+                await self._page.mouse.up()
+                await asyncio.sleep(0.3)
+                return await self._finish_action("Mouse button released")
+
+            elif action_name == "drag":
+                start_coords = arguments.get("start_coordinates", [0, 0])
+                end_coords = arguments.get("coordinates", [0, 0])
+
+                start = await _coords({"coordinates": start_coords})
+                end = await _coords({"coordinates": end_coords})
+                if start is None or end is None:
+                    return _coord_error
+                start_x, start_y = start
+                end_x, end_y = end
+
+                await self._page.mouse.move(start_x, start_y)
+                await self._page.mouse.down()
+                await self._page.mouse.move(end_x, end_y)
+                await self._page.mouse.up()
+                await asyncio.sleep(0.5)
+                return await self._finish_action("Dragged successfully")
+
+            # ---- Scroll ----
+            elif action_name == "scroll":
+                ref = arguments.get("ref")
+                coords = arguments.get("coordinates")
+
+                if ref:
+                    # Ref-based scroll: get_element_by_ref.js calls scrollIntoView(),
+                    # which handles the scrolling. No additional mouse.wheel needed.
+                    resolved = await _coords()
+                    if resolved is None:
+                        return _coord_error
+                    await asyncio.sleep(0.5)
+                    return await self._finish_action("Scrolled to element")
+                elif coords and len(coords) == 2:
+                    abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
+                    direction = arguments.get("direction", "down")
+                    amount = arguments.get("amount", 3)
+
+                    px = amount * 100  # 1 unit ≈ 100px
+
+                    delta_x, delta_y = 0, 0
+                    if direction == "up":
+                        delta_y = -px
+                    elif direction == "down":
+                        delta_y = px
+                    elif direction == "left":
+                        delta_x = -px
+                    elif direction == "right":
+                        delta_x = px
+
+                    if modifier:
+                        await self._page.keyboard.down(modifier)
+                    await self._page.mouse.move(abs_x, abs_y)
+                    await self._page.mouse.wheel(delta_x, delta_y)
+                    if modifier:
+                        await self._page.keyboard.up(modifier)
+                    await asyncio.sleep(0.5)
+                    return await self._finish_action(f"Scrolled {direction}")
+                else:
+                    return "[ERROR] No coordinates or ref provided for scroll"
+
+            # ---- Keyboard actions ----
+            elif action_name == "type":
+                text = arguments.get("text", "")
+                chunk_size = 50
+                for i in range(0, len(text), chunk_size):
+                    await self._page.keyboard.type(text[i : i + chunk_size])
+                await asyncio.sleep(0.5)
+                return await self._finish_action(f"Typed {len(text)} characters")
+
+            elif action_name == "key_press":
+                key_expr = arguments.get("key", "")
+                key_presses = map_key_to_playwright(key_expr)
+                for key in key_presses:
+                    await self._page.keyboard.press(key)
+                await asyncio.sleep(0.3)
+                return await self._finish_action(f"Pressed key: {key_expr}")
+
+            elif action_name == "hold_key":
+                key_expr = arguments.get("key", "")
+                duration = arguments.get("duration")
+                if duration is not None and duration > 0:
+                    individual_keys = map_keys_individual(key_expr)
+                    for key in individual_keys:
+                        await self._page.keyboard.down(key)
+                    await asyncio.sleep(min(duration, 100))
+                    for key in reversed(individual_keys):
+                        await self._page.keyboard.up(key)
+                    await asyncio.sleep(0.3)
+                    return await self._finish_action(f"Held key '{key_expr}' for {duration}s")
+                else:
+                    key_presses = map_key_to_playwright(key_expr)
+                    for key in key_presses:
+                        await self._page.keyboard.press(key)
+                    await asyncio.sleep(0.3)
+                    return await self._finish_action(f"Pressed key: {key_expr}")
+
+            # ---- Navigation actions ----
+            elif action_name == "goto_url":
+                url = arguments.get("url", "")
+                if "://" not in url:
+                    url = f"https://{url}"
+                await self._page.goto(url)
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(1)
+                return await self._finish_action(f"Navigated to {url}")
+
+            elif action_name == "go_back":
+                await self._page.go_back()
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(0.5)
+                return await self._finish_action("Navigated back")
+
+            elif action_name == "go_forward":
+                await self._page.go_forward()
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(0.5)
+                return await self._finish_action("Navigated forward")
+
+            elif action_name == "refresh":
+                await self._page.reload()
+                await self._page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(1)
+                return await self._finish_action("Refreshed the page")
+
+            elif action_name == "wait":
+                duration = max(0, min(arguments.get("duration", 5), 100))
+                await asyncio.sleep(duration)
+                return await self._finish_action(f"Waited {duration}s")
+
+            # ---- Expanded tool set actions ----
+            elif action_name == "extract_elements":
+                filter_type = arguments.get("filter", "visible")
+                result = await _evaluate_js(self._page, "extract_dom_elements.js", filter_type)
+                dom_data = json.loads(result) if isinstance(result, str) else result
+                content = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
+                return await self._finish_action(content)
+
+            elif action_name == "find":
+                text = arguments.get("text", "")
+                # Get full DOM tree then do a simple text search
+                result = await _evaluate_js(self._page, "extract_dom_elements.js", "all")
+                dom_data = json.loads(result) if isinstance(result, str) else result
+                dom_tree = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
+                lines = [line for line in dom_tree.split("\n") if text.lower() in line.lower()]
+                if lines:
+                    return await self._finish_action(
+                        f"Found {len(lines)} element(s) matching \"{text}\":\n" + "\n".join(lines[:20])
+                    )
+                return await self._finish_action(f'No elements matching "{text}" found on the page.')
+
+            elif action_name == "set_element_value":
+                ref = arguments.get("ref", "")
+                value = arguments.get("value", "")
+                result_json = await _evaluate_js(self._page, "set_element_value.js", ref, value)
+                result_data = json.loads(result_json)
+                return await self._finish_action(result_data.get("message", "set_element_value completed"))
+
+            elif action_name == "execute_js":
+                js_code = arguments.get("text", "")
+                raw = await self._page.evaluate(js_code)
+                if raw is None:
+                    return await self._finish_action("undefined")
+                if isinstance(raw, (dict, list)):
+                    return await self._finish_action(json.dumps(raw, indent=2))
+                return await self._finish_action(str(raw))
+
+            else:
+                logger.warning(f"Unknown action: {action_name}")
+                return f"[ERROR] Unknown action: {action_name}"
+
+        except Exception as e:
+            logger.error(f"Error executing {action_name}: {e}")
+            return f"[ERROR] Error executing {action_name}: {e}"
 
     async def _persist_replay(self) -> None:
         if self._replay is None:
@@ -452,7 +776,11 @@ async def main():
         "--json-schema",
         type=json.loads,
         default=None,
-        help="JSON Schema for structured output; see the example at the top of this file",
+        help=(
+            'JSON Schema for structured output, e.g. '
+            '\'{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},'
+            '"required":["names"]}\''
+        ),
     )
     parser.add_argument(
         "--timezone",

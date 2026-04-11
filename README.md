@@ -144,20 +144,9 @@ response = await client.chat.completions.create(
 ```
 
 This keeps the raw OpenAI-compatible `client.chat.completions.create(...)` call unchanged, while giving Yutori users a safer
-message-preparation helper for large screenshot histories. If you want to preserve the full history for replay while sending
-only a trimmed request copy to the API, use `update_trimmed_history(...)` instead of mutating your owned history in place.
-
-For a complete local browser loop, start with the example in [`examples/n1.py`](examples/n1.py):
-
-```bash
-uv sync --extra examples
-uv run playwright install chromium
-export YUTORI_API_KEY=your_key_here
-uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com" --replay-dir runs
-```
-
-That writes replay artifacts under `runs/<run_id>/`, including `messages.jsonl`, `step_payloads.jsonl`, and `visualization.html`.
-Open `visualization.html` in your browser to inspect the screenshot trajectory, action blocks, and raw request/response JSON.
+message-preparation helper for large screenshot histories. In long-lived loops, assign the trimmed copy back to your owned
+history before the next step so old screenshots do not keep accumulating in memory. The size pre-check is there to avoid
+deep-copying the full history on every step when trimming is not needed.
 
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
@@ -516,13 +505,7 @@ Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples. The quickest way to try replay is:
-
-```bash
-uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com" --replay-dir runs
-```
-
-Then open `runs/<run_id>/visualization.html`.
+See [examples/](examples/) for complete working examples, including a browser automation agent using the n1 API.
 
 ## Contributing
 

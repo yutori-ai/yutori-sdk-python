@@ -1,4 +1,9 @@
-"""Trajectory logging and replay helpers for n1/n1.5 browser loops."""
+"""Optional trajectory logging and replay helpers for n1/n1.5 browser loops.
+
+These helpers are only for local debugging and inspection. Agent runs do not
+depend on them, and callers can ignore this module entirely if they do not want
+to persist replay artifacts.
+"""
 
 from __future__ import annotations
 
@@ -44,7 +49,7 @@ _PREFERRED_ACTION_KEYS = (
 
 
 def log_formatter(record: dict, *, colorize: bool = True) -> str:
-    """Format log messages for loguru-based task logs."""
+    """Format log messages for optional loguru-based task/replay logs."""
 
     extra = record["extra"]
     if colorize:
@@ -69,7 +74,7 @@ def log_formatter(record: dict, *, colorize: bool = True) -> str:
 
 
 def make_run_id(*, prefix: str = "run", label: str | None = None) -> str:
-    """Create a filesystem-friendly replay id for local examples."""
+    """Create a filesystem-friendly replay id for optional local artifacts."""
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     clean_prefix = _slugify(prefix) or "run"
@@ -80,7 +85,12 @@ def make_run_id(*, prefix: str = "run", label: str | None = None) -> str:
 
 
 class TrajectoryRecorder:
-    """Persist message histories and render a static HTML replay."""
+    """Persist optional local replay artifacts for an n1/n1.5 run.
+
+    This recorder is intentionally separate from the agent loop itself. If you
+    do not want replay files, skip constructing it and the rest of your loop can
+    stay unchanged.
+    """
 
     def __init__(self, save_dir: str | Path, run_id: str) -> None:
         self.save_dir = Path(save_dir)
@@ -89,6 +99,8 @@ class TrajectoryRecorder:
         self.item_dir.mkdir(parents=True, exist_ok=True)
 
     def artifact_path(self, name: str) -> Path:
+        """Return the output path for one optional replay artifact."""
+
         return self.item_dir / name
 
     async def save_json(
@@ -99,11 +111,15 @@ class TrajectoryRecorder:
         indent: int | None = 2,
         default: Any | None = None,
     ) -> None:
+        """Write one optional JSON artifact into the replay directory."""
+
         path = self.artifact_path(filename)
         text = json.dumps(data, indent=indent, default=default or _json_default)
         await asyncio.to_thread(path.write_text, text, encoding="utf-8")
 
     async def load_json(self, filename: str) -> Any | None:
+        """Read one optional JSON artifact if it exists."""
+
         path = self.artifact_path(filename)
         if not path.exists():
             return None
@@ -111,11 +127,15 @@ class TrajectoryRecorder:
         return json.loads(text)
 
     async def save_jsonl(self, filename: str, records: list[Any]) -> None:
+        """Write one optional JSONL artifact into the replay directory."""
+
         path = self.artifact_path(filename)
         lines = [json.dumps(record, default=_json_default) for record in records]
         await asyncio.to_thread(path.write_text, "\n".join(lines), encoding="utf-8")
 
     async def load_jsonl(self, filename: str) -> list[Any]:
+        """Read one optional JSONL artifact if it exists."""
+
         path = self.artifact_path(filename)
         if not path.exists():
             return []
@@ -125,16 +145,24 @@ class TrajectoryRecorder:
         return [json.loads(line) for line in text.splitlines() if line.strip()]
 
     async def save_messages(self, messages: list[dict]) -> None:
+        """Persist the full message history for optional replay/debugging."""
+
         await self.save_jsonl("messages.jsonl", messages)
 
     async def load_messages(self) -> list[dict]:
+        """Load the optional replay message history if it was written."""
+
         return await self.load_jsonl("messages.jsonl")
 
     async def save_step_payloads(self, step_payloads: list[dict[str, Any]]) -> None:
+        """Persist sanitized request/response payloads for optional replay."""
+
         sanitized = [sanitize_step_payload(payload) for payload in step_payloads]
         await self.save_jsonl("step_payloads.jsonl", sanitized)
 
     async def load_step_payloads(self) -> list[dict[str, Any]]:
+        """Load optional per-step request/response payloads if present."""
+
         return await self.load_jsonl("step_payloads.jsonl")
 
     async def save_html(
@@ -146,6 +174,8 @@ class TrajectoryRecorder:
         coord_space_width: int = N1_COORDINATE_SCALE,
         coord_space_height: int = N1_COORDINATE_SCALE,
     ) -> None:
+        """Render the optional static HTML replay viewer for one run."""
+
         path = self.artifact_path("visualization.html")
         html = generate_visualization_html(
             task_id=self.run_id,
@@ -166,7 +196,7 @@ def generate_visualization_html(
     coord_space_width: int = N1_COORDINATE_SCALE,
     coord_space_height: int = N1_COORDINATE_SCALE,
 ) -> str:
-    """Generate a static HTML file for replaying a message trajectory."""
+    """Generate a static HTML viewer for an optional message replay."""
 
     steps, system_prompt, user_query = _build_steps(
         messages,
@@ -605,6 +635,8 @@ def _format_value(value: Any) -> str:
 
 
 def sanitize_step_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Clip image-heavy request/response payloads before optional replay storage."""
+
     sanitized = dict(payload)
     if "request" in sanitized:
         sanitized["request"] = _sanitize_for_replay(sanitized["request"])

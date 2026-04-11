@@ -4,12 +4,12 @@ import copy
 
 import pytest
 
-from yutori.n1 import (
+from yutori.n1.loop import update_trimmed_history
+from yutori.n1.replay import (
     TrajectoryRecorder,
     generate_visualization_html,
     make_run_id,
     sanitize_step_payload,
-    update_trimmed_history,
 )
 
 

@@ -12,25 +12,23 @@ uv sync --extra examples
 uv run playwright install chromium
 ```
 
-## Quick Start
+## n1.py
 
-Run the basic n1 browser example with replay output:
+A complete browsing agent using the n1 API. Launches a local Playwright browser, captures screenshots through `yutori.n1.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.n1.denormalize_coordinates(...)`, sends them to n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
 
 ```bash
-export YUTORI_API_KEY=your_key_here
-uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com" --replay-dir runs
+uv run python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"
 ```
 
-This writes replay artifacts under `runs/<run_id>/`:
-- `messages.jsonl`
-- `step_payloads.jsonl`
-- `visualization.html`
+Options:
+- `--task` - The task to perform
+- `--start-url` - Starting URL
+- `--headless` - Run browser in headless mode
+- `--max-steps` - Maximum number of steps (default: 100)
 
-Open `visualization.html` in your browser to inspect the run.
+## n1_custom_tools.py
 
-## Other Examples
-
-`n1_custom_tools.py` adds a read-only extraction tool:
+Extends the basic agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the n1 API.
 
 ```bash
 uv run python examples/n1_custom_tools.py \
@@ -38,7 +36,11 @@ uv run python examples/n1_custom_tools.py \
     --start-url "https://www.yutori.com"
 ```
 
-`n1_memo.py` adds memo-writing tools:
+The example implements an `extract_content_and_links` tool that parses the page's ARIA snapshot to extract all hyperlinks with their titles and URLs.
+
+## n1_memo.py
+
+Demonstrates how to use custom tools for the model to memorize information (into files) as it navigates. The agent takes a quiz and records every question, description, and options to a JSONL file.
 
 ```bash
 uv run python examples/n1_memo.py \
@@ -46,10 +48,7 @@ uv run python examples/n1_memo.py \
     --start-url "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
 ```
 
-`n1_5.py` runs the n1.5 API:
-
-```bash
-uv run python examples/n1_5.py --tool-set expanded --task "List the team member names" --start-url "https://www.yutori.com" --replay-dir runs
-```
-
-All browser examples accept `--replay-dir`.
+The example implements a `MemoToolSuite` with three custom tools:
+- `add_question` - Add a new question and description to the memo
+- `add_options` - Add new options to an existing question
+- `list_records` - List all recorded questions and options in JSONL format
