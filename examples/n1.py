@@ -5,6 +5,10 @@ A web browsing agent using Yutori's n1 API (OpenAI API compatible)
 This script takes a user query, launches a local Playwright browser session,
 calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 Features:
 - Payload trimming: keeps the agent's owned message history bounded while still
   ending in a standard chat completions call.

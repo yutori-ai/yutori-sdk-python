@@ -7,6 +7,10 @@ calls the n1 API to get actions, executes them, and iterates until the task is c
 
 In addition, we implement a custom tool to extract content and links from the page.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 Usage:
     export YUTORI_API_KEY=...
     python examples/n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"

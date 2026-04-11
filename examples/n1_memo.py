@@ -6,6 +6,10 @@ This script demonstrates how to use custom tools to let the model memorize infor
 
 We ask the model to take a quiz and record every question, description, and all the options along the way.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 We implement three custom tools:
 - `add_question`: to add a new question and description
 - `add_options`: to add new options to an existing question

@@ -5,6 +5,10 @@ A web browsing agent using Yutori's n1.5 API.
 n1.5 introduces a new action space with renamed tools, selectable tool sets,
 optional structured JSON output, and lowercase key names.
 
+Replay logging in this example is optional. Here, "replay" means saving the
+agent trajectory to local files so you can inspect screenshots, actions, and
+raw request/response payloads in `visualization.html` after the run.
+
 Key differences from n1:
 - model: "n1.5-latest" (instead of "n1-latest")
 - tool_set / disable_tools: select which built-in tools the model can use
