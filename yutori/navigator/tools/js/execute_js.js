@@ -1,7 +1,17 @@
 (async function (source) {
   try {
     var AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-    var fn = new AsyncFunction(source);
+
+    // Try expression-style first (e.g. "document.title", "2 + 2") by wrapping
+    // in "return (...)".  If that fails to parse, fall back to body-style
+    // (e.g. multi-statement code with its own return).
+    var fn;
+    try {
+      fn = new AsyncFunction("return (" + source + ")");
+    } catch (e) {
+      fn = new AsyncFunction(source);
+    }
+
     var value = await fn();
 
     if (value === undefined) {
