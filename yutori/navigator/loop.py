@@ -7,7 +7,7 @@ from typing import Any, Iterable, Protocol
 
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
-from .models import N1_MODEL
+from .models import N1_5_MODEL
 from .payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
@@ -24,7 +24,7 @@ class SupportsSyncChatCompletionsCreate(Protocol):
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1-latest",
+        model: str = "n1.5-latest",
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create a sync chat completion."""
@@ -37,7 +37,7 @@ class SupportsAsyncChatCompletionsCreate(Protocol):
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1-latest",
+        model: str = "n1.5-latest",
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create an async chat completion."""
@@ -77,7 +77,7 @@ def create_trimmed(
     completions: SupportsSyncChatCompletionsCreate,
     messages: list[dict[str, Any]],
     *,
-    model: str = N1_MODEL,
+    model: str = N1_5_MODEL,
     max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
     keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
     **kwargs: Any,
@@ -96,7 +96,7 @@ async def acreate_trimmed(
     completions: SupportsAsyncChatCompletionsCreate,
     messages: list[dict[str, Any]],
     *,
-    model: str = N1_MODEL,
+    model: str = N1_5_MODEL,
     max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
     keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
     **kwargs: Any,

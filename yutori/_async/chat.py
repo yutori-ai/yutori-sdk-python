@@ -18,7 +18,7 @@ class AsyncChatCompletions:
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1-latest",
+        model: str = "n1.5-latest",
         tool_set: str | None = None,
         disable_tools: list[str] | None = None,
         json_schema: dict | None = None,
@@ -28,7 +28,7 @@ class AsyncChatCompletions:
 
         Args:
             messages: List of messages following OpenAI Chat format.
-            model: Model to use (default: "n1-latest").
+            model: Model to use (default: "n1.5-latest").
             tool_set: (n1.5 only) Built-in tool set to use, e.g.
                 ``"browser_tools_core-20260403"`` or
                 ``"browser_tools_expanded-20260403"``.
