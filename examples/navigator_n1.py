@@ -14,34 +14,43 @@ Features:
   ending in a standard chat completions call.
 
 Usage:
-    export YUTORI_API_KEY=...
-    python examples/n1.py --task "List the team member names" --start-url "https://www.yutori.com"
+    yutori auth login  # or export YUTORI_API_KEY=...
+    uv sync --extra examples
+    uv run python examples/navigator_n1.py --task "List the team member names" --start-url "https://www.yutori.com"
 """
 
 import argparse
 import asyncio
 import json
-import os
 import sys
 
 from loguru import logger
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from _common import (
+    RETRYABLE_EXCEPTIONS,
+    add_agent_arguments,
+    add_browser_arguments,
+    add_model_arguments,
+    add_payload_trim_arguments,
+    add_replay_arguments,
+    add_task_arguments,
+    configure_example_logging,
+)
 from yutori import AsyncYutoriClient
-from yutori.n1 import (
+from yutori.config import DEFAULT_BASE_URL
+from yutori.navigator import (
+    N1_MODEL,
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
 )
-from yutori.n1.loop import update_trimmed_history
-from yutori.n1.page_ready import PageReadyChecker
-from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
-
-RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+from yutori.navigator.loop import update_trimmed_history
+from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 
 class Config(BaseModel):
@@ -49,9 +58,8 @@ class Config(BaseModel):
     task: str = Field(default="List the team member names")
     start_url: str = "https://www.yutori.com"
     # model
-    api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
-    base_url: str = "https://api.yutori.com/v1"
-    model: str = "n1-latest"
+    base_url: str = DEFAULT_BASE_URL
+    model: str = N1_MODEL
     temperature: float = 0.3
     # agent
     max_steps: int = 100
@@ -70,9 +78,8 @@ class Config(BaseModel):
 class Agent:
     def __init__(
         self,
-        api_key: str,
-        base_url: str = "https://api.yutori.com/v1",
-        model: str = "n1-latest",
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = N1_MODEL,
         temperature: float = 0.3,
         max_steps: int = 100,
         viewport_width: int = 1280,
@@ -83,7 +90,6 @@ class Agent:
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
@@ -134,7 +140,7 @@ class Agent:
             logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
-            AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
+            AsyncYutoriClient(base_url=self.base_url) as client,
             async_playwright() as playwright,
         ):
             try:
@@ -431,54 +437,20 @@ class Agent:
 
 
 async def main():
-    logger.remove()
-    logger.level("DEBUG", color="<fg #808080>")
-    logger.add(
-        sys.stdout,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{file}</cyan>:<cyan>{line:>3}</cyan> | "
-            "<level>{message}</level>{exception}"
-        ),
-        colorize=True,
-    )
+    configure_example_logging()
 
     default_config = Config()
     parser = argparse.ArgumentParser(description="Example of using Yutori n1 API to perform a web browsing task")
-    parser.add_argument("--task", default=default_config.task, help="The task to perform")
-    parser.add_argument("--start-url", default=default_config.start_url, help="Starting URL")
-    parser.add_argument(
-        "--api-key",
-        default=default_config.api_key,
-        help="Yutori API key, or set YUTORI_API_KEY in environment variables",
-    )
-    parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1 base URL")
-    parser.add_argument("--model", default=default_config.model, help="Yutori n1 model")
-    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1 temperature")
-    parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
-    parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
-    parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument(
-        "--max-request-bytes", type=int, default=default_config.max_request_bytes,
-        help="Max payload size in bytes before trimming old screenshots",
-    )
-    parser.add_argument(
-        "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
-        help="Number of recent screenshots to protect from trimming",
-    )
-    parser.add_argument(
-        "--replay-dir",
-        default=default_config.replay_dir,
-        help="Optional directory for replay artifacts",
-    )
-    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+    add_task_arguments(parser, default_config)
+    add_model_arguments(parser, default_config, api_label="Yutori n1")
+    add_agent_arguments(parser, default_config)
+    add_browser_arguments(parser, default_config)
+    add_payload_trim_arguments(parser, default_config)
+    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
     agent = Agent(
-        api_key=config.api_key,
         base_url=config.base_url,
         model=config.model,
         temperature=config.temperature,

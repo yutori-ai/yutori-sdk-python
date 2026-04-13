@@ -4,8 +4,8 @@ import copy
 
 import pytest
 
-from yutori.n1.loop import update_trimmed_history
-from yutori.n1.replay import (
+from yutori.navigator.loop import update_trimmed_history
+from yutori.navigator.replay import (
     TrajectoryRecorder,
     generate_visualization_html,
     make_run_id,
@@ -29,9 +29,9 @@ class FakeResult:
 
 
 def test_make_run_id_slugifies_label() -> None:
-    run_id = make_run_id(prefix="n1.5", label="List the team / members")
+    run_id = make_run_id(prefix="navigator", label="List the team / members")
 
-    assert run_id.startswith("n1.5_list-the-team-members_")
+    assert run_id.startswith("navigator_list-the-team-members_")
 
 
 def test_update_trimmed_history_keeps_full_history_intact() -> None:

@@ -19,19 +19,20 @@ Key differences from n1:
 - Key names are lowercase (e.g. ctrl+c, enter, left) instead of Playwright names
 
 Usage:
-    export YUTORI_API_KEY=...
+    yutori auth login  # or export YUTORI_API_KEY=...
+    uv sync --extra examples
 
     # Basic
-    python examples/n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
+    uv run python examples/navigator_n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
 
     # Expanded tool set (adds extract_elements, find, set_element_value, execute_js)
-    python examples/n1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
+    uv run python examples/navigator_n1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
 
     # Disable specific tools
-    python examples/n1_5.py --disable-tools hold_key drag --task "Search for flights" --start-url "https://google.com/flights"
+    uv run python examples/navigator_n1_5.py --disable-tools hold_key drag --task "Search for flights" --start-url "https://google.com/flights"
 
     # Structured JSON output via --json-schema
-    python examples/n1_5.py \
+    uv run python examples/navigator_n1_5.py \
         --task "List the team member names" \
         --start-url "https://www.yutori.com" \
         --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},\
@@ -40,22 +41,28 @@ Usage:
 
 import argparse
 import asyncio
-import functools
 import json
-import os
-import sys
-from pathlib import Path
 
 from loguru import logger
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from _common import (
+    RETRYABLE_EXCEPTIONS,
+    add_agent_arguments,
+    add_browser_arguments,
+    add_model_arguments,
+    add_payload_trim_arguments,
+    add_replay_arguments,
+    add_task_arguments,
+    configure_example_logging,
+)
 from yutori import AsyncYutoriClient
-from yutori.n1 import (
+from yutori.config import DEFAULT_BASE_URL
+from yutori.navigator import (
     N1_5_MODEL,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
@@ -66,36 +73,17 @@ from yutori.n1 import (
     map_key_to_playwright,
     map_keys_individual,
 )
-from yutori.n1.loop import update_trimmed_history
-from yutori.n1.page_ready import PageReadyChecker
-from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
-
-# ---------------------------------------------------------------------------
-# JavaScript helpers for expanded tool set actions.
-# Loaded from examples/tools/
-# ---------------------------------------------------------------------------
-
-_TOOLS_DIR = Path(__file__).parent / "tools"
-
-
-@functools.lru_cache(maxsize=None)
-def _load_js(name: str) -> str:
-    return (_TOOLS_DIR / name).read_text()
-
-
-async def _evaluate_js(page, name: str, *args) -> any:
-    """Load a JS IIFE from tools/ and evaluate it with the given arguments.
-
-    Builds a call expression with JSON-serialized arguments so multi-argument
-    JS functions work correctly with Playwright's page.evaluate() (which only
-    passes a single argument).
-    """
-    script = _load_js(name)
-    escaped_args = ", ".join(json.dumps(arg) for arg in args)
-    return await page.evaluate(f"({script})({escaped_args})")
-
-
-RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+from yutori.navigator.loop import update_trimmed_history
+from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
+from yutori.navigator.tools import (
+    EXTRACT_ELEMENTS_SCRIPT,
+    EXECUTE_JS_SCRIPT,
+    FIND_SCRIPT,
+    GET_ELEMENT_BY_REF_SCRIPT,
+    SET_ELEMENT_VALUE_SCRIPT,
+    evaluate_tool_script,
+)
 
 # Shorthand aliases for --tool-set
 _TOOL_SET_ALIASES = {
@@ -109,8 +97,7 @@ class Config(BaseModel):
     task: str = Field(default="List the team member names")
     start_url: str = "https://www.yutori.com"
     # model
-    api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
-    base_url: str = "https://api.yutori.com/v1"
+    base_url: str = DEFAULT_BASE_URL
     model: str = N1_5_MODEL
     temperature: float = 0.3
     tool_set: str = TOOL_SET_CORE
@@ -136,8 +123,7 @@ class Config(BaseModel):
 class Agent:
     def __init__(
         self,
-        api_key: str,
-        base_url: str = "https://api.yutori.com/v1",
+        base_url: str = DEFAULT_BASE_URL,
         model: str = N1_5_MODEL,
         temperature: float = 0.3,
         tool_set: str = TOOL_SET_CORE,
@@ -154,7 +140,6 @@ class Agent:
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
@@ -213,12 +198,12 @@ class Agent:
         final_response = ""
         # Replay output is opt-in; the loop still works without any of this.
         if self.replay_dir:
-            replay_id = self.replay_id or make_run_id(prefix="n1_5", label=task)
+            replay_id = self.replay_id or make_run_id(prefix="navigator_1_5", label=task)
             self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
             logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
-            AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
+            AsyncYutoriClient(base_url=self.base_url) as client,
             async_playwright() as playwright,
         ):
             try:
@@ -309,22 +294,20 @@ class Agent:
         return url if len(url) <= max_len else url[:max_len] + "..."
 
     def _format_message_for_log(self, message: dict) -> dict:
-        result = {}
-        for key, value in message.items():
-            if key == "content" and isinstance(value, list):
-                clipped_content = []
-                for item in value:
-                    if isinstance(item, dict) and item.get("type") == "image_url":
-                        clipped_item = dict(item)
-                        if "image_url" in clipped_item and "url" in clipped_item["image_url"]:
-                            clipped_item["image_url"] = {"url": self._clip_image_url(clipped_item["image_url"]["url"])}
-                        clipped_content.append(clipped_item)
-                    else:
-                        clipped_content.append(item)
-                result[key] = clipped_content
+        content = message.get("content")
+        if not isinstance(content, list):
+            return message
+
+        clipped_content = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "image_url" and "url" in item.get("image_url", {}):
+                clipped_content.append({
+                    **item,
+                    "image_url": {"url": self._clip_image_url(item["image_url"]["url"])},
+                })
             else:
-                result[key] = value
-        return result
+                clipped_content.append(item)
+        return {**message, "content": clipped_content}
 
     @retry(
         retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
@@ -442,8 +425,7 @@ class Agent:
 
         # Try ref first — it also scrolls the element into view.
         if ref:
-            result_json = await _evaluate_js(self._page, "get_element_by_ref.js", ref)
-            result = json.loads(result_json)
+            result = await evaluate_tool_script(self._page, GET_ELEMENT_BY_REF_SCRIPT, ref)
             if result.get("success"):
                 px = result["coordinates"]
                 return int(px[0]), int(px[1])
@@ -502,22 +484,11 @@ class Agent:
         try:
             modifier = self._map_modifier(arguments.get("modifier"))
 
-            # Helper: resolve coordinates, returning error string on failure.
-            async def _coords(args: dict = arguments) -> tuple[int, int] | None:
-                result = await self._resolve_coordinates(args)
-                if isinstance(result, str):
-                    nonlocal _coord_error
-                    _coord_error = result
-                    return None
-                return result
-
-            _coord_error: str | None = None
-
             # ---- Mouse click actions ----
             if action_name in ("left_click", "double_click", "triple_click", "middle_click", "right_click"):
-                resolved = await _coords()
-                if resolved is None:
-                    return _coord_error
+                resolved = await self._resolve_coordinates(arguments)
+                if isinstance(resolved, str):
+                    return resolved
                 abs_x, abs_y = resolved
                 button = {"middle_click": "middle", "right_click": "right"}.get(action_name, "left")
                 click_count = {"double_click": 2, "triple_click": 3}.get(action_name, 1)
@@ -534,18 +505,18 @@ class Agent:
 
             # ---- Mouse movement actions ----
             elif action_name == "mouse_move":
-                resolved = await _coords()
-                if resolved is None:
-                    return _coord_error
+                resolved = await self._resolve_coordinates(arguments)
+                if isinstance(resolved, str):
+                    return resolved
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await asyncio.sleep(0.3)
                 return await self._finish_action("Mouse moved and hovering")
 
             elif action_name == "mouse_down":
-                resolved = await _coords()
-                if resolved is None:
-                    return _coord_error
+                resolved = await self._resolve_coordinates(arguments)
+                if isinstance(resolved, str):
+                    return resolved
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.down()
@@ -553,9 +524,9 @@ class Agent:
                 return await self._finish_action("Mouse button pressed")
 
             elif action_name == "mouse_up":
-                resolved = await _coords()
-                if resolved is None:
-                    return _coord_error
+                resolved = await self._resolve_coordinates(arguments)
+                if isinstance(resolved, str):
+                    return resolved
                 abs_x, abs_y = resolved
                 await self._page.mouse.move(abs_x, abs_y)
                 await self._page.mouse.up()
@@ -566,10 +537,12 @@ class Agent:
                 start_coords = arguments.get("start_coordinates", [0, 0])
                 end_coords = arguments.get("coordinates", [0, 0])
 
-                start = await _coords({"coordinates": start_coords})
-                end = await _coords({"coordinates": end_coords})
-                if start is None or end is None:
-                    return _coord_error
+                start = await self._resolve_coordinates({"coordinates": start_coords})
+                if isinstance(start, str):
+                    return start
+                end = await self._resolve_coordinates({"coordinates": end_coords})
+                if isinstance(end, str):
+                    return end
                 start_x, start_y = start
                 end_x, end_y = end
 
@@ -588,9 +561,9 @@ class Agent:
                 if ref:
                     # Ref-based scroll: get_element_by_ref.js calls scrollIntoView(),
                     # which handles the scrolling. No additional mouse.wheel needed.
-                    resolved = await _coords()
-                    if resolved is None:
-                        return _coord_error
+                    resolved = await self._resolve_coordinates(arguments)
+                    if isinstance(resolved, str):
+                        return resolved
                     await asyncio.sleep(0.5)
                     return await self._finish_action("Scrolled to element")
                 elif coords and len(coords) == 2:
@@ -693,38 +666,37 @@ class Agent:
             # ---- Expanded tool set actions ----
             elif action_name == "extract_elements":
                 filter_type = arguments.get("filter", "visible")
-                result = await _evaluate_js(self._page, "extract_dom_elements.js", filter_type)
-                dom_data = json.loads(result) if isinstance(result, str) else result
-                content = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
+                dom_data = await evaluate_tool_script(self._page, EXTRACT_ELEMENTS_SCRIPT, filter_type)
+                content = dom_data.get("pageContent", "")
                 return await self._finish_action(content)
 
             elif action_name == "find":
                 text = arguments.get("text", "")
-                # Get full DOM tree then do a simple text search
-                result = await _evaluate_js(self._page, "extract_dom_elements.js", "all")
-                dom_data = json.loads(result) if isinstance(result, str) else result
-                dom_tree = dom_data.get("pageContent", "") if isinstance(dom_data, dict) else str(result)
-                lines = [line for line in dom_tree.split("\n") if text.lower() in line.lower()]
-                if lines:
+                result = await evaluate_tool_script(self._page, FIND_SCRIPT, text)
+                if not result.get("success", False):
+                    return await self._finish_action(f'[ERROR] {result.get("message", "find failed")}')
+                matches = result.get("matches", [])
+                total_matches = int(result.get("totalMatches", len(matches)))
+                if total_matches:
                     return await self._finish_action(
-                        f"Found {len(lines)} element(s) matching \"{text}\":\n" + "\n".join(lines[:20])
+                        f'Found {total_matches} element(s) matching "{text}":\n' + "\n".join(matches[:20])
                     )
                 return await self._finish_action(f'No elements matching "{text}" found on the page.')
 
             elif action_name == "set_element_value":
                 ref = arguments.get("ref", "")
                 value = arguments.get("value", "")
-                result_json = await _evaluate_js(self._page, "set_element_value.js", ref, value)
-                result_data = json.loads(result_json)
+                result_data = await evaluate_tool_script(self._page, SET_ELEMENT_VALUE_SCRIPT, ref, value)
                 return await self._finish_action(result_data.get("message", "set_element_value completed"))
 
             elif action_name == "execute_js":
                 js_code = arguments.get("text", "")
-                raw = await self._page.evaluate(js_code)
-                if raw is None:
+                result_data = await evaluate_tool_script(self._page, EXECUTE_JS_SCRIPT, js_code)
+                if not result_data.get("success", False):
+                    return await self._finish_action(f'[ERROR] {result_data.get("message", "execute_js failed")}')
+                if not result_data.get("hasResult"):
                     return await self._finish_action("undefined")
-                if isinstance(raw, (dict, list)):
-                    return await self._finish_action(json.dumps(raw, indent=2))
+                raw = result_data.get("result")
                 return await self._finish_action(str(raw))
 
             else:
@@ -748,31 +720,12 @@ class Agent:
 
 
 async def main():
-    logger.remove()
-    logger.level("DEBUG", color="<fg #808080>")
-    logger.add(
-        sys.stdout,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{file}</cyan>:<cyan>{line:>3}</cyan> | "
-            "<level>{message}</level>{exception}"
-        ),
-        colorize=True,
-    )
+    configure_example_logging()
 
     default_config = Config()
     parser = argparse.ArgumentParser(description="Example of using Yutori n1.5 API to perform a web browsing task")
-    parser.add_argument("--task", default=default_config.task, help="The task to perform")
-    parser.add_argument("--start-url", default=default_config.start_url, help="Starting URL")
-    parser.add_argument(
-        "--api-key",
-        default=default_config.api_key,
-        help="Yutori API key, or set YUTORI_API_KEY in environment variables",
-    )
-    parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1.5 base URL")
-    parser.add_argument("--model", default=default_config.model, help="Yutori n1.5 model")
-    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1.5 temperature")
+    add_task_arguments(parser, default_config)
+    add_model_arguments(parser, default_config, api_label="Yutori n1.5")
     parser.add_argument(
         "--tool-set", default=default_config.tool_set,
         choices=[TOOL_SET_CORE, TOOL_SET_EXPANDED, "core", "expanded"],
@@ -804,30 +757,15 @@ async def main():
         default=default_config.user_location,
         help="User location (e.g. New York, NY, US)",
     )
-    parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
-    parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
-    parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument(
-        "--max-request-bytes", type=int, default=default_config.max_request_bytes,
-        help="Max payload size in bytes before trimming old screenshots",
-    )
-    parser.add_argument(
-        "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
-        help="Number of recent screenshots to protect from trimming",
-    )
-    parser.add_argument(
-        "--replay-dir",
-        default=default_config.replay_dir,
-        help="Optional directory for replay artifacts",
-    )
-    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+    add_agent_arguments(parser, default_config)
+    add_browser_arguments(parser, default_config)
+    add_payload_trim_arguments(parser, default_config)
+    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
     config = Config.model_validate(vars(args))
 
     agent = Agent(
-        api_key=config.api_key,
         base_url=config.base_url,
         model=config.model,
         temperature=config.temperature,

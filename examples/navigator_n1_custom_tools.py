@@ -2,60 +2,58 @@
 """
 A web browsing agent using Yutori's n1 API (OpenAI API compatible) with custom tools
 
-This script demonstrates how to use custom tools to let the model memorize information (into files) as it navigates.
+This script takes a user query, launches a local Playwright browser session,
+calls the n1 API to get actions, executes them, and iterates until the task is complete.
 
-We ask the model to take a quiz and record every question, description, and all the options along the way.
+In addition, we implement a custom tool to extract content and links from the page.
 
 Replay logging in this example is optional. Here, "replay" means saving the
 agent trajectory to local files so you can inspect screenshots, actions, and
 raw request/response payloads in `visualization.html` after the run.
 
-We implement three custom tools:
-- `add_question`: to add a new question and description
-- `add_options`: to add new options to an existing question
-- `list_records`: to list all the questions and options in JSONL format
-
 Usage:
-    export YUTORI_API_KEY=...
-    python examples/n1_memo.py \
-        --task "Take the quiz and record every question, description, and all the options along the way" \
-        --start-url "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
+    yutori auth login  # or export YUTORI_API_KEY=...
+    uv sync --extra examples
+    uv run python examples/navigator_n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
 """
 
 import argparse
 import asyncio
 import json
-import os
+import re
 import sys
-from datetime import datetime
 from functools import cached_property
 
 from loguru import logger
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from _common import (
+    RETRYABLE_EXCEPTIONS,
+    add_agent_arguments,
+    add_browser_arguments,
+    add_model_arguments,
+    add_replay_arguments,
+    add_task_arguments,
+    configure_example_logging,
+)
 from yutori import AsyncYutoriClient
-from yutori.n1 import aplaywright_screenshot_to_data_url, denormalize_coordinates
-from yutori.n1.page_ready import PageReadyChecker
-from yutori.n1.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
-
-RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+from yutori.config import DEFAULT_BASE_URL
+from yutori.navigator import N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
 
 class Config(BaseModel):
     # task
-    task: str = Field(
-        default="Take the quiz and record every question, description, and all the options along the way",
-    )
-    start_url: str = "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
+    task: str = Field(default="Get the titles and links of all the blog posts")
+    start_url: str = "https://www.yutori.com"
     # model
-    api_key: str = Field(default_factory=lambda: os.getenv("YUTORI_API_KEY"))
-    base_url: str = "https://api.yutori.com/v1"
-    model: str = "n1-latest"
+    base_url: str = DEFAULT_BASE_URL
+    model: str = N1_MODEL
     temperature: float = 0.3
     # agent
     max_steps: int = 100
@@ -68,119 +66,78 @@ class Config(BaseModel):
     replay_id: str | None = None
 
 
-class MemoToolSuite:
-    def __init__(self, file_path: str | None = None):
+class ExtractContentAndLinksTool:
+    def __init__(self):
         super().__init__()
-        if not file_path:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_path = os.path.join(os.path.dirname(__file__), f"memo_{timestamp}.jsonl")
-        self.file_path = file_path
 
-        logger.info(f"Memo file path: {self.file_path}")
+        self._link_pattern = re.compile(r'- link "([^"]*)"')
+        self._url_pattern = re.compile(r"- /url: (.+)")
+        self._title_cleaner_pattern = re.compile(r"\s+\d+$")
 
     @cached_property
-    def input_schemas(self) -> list[dict]:
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "add_question",
-                    "description": (
-                        "Add a new question and description to the memo. Call this whenever you see a new question."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "index": {"type": "integer", "description": "The index of the question."},
-                            "question": {"type": "string", "description": "The question text exactly as shown."},
-                            "description": {"type": "string", "description": "The description of the question."},
-                        },
-                        "required": ["index", "question"],
-                    },
-                },
+    def input_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "extract_content_and_links",
+                "description": (
+                    "Extracts page content and hyperlinks relevant to the user task. "
+                    "This operation is strictly read-only and never interacts with or alters the page"
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
             },
-            {
-                "type": "function",
-                "function": {
-                    "name": "add_options",
-                    "description": "Add new options to an existing question. Call this whenever you see new options.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "question_index": {"type": "integer", "description": "The index of the question."},
-                            "options": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "The options to add.",
-                            },
-                        },
-                        "required": ["question_index", "options"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_records",
-                    "description": (
-                        "List all the recorded questions and options. Call this after completing the quiz."
-                    ),
-                    "parameters": {"type": "object", "properties": {}, "required": []},
-                },
-            },
-        ]
+        }
 
-    @staticmethod
-    async def read_jsonl(file_path: str) -> list[dict]:
-        try:
-            with open(file_path, "r") as f:
-                content = f.read()
-            return [json.loads(line) for line in content.splitlines()]
-        except FileNotFoundError:
-            return []
+    async def __call__(self, page: Page, **kwargs) -> str:
+        url_to_title: dict[str, str] = {}
 
-    @staticmethod
-    async def write_jsonl(file_path: str, records: list[dict]) -> None:
-        lines = [json.dumps(record) for record in records]
-        with open(file_path, "w") as f:
-            f.write("\n".join(lines))
+        snapshot = await page.locator("body").aria_snapshot()
+        lines = snapshot.split("\n")
 
-    async def add_question(self, index: int, question: str, description: str | None = None) -> str:
-        records = await self.read_jsonl(self.file_path)
-        for record in records:
-            if record["index"] == index:
-                record["question"] = question
-                record["description"] = description
-                logger.warning(f"Updated question {index} with new question: {question} and description: {description}")
-                break
-        else:
-            records.append({"index": index, "question": question, "description": description})
-        await self.write_jsonl(self.file_path, records)
-        return f"Successfully added question {index}"
+        for i, line in enumerate(lines):
+            # Match link pattern: - link "TITLE": or - link "TITLE"
+            if link_match := self._link_pattern.search(line):
+                title = link_match.group(1)
 
-    async def add_options(self, question_index: int, options: list[str]) -> str:
-        records = await self.read_jsonl(self.file_path)
-        for record in records:
-            if record["index"] == question_index:
-                record.setdefault("options", []).extend(options)
-                break
-        else:
-            raise ValueError(f"Question index {question_index} not found")
-        await self.write_jsonl(self.file_path, records)
-        return f"Successfully added options to question {question_index}"
+                # Look for /url in subsequent indented lines
+                url = None
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j]
+                    # Check if we've moved out of this link's children (less or equal indentation)
+                    if next_line.strip() and not next_line.startswith(" " * (len(line) - len(line.lstrip()) + 2)):
+                        break
+                    # Check for /url pattern
+                    url_match = self._url_pattern.search(next_line)
+                    if url_match:
+                        url = url_match.group(1).strip()
+                        break
+                    j += 1
 
-    async def list_records(self) -> str:
-        with open(self.file_path, "r") as f:
-            content = f.read()
-        return f"Memo file path: {self.file_path}\nRecords:\n{content}"
+                if not url:
+                    continue
+
+                title = self._title_cleaner_pattern.sub("", title).strip()
+                if url in url_to_title:
+                    # Deduplicate by URL, keeping the longest title (without trailing numbers)
+                    existing = url_to_title[url]
+                    if len(title) > len(existing):
+                        url_to_title[url] = title
+                else:
+                    url_to_title[url] = title
+
+        result = f"Current URL: {page.url}"
+        if url_to_title:
+            result += "\nLinks on the entire page:\n"
+            result += "\n".join([f"- [{title}]({url})" for url, title in url_to_title.items()])
+        return result
 
 
 class Agent:
     def __init__(
         self,
-        api_key: str,
-        base_url: str = "https://api.yutori.com/v1",
-        model: str = "n1-latest",
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = N1_MODEL,
         temperature: float = 0.3,
         max_steps: int = 100,
         viewport_width: int = 1280,
@@ -189,7 +146,6 @@ class Agent:
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
@@ -218,8 +174,8 @@ class Agent:
         self._step_payloads: list[dict] = []
         self._step_count = 0
 
-        # Custom memo tool suite
-        self._memo_tool_suite = MemoToolSuite()
+        # Custom tools
+        self._extract_content_and_links_tool = ExtractContentAndLinksTool()
 
     async def run(self, task: str, start_url: str) -> str:
         logger.info(f"Task: {task}")
@@ -234,12 +190,12 @@ class Agent:
         final_response = ""
         # Replay output is opt-in; the loop still works without any of this.
         if self.replay_dir:
-            replay_id = self.replay_id or make_run_id(prefix="n1_memo", label=task)
+            replay_id = self.replay_id or make_run_id(prefix="n1_custom", label=task)
             self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
             logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
-            AsyncYutoriClient(api_key=self.api_key, base_url=self.base_url) as client,
+            AsyncYutoriClient(base_url=self.base_url) as client,
             async_playwright() as playwright,
         ):
             try:
@@ -273,11 +229,7 @@ class Agent:
 
                     # Execute the action(s)
                     for tool_call in response.tool_calls:
-                        should_exit, result = await self._execute(tool_call)
-                        if should_exit:
-                            await self._persist_replay()
-                            logger.info("Task completed (`list_records` tool called)")
-                            return result
+                        result = await self._execute(tool_call)
                         content = [{"type": "text", "text": result}] if result else []
                         self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
                     await self._persist_replay()
@@ -354,14 +306,14 @@ class Agent:
             "model": self.model,
             "messages": self._messages,
             "temperature": self.temperature,
-            "tools": self._memo_tool_suite.input_schemas,
+            "tools": [self._extract_content_and_links_tool.input_schema],
         }
         response = await asyncio.wait_for(
             self._client.chat.completions.create(
                 model=self.model,
                 messages=self._messages,
                 temperature=self.temperature,
-                tools=self._memo_tool_suite.input_schemas,  # add custom tools here
+                tools=[self._extract_content_and_links_tool.input_schema],  # add custom tools here
             ),
             timeout=120.0,  # 2 minutes
         )
@@ -397,15 +349,14 @@ class Agent:
         response = await self._call_llm_with_retries()
         return response.choices[0].message
 
-    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
-        # Returns (should_exit, result)
+    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
 
         try:
             arguments = json.loads(tool_call.function.arguments)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
-            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+            return f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
 
         try:
             if action_name == "left_click":
@@ -506,21 +457,14 @@ class Agent:
             elif action_name == "wait":
                 await asyncio.sleep(5)
 
-            elif action_name == "add_question":
-                result = await self._memo_tool_suite.add_question(**arguments)
-                return False, result
-
-            elif action_name == "add_options":
-                result = await self._memo_tool_suite.add_options(**arguments)
-                return False, result
-
-            elif action_name == "list_records":
-                result = await self._memo_tool_suite.list_records()
-                return True, result
+            elif action_name == "extract_content_and_links":
+                await self._wait_for_page_ready()
+                result = await self._extract_content_and_links_tool(self._page)
+                return result
 
             else:
                 logger.warning(f"Unknown action: {action_name}")
-                return False, f"[ERROR] Unknown action: {action_name}"
+                return f"[ERROR] Unknown action: {action_name}"
 
             # Wait for any navigation or dynamic content
             try:
@@ -531,9 +475,7 @@ class Agent:
 
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
-            return False, f"[ERROR] Error executing {action_name}: {e}"
-
-        return False, None
+            return f"[ERROR] Error executing {action_name}: {e}"
 
     async def _persist_replay(self) -> None:
         # Replay persistence is best-effort and not part of the agent loop itself.
@@ -548,46 +490,19 @@ class Agent:
 
 
 async def main():
-    logger.remove()
-    logger.level("DEBUG", color="<fg #808080>")
-    logger.add(
-        sys.stdout,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{file}</cyan>:<cyan>{line:>3}</cyan> | "
-            "<level>{message}</level>{exception}"
-        ),
-        colorize=True,
-    )
+    configure_example_logging()
 
     default_config = Config()
     parser = argparse.ArgumentParser(description="Example of using Yutori n1 API to perform a web browsing task")
-    parser.add_argument("--task", default=default_config.task, help="The task to perform")
-    parser.add_argument("--start-url", default=default_config.start_url, help="Starting URL")
-    parser.add_argument(
-        "--api-key",
-        default=default_config.api_key,
-        help="Yutori API key, or set YUTORI_API_KEY in environment variables",
-    )
-    parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1 base URL")
-    parser.add_argument("--model", default=default_config.model, help="Yutori n1 model")
-    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1 temperature")
-    parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
-    parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
-    parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument(
-        "--replay-dir",
-        default=default_config.replay_dir,
-        help="Optional directory for replay artifacts",
-    )
-    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+    add_task_arguments(parser, default_config)
+    add_model_arguments(parser, default_config, api_label="Yutori n1")
+    add_agent_arguments(parser, default_config)
+    add_browser_arguments(parser, default_config)
+    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
     agent = Agent(
-        api_key=config.api_key,
         base_url=config.base_url,
         model=config.model,
         temperature=config.temperature,

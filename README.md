@@ -58,77 +58,52 @@ The Yutori API provides four main capabilities:
 
 ## n1 API
 
-The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface:
+The n1 API is a pixels-to-actions LLM that processes screenshots and predicts browser actions (click, type, scroll, etc.). It follows the OpenAI Chat Completions interface. In a typical agent loop you capture a screenshot, send it to the model, and execute the returned tool calls:
 
 ```python
-response = client.chat.completions.create(
-    model="n1-latest",
-    messages=[
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Describe the screenshot and search for Yutori."
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_homepage_%28as_of_January_2024%29.jpg/1280px-Google_homepage_%28as_of_January_2024%29.jpg"
-                    }
-                }
-            ]
-        }
-    ]
-)
+from yutori import AsyncYutoriClient
+from yutori.navigator import aplaywright_screenshot_to_data_url
+from playwright.async_api import async_playwright
 
-# Get the thoughts
-message = response.choices[0].message
-print(message.content)
+async with AsyncYutoriClient() as client, async_playwright() as p:
+    browser = await p.chromium.launch()
+    page = await browser.new_page()
+    await page.goto("https://www.yutori.com")
 
-# Get the tool calls, such as browser interaction actions
-if message.tool_calls:
-    for tool_call in message.tool_calls:
-        print(f"Action: {tool_call.function.name}")
-        print(f"Arguments: {tool_call.function.arguments}")
-```
+    # Capture a screenshot optimized for n1
+    image_url = await aplaywright_screenshot_to_data_url(page)
 
-Live n1 model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1`. The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`.
-
-The SDK exports canonical model constants so you don't need to hardcode strings:
-
-```python
-from yutori.n1 import N1_MODEL, N1_5_MODEL
-
-# N1_MODEL   = "n1-latest"
-# N1_5_MODEL = "n1.5-latest"
-```
-
-For Playwright users, the SDK provides a screenshot helper that captures and encodes images optimized for n1:
-
-```python
-from yutori.n1 import aplaywright_screenshot_to_data_url
-
-image_url = await aplaywright_screenshot_to_data_url(page)
-
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "Describe the screenshot and search for Yutori."},
-            {"type": "image_url", "image_url": {"url": image_url}},
+    response = await client.chat.completions.create(
+        model="n1-latest",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "List the team member names."},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }
         ],
-    }
-]
+    )
+
+    # Get the thoughts
+    message = response.choices[0].message
+    print(message.content)
+
+    # Get the tool calls, such as browser interaction actions
+    if message.tool_calls:
+        for tool_call in message.tool_calls:
+            print(f"Action: {tool_call.function.name}")
+            print(f"Arguments: {tool_call.function.arguments}")
 ```
 
-Install the optional image dependency with `pip install "yutori[n1]"` if you want to use these screenshot helpers.
+Live model IDs and parameter docs: [`n1`](https://docs.yutori.com/reference/n1) and [`n1.5`](https://docs.yutori.com/reference/n1-5). The SDK forwards standard OpenAI chat-completions parameters through `**kwargs`, including `tools`, `tool_choice`, and `response_format`. n1.5 also supports `tool_set`, `disable_tools`, and `json_schema`; when `json_schema` is provided, the parsed structured output is returned on the top-level completion object as `response.parsed_json`.
 
 n1 tool calls use a normalized `1000x1000` coordinate space. The SDK provides public helpers so agent loops do not need to
 re-implement that math:
 
 ```python
-from yutori.n1 import denormalize_coordinates
+from yutori.navigator import denormalize_coordinates
 
 coords = [500, 250]
 x, y = denormalize_coordinates(coords, width=1280, height=800)
@@ -137,7 +112,7 @@ x, y = denormalize_coordinates(coords, width=1280, height=800)
 For agent loops that need user context (location, timezone, current date/time), the SDK provides formatting helpers:
 
 ```python
-from yutori.n1 import format_task_with_context, format_stop_and_summarize
+from yutori.navigator import format_task_with_context, format_stop_and_summarize
 
 # Append user context to a task string
 task = format_task_with_context(
@@ -159,10 +134,10 @@ task = format_task_with_context(
 stop_message = format_stop_and_summarize("Book a table for 2 tonight")
 ```
 
-For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.n1`:
+For screenshot-heavy agent loops, the SDK also provides opt-in trimming helpers under `yutori.navigator`:
 
 ```python
-from yutori.n1 import estimate_messages_size_bytes, trimmed_messages_to_fit
+from yutori.navigator import estimate_messages_size_bytes, trimmed_messages_to_fit
 
 if estimate_messages_size_bytes(messages) > 9_500_000:
     messages, size_bytes, removed = trimmed_messages_to_fit(
@@ -182,6 +157,17 @@ message-preparation helper for large screenshot histories. In long-lived loops, 
 history before the next step so old screenshots do not keep accumulating in memory. The size pre-check is there to avoid
 deep-copying the full history on every step when trimming is not needed.
 
+For n1.5 expanded browser tools, the SDK also ships the reference JavaScript implementations as packaged assets under
+`yutori.navigator.tools`:
+
+```python
+from yutori.navigator.tools import EXTRACT_ELEMENTS_SCRIPT, evaluate_tool_script
+
+dom_data = await evaluate_tool_script(page, EXTRACT_ELEMENTS_SCRIPT, "visible")
+```
+
+This lets downstream projects reuse the bundled JS directly instead of copying files out of `examples/`.
+
 If you don't want to manage your own browser infrastructure, use the Browsing API which calls n1 on a cloud browser.
 
 ### n1.5
@@ -189,7 +175,7 @@ If you don't want to manage your own browser infrastructure, use the Browsing AP
 n1.5 extends the n1 API with selectable tool sets, structured JSON output, and a redesigned action space. It uses the same `client.chat.completions.create(...)` call with three additional parameters:
 
 ```python
-from yutori.n1 import N1_5_MODEL, TOOL_SET_EXPANDED
+from yutori.navigator import N1_5_MODEL, TOOL_SET_EXPANDED
 
 response = client.chat.completions.create(
     model=N1_5_MODEL,
@@ -212,7 +198,7 @@ response = client.chat.completions.create(
 n1.5 also uses lowercase key names (e.g. `ctrl+c`, `enter`) instead of Playwright names. The SDK provides helpers to convert them:
 
 ```python
-from yutori.n1 import map_key_to_playwright, map_keys_individual
+from yutori.navigator import map_key_to_playwright, map_keys_individual
 
 # Single key or combo → Playwright format
 map_key_to_playwright("ctrl+c")    # "Control+c"
@@ -579,11 +565,7 @@ Run `yutori --help` or `yutori <command> --help` for full option details.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples:
-- [`n1.py`](examples/n1.py) — Browser automation agent using the n1 API
-- [`n1_5.py`](examples/n1_5.py) — Browser automation agent using n1.5 with tool sets, structured output, and key mapping
-- [`n1_custom_tools.py`](examples/n1_custom_tools.py) — n1 agent with custom tools for content extraction
-- [`n1_memo.py`](examples/n1_memo.py) — n1 agent with custom tools for memorizing information
+See [examples/](examples/) for complete working examples and setup instructions, including navigator-based browser agents for n1 and n1.5.
 
 ## Contributing
 

@@ -1,45 +1,9 @@
-"""Agents-inspired lifecycle hooks for chat-completions-based n1 loops."""
+"""Compatibility shim for yutori.navigator.hooks."""
 
 from __future__ import annotations
 
-from typing import Any
+import warnings as _warnings
 
-from openai.types.chat import ChatCompletionMessageParam
+_warnings.warn("yutori.n1.hooks has been renamed to yutori.navigator.hooks.", DeprecationWarning, stacklevel=2)
 
-
-class RunHooksBase:
-    """Agents-inspired lifecycle hooks for chat-completions-based n1 loops.
-
-    This is intentionally not a drop-in replacement for the OpenAI Agents SDK
-    RunHooksBase. It mirrors the lifecycle phases, not the exact signatures.
-    """
-
-    async def on_agent_start(self, *, messages: list[ChatCompletionMessageParam]) -> None:
-        pass
-
-    async def on_llm_start(
-        self,
-        *,
-        messages: list[ChatCompletionMessageParam],
-        tools: list[dict[str, Any]] | None = None,
-    ) -> None:
-        pass
-
-    async def on_llm_end(self, *, response: Any) -> None:
-        pass
-
-    async def on_tool_start(self, *, name: str, arguments: dict[str, Any]) -> None:
-        pass
-
-    async def on_tool_end(
-        self,
-        *,
-        name: str,
-        arguments: dict[str, Any],
-        output: str | None,
-        trace: str,
-    ) -> None:
-        pass
-
-    async def on_agent_end(self, *, output: Any | None = None) -> None:
-        pass
+from yutori.navigator.hooks import *  # noqa: F401,F403

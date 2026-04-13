@@ -1,8 +1,8 @@
-"""Tests for yutori.n1.coordinates."""
+"""Tests for yutori.navigator.coordinates."""
 
 import pytest
 
-from yutori.n1 import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
+from yutori.navigator import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
 
 
 class TestDenormalizeCoordinates:

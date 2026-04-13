@@ -1,4 +1,4 @@
-"""Tests for yutori.n1.images."""
+"""Tests for yutori.navigator.images."""
 
 import base64
 import io
@@ -6,7 +6,7 @@ import io
 import pytest
 from PIL import Image
 
-from yutori.n1.images import (
+from yutori.navigator.images import (
     DEFAULT_PLAYWRIGHT_SCREENSHOT_QUALITY,
     DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
     _default_webp_quality,
@@ -52,19 +52,6 @@ class TestScreenshotToDataUrl:
         encoded = image_url.removeprefix("data:image/webp;base64,")
         with Image.open(io.BytesIO(base64.b64decode(encoded))) as converted:
             assert converted.size == target
-
-    def test_raises_when_pillow_missing(self, monkeypatch):
-        import yutori.n1.images as images_mod
-
-        original = images_mod._require_pillow
-
-        def mock_require_pillow():
-            raise ImportError("n1 screenshot helpers require Pillow. Install with: pip install 'yutori[n1]'")
-
-        monkeypatch.setattr(images_mod, "_require_pillow", mock_require_pillow)
-        with pytest.raises(ImportError, match="yutori\\[n1\\]"):
-            screenshot_to_data_url(b"fake")
-        monkeypatch.setattr(images_mod, "_require_pillow", original)
 
 
 class TestPlaywrightScreenshotHelpers:

@@ -1,21 +1,21 @@
 (function (elementRef) {
   function failure(message) {
-    return JSON.stringify({
+    return {
       success: false,
       action: "get_element_by_ref",
       message: message,
-    });
+    };
   }
 
   function getTrackedElement(ref) {
-    if (!window.__n1ElementRefs || !window.__n1ElementRefs[ref]) {
+    if (!window.__yutoriElementRefs || !window.__yutoriElementRefs[ref]) {
       return null;
     }
 
-    var weakRef = window.__n1ElementRefs[ref];
+    var weakRef = window.__yutoriElementRefs[ref];
     var element = weakRef.deref();
     if (!element || !document.contains(element)) {
-      delete window.__n1ElementRefs[ref];
+      delete window.__yutoriElementRefs[ref];
       return null;
     }
 
@@ -76,10 +76,10 @@
     }
 
     var rect = element.getBoundingClientRect();
-    return JSON.stringify({
+    return {
       success: true,
       coordinates: [rect.left + rect.width / 2, rect.top + rect.height / 2],
-    });
+    };
   } catch (error) {
     return failure("Error finding element by reference: " + (error.message || "Unknown error"));
   }
