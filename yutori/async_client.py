@@ -83,7 +83,11 @@ class AsyncYutoriClient:
 
         Returns:
             Dictionary with ``num_active_scouts``, ``active_scout_ids``,
-            ``rate_limits``, ``n1_rate_limits``, and ``activity`` counts.
+            ``rate_limits``, ``navigator_rate_limits``, and ``activity``
+            counts. The response also includes ``n1_rate_limits`` and
+            ``activity.n1_calls`` as deprecated aliases of
+            ``navigator_rate_limits`` / ``navigator_calls`` for one
+            release; prefer the ``navigator_*`` names.
         """
         response = await self._client.get(
             f"{self._base_url}/usage",

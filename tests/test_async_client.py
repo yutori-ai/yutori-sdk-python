@@ -38,6 +38,15 @@ class TestAsyncYutoriClientInit:
 
 @pytest.mark.asyncio
 class TestAsyncYutoriClientGetUsage:
+    # Mirrors the current server dual-emit: both navigator_* and n1_* keys
+    # are present with equal values. See yutori.codex PR #8174.
+    _NAVIGATOR_LIMITS = {
+        "requests_today": 50,
+        "daily_limit": 50000,
+        "remaining_requests": 49950,
+        "reset_at": "2026-03-04T00:00:00+00:00",
+        "per_second_limit": 20,
+    }
     USAGE_RESPONSE = {
         "num_active_scouts": 2,
         "active_scout_ids": ["id-1", "id-2"],
@@ -48,18 +57,14 @@ class TestAsyncYutoriClientGetUsage:
             "reset_at": "2026-03-04T00:00:00+00:00",
             "status": "available",
         },
-        "n1_rate_limits": {
-            "requests_today": 50,
-            "daily_limit": 50000,
-            "remaining_requests": 49950,
-            "reset_at": "2026-03-04T00:00:00+00:00",
-            "per_second_limit": 20,
-        },
+        "navigator_rate_limits": _NAVIGATOR_LIMITS,
+        "n1_rate_limits": _NAVIGATOR_LIMITS,
         "activity": {
             "period": "24h",
             "scout_runs": 10,
             "browsing_tasks": 3,
             "research_tasks": 2,
+            "navigator_calls": 50,
             "n1_calls": 50,
         },
     }
