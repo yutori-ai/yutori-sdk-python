@@ -11,6 +11,7 @@ from rich.markup import escape
 from yutori.auth.credentials import resolve_api_key
 
 __all__ = [
+    "format_interval",
     "get_authenticated_client",
     "print_rejection_reason",
     "print_task_submission_result",
@@ -49,3 +50,22 @@ def print_task_submission_result(console: Console, task_type: str, result: dict[
     console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
     console.print(f"  Status: {status}")
     print_rejection_reason(console, result)
+
+
+def format_interval(seconds: int, *, short: bool = False) -> str:
+    """Format an interval in seconds as a human-readable string.
+
+    Picks the coarsest unit (days/hours/minutes) that fits and truncates.
+
+    Args:
+        seconds: Interval length in seconds.
+        short: If True, use compact form (e.g. ``"1d"``). Otherwise use the
+            verbose form (e.g. ``"1 day(s)"``).
+    """
+    if seconds >= 86400:
+        value, unit_short, unit_long = seconds // 86400, "d", "day(s)"
+    elif seconds >= 3600:
+        value, unit_short, unit_long = seconds // 3600, "h", "hour(s)"
+    else:
+        value, unit_short, unit_long = seconds // 60, "m", "minute(s)"
+    return f"{value}{unit_short}" if short else f"{value} {unit_long}"

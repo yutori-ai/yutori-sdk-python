@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from yutori.cli.commands import get_authenticated_client, print_rejection_reason
+from yutori.cli.commands import format_interval, get_authenticated_client, print_rejection_reason
 
 app = typer.Typer(help="Manage scouts")
 console = Console()
@@ -37,13 +37,7 @@ def list_scouts(
         table.add_column("Reason", max_width=32)
 
         for scout in scouts:
-            interval_secs = scout.get("output_interval") or 0
-            if interval_secs >= 86400:
-                interval_str = f"{interval_secs // 86400}d"
-            elif interval_secs >= 3600:
-                interval_str = f"{interval_secs // 3600}h"
-            else:
-                interval_str = f"{interval_secs // 60}m"
+            interval_str = format_interval(scout.get("output_interval") or 0, short=True)
 
             query = scout.get("query", "")
             if len(query) > 47:
@@ -77,13 +71,7 @@ def get(
         console.print(f"  Status: {scout.get('status', 'N/A')}")
         print_rejection_reason(console, scout)
 
-        interval_secs = scout.get("output_interval") or 0
-        if interval_secs >= 86400:
-            interval_str = f"{interval_secs // 86400} day(s)"
-        elif interval_secs >= 3600:
-            interval_str = f"{interval_secs // 3600} hour(s)"
-        else:
-            interval_str = f"{interval_secs // 60} minute(s)"
+        interval_str = format_interval(scout.get("output_interval") or 0)
         console.print(f"  Interval: {interval_str}")
 
         if scout.get("user_timezone"):
