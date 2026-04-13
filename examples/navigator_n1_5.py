@@ -23,16 +23,16 @@ Usage:
     uv sync --extra examples
 
     # Basic
-    uv run python examples/navigator_1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
+    uv run python examples/navigator_n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
 
     # Expanded tool set (adds extract_elements, find, set_element_value, execute_js)
-    uv run python examples/navigator_1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
+    uv run python examples/navigator_n1_5.py --tool-set expanded --task "Fill out the contact form" --start-url "https://example.com"
 
     # Disable specific tools
-    uv run python examples/navigator_1_5.py --disable-tools hold_key drag --task "Search for flights" --start-url "https://google.com/flights"
+    uv run python examples/navigator_n1_5.py --disable-tools hold_key drag --task "Search for flights" --start-url "https://google.com/flights"
 
     # Structured JSON output via --json-schema
-    uv run python examples/navigator_1_5.py \
+    uv run python examples/navigator_n1_5.py \
         --task "List the team member names" \
         --start-url "https://www.yutori.com" \
         --json-schema '{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},\
@@ -42,17 +42,26 @@ Usage:
 import argparse
 import asyncio
 import json
-import sys
 
 from loguru import logger
-from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from _common import (
+    RETRYABLE_EXCEPTIONS,
+    add_agent_arguments,
+    add_browser_arguments,
+    add_model_arguments,
+    add_payload_trim_arguments,
+    add_replay_arguments,
+    add_task_arguments,
+    configure_example_logging,
+)
 from yutori import AsyncYutoriClient
+from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import (
     N1_5_MODEL,
     TOOL_SET_CORE,
@@ -76,8 +85,6 @@ from yutori.navigator.tools import (
     evaluate_tool_script,
 )
 
-RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
-
 # Shorthand aliases for --tool-set
 _TOOL_SET_ALIASES = {
     "core": TOOL_SET_CORE,
@@ -90,7 +97,7 @@ class Config(BaseModel):
     task: str = Field(default="List the team member names")
     start_url: str = "https://www.yutori.com"
     # model
-    base_url: str = "https://api.yutori.com/v1"
+    base_url: str = DEFAULT_BASE_URL
     model: str = N1_5_MODEL
     temperature: float = 0.3
     tool_set: str = TOOL_SET_CORE
@@ -116,7 +123,7 @@ class Config(BaseModel):
 class Agent:
     def __init__(
         self,
-        base_url: str = "https://api.yutori.com/v1",
+        base_url: str = DEFAULT_BASE_URL,
         model: str = N1_5_MODEL,
         temperature: float = 0.3,
         tool_set: str = TOOL_SET_CORE,
@@ -713,26 +720,12 @@ class Agent:
 
 
 async def main():
-    logger.remove()
-    logger.level("DEBUG", color="<fg #808080>")
-    logger.add(
-        sys.stdout,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{file}</cyan>:<cyan>{line:>3}</cyan> | "
-            "<level>{message}</level>{exception}"
-        ),
-        colorize=True,
-    )
+    configure_example_logging()
 
     default_config = Config()
     parser = argparse.ArgumentParser(description="Example of using Yutori n1.5 API to perform a web browsing task")
-    parser.add_argument("--task", default=default_config.task, help="The task to perform")
-    parser.add_argument("--start-url", default=default_config.start_url, help="Starting URL")
-    parser.add_argument("--base-url", default=default_config.base_url, help="Yutori n1.5 base URL")
-    parser.add_argument("--model", default=default_config.model, help="Yutori n1.5 model")
-    parser.add_argument("--temperature", type=float, default=default_config.temperature, help="Yutori n1.5 temperature")
+    add_task_arguments(parser, default_config)
+    add_model_arguments(parser, default_config, api_label="Yutori n1.5")
     parser.add_argument(
         "--tool-set", default=default_config.tool_set,
         choices=[TOOL_SET_CORE, TOOL_SET_EXPANDED, "core", "expanded"],
@@ -764,24 +757,10 @@ async def main():
         default=default_config.user_location,
         help="User location (e.g. New York, NY, US)",
     )
-    parser.add_argument("--max-steps", type=int, default=default_config.max_steps, help="Maximum number of steps")
-    parser.add_argument("--viewport-width", type=int, default=default_config.viewport_width, help="Viewport width")
-    parser.add_argument("--viewport-height", type=int, default=default_config.viewport_height, help="Viewport height")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument(
-        "--max-request-bytes", type=int, default=default_config.max_request_bytes,
-        help="Max payload size in bytes before trimming old screenshots",
-    )
-    parser.add_argument(
-        "--keep-recent-screenshots", type=int, default=default_config.keep_recent_screenshots,
-        help="Number of recent screenshots to protect from trimming",
-    )
-    parser.add_argument(
-        "--replay-dir",
-        default=default_config.replay_dir,
-        help="Optional directory for replay artifacts",
-    )
-    parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+    add_agent_arguments(parser, default_config)
+    add_browser_arguments(parser, default_config)
+    add_payload_trim_arguments(parser, default_config)
+    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
     config = Config.model_validate(vars(args))
