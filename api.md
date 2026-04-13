@@ -1,346 +1,320 @@
 # Yutori Python SDK & CLI API Reference
 
-This document provides a comprehensive reference to the Yutori Python SDK.
+A dense reference to everything the Yutori Python SDK and CLI expose. The [README](README.md) has the human-facing quickstart; this file is for agents and consumers that need exact signatures, parameters, and import paths.
 
-## Types
+## Package layout
+
+| Import | Purpose |
+|--------|---------|
+| `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `AuthenticationError`, `YutoriSDKError`) |
+| `yutori.navigator` | Agent-loop helpers for the Navigator (n1 / n1.5) chat completions endpoint |
+| `yutori.navigator.tools` | Packaged JavaScript reference implementations for n1.5 expanded browser tools |
+
+All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator helpers are optional and do not change the shape of `client.chat.completions.create(...)`.
+
+## Exceptions
 
 ```python
-from yutori import (
-    YutoriClient,
-    AsyncYutoriClient,
-    YutoriSDKError,
-    AuthenticationError,
-    APIError,
-)
+from yutori import YutoriSDKError, AuthenticationError, APIError
 ```
-
-### Exception Types
 
 | Exception | Description |
 |-----------|-------------|
-| `YutoriSDKError` | Base exception for all SDK errors |
-| `AuthenticationError` | Invalid or missing API key (HTTP 401 or 403) |
-| `APIError` | General API error with `status_code`, `message`, and `response` attributes |
+| `YutoriSDKError` | Base class for all Yutori SDK errors. |
+| `AuthenticationError` | Raised on HTTP 401/403 and when no API key can be resolved. |
+| `APIError` | Raised for other non-2xx responses. Attributes: `status_code: int`, `message: str`, `response: httpx.Response \| None`. |
+
+`client.chat` is backed by the OpenAI Python SDK, so HTTP errors from that path surface as `openai.OpenAIError` subclasses (e.g. `openai.APIError`, `openai.RateLimitError`), not wrapped into `yutori` exceptions.
 
 ## Client
 
-### YutoriClient
+### `YutoriClient`
 
-Synchronous client for the Yutori API.
+Synchronous client.
 
 ```python
-client = YutoriClient(
-    api_key="yt-...",              # Optional (auto-resolves from env var or CLI login)
-    base_url="https://api.yutori.com/v1",  # Optional
-    timeout=30.0,                  # Optional, in seconds
+YutoriClient(
+    api_key: str | None = None,
+    *,
+    base_url: str = "https://api.yutori.com/v1",
+    timeout: float = 30.0,
 )
 ```
 
-#### Methods
+**Methods:**
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.get_usage(period=None)` | GET | `/v1/usage` | `dict` |
-| `client.close()` | - | - | `None` |
+| `get_usage(*, period=None)` | GET | `/v1/usage` | `dict` |
+| `close()` | — | — | `None` |
+| `__enter__` / `__exit__` | — | — | context-manager support |
 
-#### get_usage
+**Namespaces** (all attributes of the client):
 
-```python
-usage = client.get_usage(period="7d")
-```
+| Attribute | Class | Purpose |
+|-----------|-------|---------|
+| `client.chat` | `ChatNamespace` | Navigator (n1 / n1.5) chat completions |
+| `client.browsing` | `BrowsingNamespace` | One-time browser automation |
+| `client.research` | `ResearchNamespace` | One-time deep web research |
+| `client.scouts` | `ScoutsNamespace` | Continuous monitoring scouts |
 
-**Parameters:**
-- `period` (str, optional): Time range for activity counts - `"24h"` (default), `"7d"`, `"30d"`, or `"90d"`.
+### `AsyncYutoriClient`
 
-**Returns:** Dictionary containing:
-- `num_active_scouts` (int): Number of active (non-paused, non-completed) scouts.
-- `active_scout_ids` (list[str]): UUIDs of active scouts.
-- `rate_limits` (dict): API Gateway rate limits with `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, and `status` (`"available"` or `"unavailable"`).
-- `n1_rate_limits` (dict): n1 API rate limits with `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, and `per_second_limit`.
-- `activity` (dict): Activity counts for the requested period with `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, and `n1_calls`.
-
-### AsyncYutoriClient
-
-Asynchronous client with identical interface. All methods are coroutines.
+Identical surface to `YutoriClient` with `async` methods and `async with` support.
 
 ```python
 async with AsyncYutoriClient(api_key="yt-...") as client:
     usage = await client.get_usage()
 ```
 
+### `get_usage`
+
+```python
+usage = client.get_usage(period="7d")
+```
+
+**Parameters:**
+- `period` (`str`, optional): Activity period. One of `"24h"` (default), `"7d"`, `"30d"`, `"90d"`.
+
+**Returns:** Dictionary with:
+- `num_active_scouts` (`int`)
+- `active_scout_ids` (`list[str]`)
+- `rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `status` (`"available"` | `"unavailable"`)
+- `n1_rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `per_second_limit`
+- `activity` (`dict`): `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, `n1_calls`
+
+## Model constants and tool sets
+
+Importable from `yutori.navigator`. Prefer these over hard-coded strings so upgrades land automatically.
+
+```python
+from yutori.navigator import N1_MODEL, N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
+```
+
+| Constant | Value | Notes |
+|----------|-------|-------|
+| `N1_MODEL` | `"n1-latest"` | Alias for the latest stable n1 model. |
+| `N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable n1.5 model (current default). |
+| `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default n1.5 tool set — 18 coordinate-based browser tools. |
+| `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
+| `N1_COORDINATE_SCALE` | `1000` | The normalized action space is `N1_COORDINATE_SCALE × N1_COORDINATE_SCALE`. |
+
+For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.yutori.com/reference/n1](https://docs.yutori.com/reference/n1) and [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5).
+
 ## Namespaces
 
-### client.chat
+### `client.chat` — Navigator API
 
-n1 API - Pixels-to-actions LLM for browser control. OpenAI SDK compatible.
+OpenAI-compatible pixels-to-actions chat completions. Works with both n1 and n1.5 models.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.chat.completions.create(messages, model="n1-latest", **kwargs)` | POST | `/v1/chat/completions` | `ChatCompletion` |
+| `client.chat.completions.create(messages, *, model="n1.5-latest", tool_set=None, disable_tools=None, json_schema=None, **kwargs)` | POST | `/v1/chat/completions` | `openai.types.chat.ChatCompletion` |
 
-#### chat.completions.create
+#### `chat.completions.create`
 
 ```python
+from yutori.navigator import N1_5_MODEL
+
 response = client.chat.completions.create(
-    model="n1-latest",
+    model=N1_5_MODEL,
     messages=[
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "Describe the screenshot and search for Yutori."},
-                {"type": "image_url", "image_url": {"url": "https://example.com/screenshot.jpg"}}
-            ]
+                {"type": "text", "text": "Search for Yutori."},
+                {"type": "image_url", "image_url": {"url": "data:image/webp;base64,..."}},
+            ],
         }
-    ]
+    ],
+    tool_set=TOOL_SET_EXPANDED,           # n1.5 only
+    disable_tools=["hold_key", "drag"],    # n1.5 only
+    json_schema={...},                     # n1.5 only
 )
 
-# Access the response
 message = response.choices[0].message
-print(message.content)  # Model's thoughts
+print(message.content)        # Model's thoughts
+for tc in message.tool_calls or []:
+    print(tc.function.name, tc.function.arguments)
 
-# Get tool calls (browser actions)
-if message.tool_calls:
-    for tool_call in message.tool_calls:
-        print(f"Action: {tool_call.function.name}")
-        print(f"Arguments: {tool_call.function.arguments}")
+# When json_schema is provided and the model returns valid JSON:
+parsed = getattr(response, "parsed_json", None)
 ```
 
 **Parameters:**
-- `messages` (Iterable[ChatCompletionMessageParam]): Chat messages following OpenAI format. Include screenshots as `image_url` content blocks.
-- `model` (str): Model ID. Default: `"n1-latest"`.
-- `**kwargs`: Additional OpenAI-compatible parameters (e.g., `temperature`, `tools`, `tool_choice`, `response_format`). n1.5 also accepts `tool_set`, `disable_tools`, and `json_schema`.
+- `messages` (`Iterable[ChatCompletionMessageParam]`): OpenAI-format chat messages. Include screenshots as `image_url` content blocks.
+- `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `N1_MODEL` / `N1_5_MODEL` for clarity.
+- `tool_set` (`str | None`, **n1.5 only**): Which built-in tool set to activate. Use `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Forwarded via `extra_body`.
+- `disable_tools` (`list[str] | None`, **n1.5 only**): Tool names to remove from the active tool set.
+- `json_schema` (`dict | None`, **n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
+- `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges n1.5 params into it.
 
-**Returns:** `ChatCompletion` object from the OpenAI SDK with `choices[0].message` containing the model's response and optional `tool_calls` for browser actions. When `json_schema` is provided on n1.5, the parsed structured output is available on the top-level completion object as `response.parsed_json`.
+**Returns:** `openai.types.chat.ChatCompletion`. When `json_schema` is set on n1.5 and parsing succeeds, the API also sets `response.parsed_json`.
 
-Live model IDs and parameter docs are maintained at `https://docs.yutori.com/reference/n1` and `https://docs.yutori.com/reference/n1-5`.
+**n1 vs. n1.5 summary** (reference: [docs.yutori.com](https://docs.yutori.com/reference/n1-5)):
 
----
+| Feature | n1 | n1.5 |
+|---------|----|----|
+| Tool sets | Fixed | `tool_set` (core / expanded) |
+| Disable tools | — | `disable_tools` supported |
+| Structured JSON output | — | `json_schema` → `response.parsed_json` |
+| Mouse move action | `hover` | `mouse_move` |
+| Key press param | `key_comb` (Playwright names) | `key` (lowercase names) |
+| Click modifiers | — | `ref`, `modifier` |
+| Extra actions | — | `hold_key`, `middle_click`, `mouse_down`, `mouse_up`, `go_forward` |
+| `type` extras | `press_enter_after`, `clear_before_typing` | — |
 
-### yutori.navigator
+### `client.browsing` — Browsing API
 
-Opt-in helper utilities for custom navigator agent loops. These do not change the raw `client.chat.completions.create(...)` interface.
-
-| Helper | Description |
-|--------|-------------|
-| `estimate_messages_size_bytes(messages)` | Estimate the JSON-serialized byte size of a messages list. |
-| `trim_images_to_fit(messages, max_bytes=..., keep_recent=...)` | Remove older screenshot blocks in place until the payload fits within the target size. |
-| `trimmed_messages_to_fit(messages, max_bytes=..., keep_recent=...)` | Return a trimmed copy of the messages list without mutating caller state. |
-| `create_trimmed(completions, messages, ...)` | Trim a copy of the messages list, then call sync chat completions. |
-| `acreate_trimmed(completions, messages, ...)` | Async version of `create_trimmed(...)`. |
-| `screenshot_to_data_url(image_bytes, ...)` | Convert screenshot bytes into a `data:image/webp;base64,...` URL optimized for n1. |
-| `playwright_screenshot_to_data_url(page, ...)` | Capture and convert a sync Playwright screenshot optimized for n1. |
-| `aplaywright_screenshot_to_data_url(page, ...)` | Async version of `playwright_screenshot_to_data_url(...)`. |
-| `extract_text_content(content)` | Normalize assistant content across strings, text blocks, and object-backed forms, returning joined text or `None`. |
-| `RunHooksBase` | Async no-op lifecycle hook base class with `on_agent_start`, `on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, and `on_agent_end`. |
-
-`RunHooksBase` mirrors the lifecycle phases of higher-level agent loops, but it is not wired into `client.chat` automatically. It is intended for consumers building their own orchestration, tracing, or UI layers around n1.
-
-Pillow is included in the base SDK install, so no extra is needed to use the screenshot conversion helpers.
-
-### yutori.navigator.tools
-
-Packaged JavaScript reference implementations for n1.5 expanded browser tools.
-
-| Helper | Description |
-|--------|-------------|
-| `EXTRACT_ELEMENTS_SCRIPT` | JS source for the `extract_elements` reference implementation. |
-| `FIND_SCRIPT` | JS source for the `find` reference implementation. |
-| `GET_ELEMENT_BY_REF_SCRIPT` | JS source for resolving an element ref to viewport coordinates. |
-| `SET_ELEMENT_VALUE_SCRIPT` | JS source for the `set_element_value` reference implementation. |
-| `EXECUTE_JS_SCRIPT` | JS source for the `execute_js` reference implementation. |
-| `load_tool_script(name)` | Load a packaged tool script by filename. |
-| `evaluate_tool_script(page, script, *args)` | Async helper that runs a packaged tool script via `page.evaluate(...)` and normalizes the result. |
-| `coerce_result(raw)` | Normalize raw Playwright evaluation output into a dict payload. |
-
-```python
-from yutori.navigator.tools import FIND_SCRIPT, evaluate_tool_script
-
-result = await evaluate_tool_script(page, FIND_SCRIPT, "pricing")
-```
-
----
-
-### client.browsing
-
-Browsing API - One-time browser automation tasks.
+One-time browser automation on Yutori's cloud browser or on Yutori Local.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.browsing.create(task, start_url, ...)` | POST | `/v1/browsing/tasks` | `dict` |
+| `client.browsing.create(task, start_url, *, max_steps=None, agent=None, require_auth=None, browser=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/browsing/tasks` | `dict` |
 | `client.browsing.get(task_id)` | GET | `/v1/browsing/tasks/{task_id}` | `dict` |
 
-#### browsing.create
+#### `browsing.create`
 
 ```python
 task = client.browsing.create(
     task="Give me a list of all employees of Yutori.",
     start_url="https://yutori.com",
-    max_steps=75,                  # Optional (1-100)
-    agent=None,                    # Optional
-    require_auth=False,            # Optional, for login flows
-    browser=None,                  # Optional: "cloud" or "local"
-    output_schema=None,            # Optional, JSON schema
-    webhook_url=None,              # Optional
-    webhook_format=None,           # Optional: "scout", "slack", "zapier"
+    max_steps=75,
+    agent=None,
+    require_auth=False,
+    browser=None,
+    output_schema=None,
+    webhook_url=None,
+    webhook_format=None,
 )
 ```
 
 **Parameters:**
-- `task` (str): Natural language description of the browsing task.
-- `start_url` (str): URL to start browsing from.
-- `max_steps` (int, optional): Maximum agent steps (1-100).
-- `agent` (str, optional): Agent to use. Options: `"navigator-n1-latest"`, `"claude-sonnet-4-5-computer-use-2025-01-24"`.
-- `require_auth` (bool, optional): Use auth-optimized browser for login flows.
-- `browser` (str, optional): Browser backend - `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
-- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
-- `webhook_url` (str, optional): URL for completion notifications.
-- `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
+- `task` (`str`): Natural language description of the browsing task.
+- `start_url` (`str`): URL to start browsing from.
+- `max_steps` (`int`, optional): Maximum agent steps (1–100).
+- `agent` (`str`, optional): `"navigator-n1-latest"` (default) or `"claude-sonnet-4-5-computer-use-2025-01-24"`.
+- `require_auth` (`bool`, optional): Use an auth-optimized browser for login flows.
+- `browser` (`str`, optional): `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
+- `output_schema`: See [Structured output](#structured-output).
+- `webhook_url` (`str`, optional): URL for completion notifications.
+- `webhook_format` (`str`, optional): `"scout"` (default), `"slack"`, or `"zapier"`.
 
-**Returns:** Dictionary containing `task_id` and task metadata. Failed tasks may include `rejection_reason`.
+**Returns:** Dict containing at least `task_id`. Failed tasks may include `rejection_reason`.
 
-#### browsing.get
+#### `browsing.get`
 
 ```python
 result = client.browsing.get("task_id")
 ```
 
-**Parameters:**
-- `task_id` (str): The unique identifier of the task.
+**Returns:** Dict with `status` (`"queued"` | `"running"` | `"succeeded"` | `"failed"`) and, when complete, the task result.
 
-**Returns:** Dictionary with `status` (`"queued"`, `"running"`, `"succeeded"`, `"failed"`) and results if completed.
+### `client.research` — Research API
 
----
-
-### client.research
-
-Research API - Deep web research using 100+ MCP tools.
+Deep web research using 100+ MCP tools.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.research.create(query, ...)` | POST | `/v1/research/tasks` | `dict` |
+| `client.research.create(query, *, user_timezone=None, user_location=None, browser=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/research/tasks` | `dict` |
 | `client.research.get(task_id)` | GET | `/v1/research/tasks/{task_id}` | `dict` |
 
-#### research.create
+#### `research.create`
 
 ```python
 task = client.research.create(
     query="What are the latest developments in quantum computing?",
-    user_timezone="America/Los_Angeles",  # Optional
-    user_location="San Francisco, CA",    # Optional
-    browser=None,                         # Optional: "cloud" or "local"
-    output_schema=None,                   # Optional, JSON schema
-    webhook_url=None,                     # Optional
-    webhook_format=None,                  # Optional: "scout", "slack", "zapier"
+    user_timezone="America/Los_Angeles",
+    user_location="San Francisco, CA, US",
+    browser=None,
+    output_schema=None,
+    webhook_url=None,
+    webhook_format=None,
 )
 ```
 
 **Parameters:**
-- `query` (str): Natural language research query.
-- `user_timezone` (str, optional): Timezone, e.g., `"America/Los_Angeles"`.
-- `user_location` (str, optional): Location, e.g., `"San Francisco, CA, US"`.
-- `browser` (str, optional): Browser backend - `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
-- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
-- `webhook_url` (str, optional): URL for completion notifications.
-- `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
+- `query` (`str`): Natural language research query.
+- `user_timezone` (`str`, optional): e.g. `"America/Los_Angeles"`.
+- `user_location` (`str`, optional): e.g. `"San Francisco, CA, US"`.
+- `browser` (`str`, optional): `"cloud"` (default) or `"local"`.
+- `output_schema`: See [Structured output](#structured-output).
+- `webhook_url` (`str`, optional): URL for completion notifications.
+- `webhook_format` (`str`, optional): `"scout"` (default), `"slack"`, or `"zapier"`.
 
-**Returns:** Dictionary containing `task_id` and task metadata. Failed tasks may include `rejection_reason`.
+**Returns:** Dict containing `task_id`; may include `rejection_reason`.
 
-#### research.get
+### `client.scouts` — Scouting API
 
-```python
-result = client.research.get("task_id")
-```
-
-**Parameters:**
-- `task_id` (str): The unique identifier of the task.
-
-**Returns:** Dictionary with `status` (`"queued"`, `"running"`, `"succeeded"`, `"failed"`) and results if completed.
-
----
-
-### client.scouts
-
-Scouting API - Continuous web monitoring on a schedule.
+Recurring web-monitoring scouts.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.scouts.list(limit=None, status=None)` | GET | `/v1/scouting/tasks` | `dict` |
+| `client.scouts.list(*, limit=None, status=None)` | GET | `/v1/scouting/tasks` | `dict` |
 | `client.scouts.get(scout_id)` | GET | `/v1/scouting/tasks/{scout_id}` | `dict` |
-| `client.scouts.create(query, ...)` | POST | `/v1/scouting/tasks` | `dict` |
-| `client.scouts.update(scout_id, ...)` | POST/PATCH | `/v1/scouting/tasks/{scout_id}/...` | `dict` |
+| `client.scouts.create(query, *, output_interval=86400, start_timestamp=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None, is_public=None)` | POST | `/v1/scouting/tasks` | `dict` |
+| `client.scouts.update(scout_id, *, query=None, status=None, output_interval=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None)` | PATCH or POST (status endpoints) | `/v1/scouting/tasks/{scout_id}` or `.../pause|resume|done` | `dict` |
 | `client.scouts.delete(scout_id)` | DELETE | `/v1/scouting/tasks/{scout_id}` | `dict` |
-| `client.scouts.get_updates(scout_id, ...)` | GET | `/v1/scouting/tasks/{scout_id}/updates` | `dict` |
+| `client.scouts.get_updates(scout_id, *, limit=None, cursor=None)` | GET | `/v1/scouting/tasks/{scout_id}/updates` | `dict` |
 
-#### scouts.list
+#### `scouts.list`
 
 ```python
-scouts = client.scouts.list(
-    limit=20,           # Optional
-    status="active",    # Optional: "active", "paused", "done"
-)
+scouts = client.scouts.list(limit=20, status="active")
 ```
 
 **Parameters:**
-- `limit` (int, optional): Maximum number of scouts to return (mapped to API `page_size`).
-- `status` (str, optional): Filter by status - `"active"`, `"paused"`, or `"done"`.
+- `limit` (`int`, optional): Max scouts to return. Mapped to the API's `page_size` query param.
+- `status` (`str`, optional): `"active"`, `"paused"`, or `"done"`.
 
-**Returns:** Dictionary containing `scouts` list and pagination info.
+**Returns:** Dict containing `scouts` list and pagination info.
 
-#### scouts.get
+#### `scouts.get`
 
 ```python
 scout = client.scouts.get("scout_id")
 ```
 
-**Parameters:**
-- `scout_id` (str): The unique identifier of the scout.
+**Returns:** Dict with `id`, `query`, `status`, `output_interval`, `next_run_at`, `created_at`, optional `rejection_reason`, etc.
 
-**Returns:** Dictionary with scout details including `id`, `query`, `status`, `next_run_timestamp`, and optional `rejection_reason`.
-
-#### scouts.create
+#### `scouts.create`
 
 ```python
 scout = client.scouts.create(
     query="Tell me about the latest news about Yutori",
-    output_interval=86400,         # Optional, seconds (default: 86400 = daily)
-    start_timestamp=None,          # Optional, Unix timestamp (0 = immediately)
-    user_timezone="America/Los_Angeles",  # Optional
-    user_location="San Francisco, CA",    # Optional
-    output_schema=None,            # Optional, JSON schema
-    skip_email=False,              # Optional
-    webhook_url=None,              # Optional
-    webhook_format=None,           # Optional: "scout", "slack", "zapier"
-    is_public=False,               # Optional
+    output_interval=86400,
+    start_timestamp=None,
+    user_timezone="America/Los_Angeles",
+    user_location="San Francisco, CA, US",
+    output_schema=None,
+    skip_email=None,
+    webhook_url=None,
+    webhook_format=None,
+    is_public=None,
 )
 ```
 
 **Parameters:**
-- `query` (str): Natural language description of what to monitor.
-- `output_interval` (int, optional): Seconds between runs. Minimum: 1800. Default: 86400 (daily).
-- `start_timestamp` (int, optional): Unix timestamp to start. 0 = immediately.
-- `user_timezone` (str, optional): Timezone, e.g., `"America/Los_Angeles"`.
-- `user_location` (str, optional): Location, e.g., `"San Francisco, CA, US"`.
-- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
-- `skip_email` (bool, optional): Disable email notifications.
-- `webhook_url` (str, optional): URL for completion notifications.
-- `webhook_format` (str, optional): Webhook format - `"scout"` (default), `"slack"`, or `"zapier"`.
-- `is_public` (bool, optional): Whether the scout is publicly visible.
+- `query` (`str`): What to monitor.
+- `output_interval` (`int`, default `86400`): Seconds between runs. Minimum `1800`.
+- `start_timestamp` (`int`, optional): Unix timestamp. `0` means immediately.
+- `user_timezone`, `user_location` (`str`, optional): Context strings.
+- `output_schema`: See [Structured output](#structured-output).
+- `skip_email` (`bool`, optional): Disable email notifications.
+- `webhook_url`, `webhook_format` (`str`, optional): Async notification config.
+- `is_public` (`bool`, optional): Public/private visibility.
 
-**Returns:** Dictionary containing created scout details and optional `rejection_reason`.
+**Returns:** Dict with created scout details; may include `rejection_reason`.
 
-#### scouts.update
+#### `scouts.update`
 
 ```python
-# Pause a scout
+# Status transitions (mapped to /pause, /resume, /done endpoints)
 client.scouts.update("scout_id", status="paused")
-
-# Resume a scout
 client.scouts.update("scout_id", status="active")
-
-# Archive a scout
 client.scouts.update("scout_id", status="done")
 
-# Update fields (cannot combine with status change)
+# Field updates (PATCH)
 client.scouts.update(
     "scout_id",
     query="Updated query",
@@ -349,109 +323,276 @@ client.scouts.update(
 )
 ```
 
-**Parameters:**
-- `scout_id` (str): The unique identifier of the scout.
-- `status` (str, optional): New status - `"active"`, `"paused"`, or `"done"`.
-- `query` (str, optional): Updated monitoring query.
-- `output_interval` (int, optional): Updated interval between runs.
-- `user_timezone` (str, optional): Updated timezone.
-- `user_location` (str, optional): Updated location.
-- `output_schema` (dict | BaseModel, optional): JSON schema dict, a Pydantic BaseModel class, or a BaseModel instance (auto-converted via `model_json_schema()` for v2 or `schema()` for v1).
-- `skip_email` (bool, optional): Updated email notification setting.
-- `webhook_url` (str, optional): Updated webhook URL.
-- `webhook_format` (str, optional): Updated webhook format.
+**Parameters:** All optional except `scout_id`. Same fields as `create`, plus `status` (`"active"` | `"paused"` | `"done"`).
 
-**Returns:** Dictionary containing updated scout details.
+**Constraints:**
+- `status` and field updates **cannot be combined** in a single call — the SDK raises `ValueError`.
+- When only `status` is provided, the SDK posts to the matching endpoint (`/pause`, `/resume`, `/done`).
+- When only fields are provided, the SDK PATCHes `/v1/scouting/tasks/{scout_id}`.
+- Calling `update` with no fields raises `ValueError`.
 
-**Note:** Status changes and field updates cannot be combined in a single call.
+**Returns:** Dict with the updated scout.
 
-#### scouts.delete
+#### `scouts.delete`
 
 ```python
 client.scouts.delete("scout_id")
 ```
 
-**Parameters:**
-- `scout_id` (str): The unique identifier of the scout.
+**Returns:** Empty dict on success.
 
-**Returns:** Empty dictionary on success.
-
-#### scouts.get_updates
+#### `scouts.get_updates`
 
 ```python
-updates = client.scouts.get_updates(
-    "scout_id",
-    limit=20,     # Optional
-    cursor=None,  # Optional, for pagination
+updates = client.scouts.get_updates("scout_id", limit=20, cursor=None)
+```
+
+**Returns:** Dict with `updates` list and pagination cursor.
+
+## Structured output
+
+`output_schema` on `browsing.create`, `research.create`, and `scouts.create` accepts:
+
+- A JSON Schema `dict`.
+- A Pydantic **v2** `BaseModel` class or instance (converted via `model_json_schema()`).
+- A Pydantic **v1** `BaseModel` class or instance (converted via `schema()`).
+
+Pydantic is **not** a hard dependency — detection is by duck typing.
+
+```python
+from pydantic import BaseModel
+
+class Employee(BaseModel):
+    name: str
+    title: str
+
+task = client.browsing.create(
+    task="List all employees of Yutori.",
+    start_url="https://yutori.com",
+    output_schema=Employee,
 )
 ```
 
-**Parameters:**
-- `scout_id` (str): The unique identifier of the scout.
-- `limit` (int, optional): Maximum number of updates to return.
-- `cursor` (str, optional): Pagination cursor from previous response.
+Equivalent dict form:
 
-**Returns:** Dictionary containing `updates` list and pagination info.
+```python
+task = client.browsing.create(
+    task="...",
+    start_url="...",
+    output_schema={
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "title": {"type": "string"},
+            },
+        },
+    },
+)
+```
+
+Structured output for the Navigator API (n1.5 only) is a separate parameter on `client.chat.completions.create(...)`: `json_schema=...` with results on `response.parsed_json`.
+
+## `yutori.navigator`
+
+Opt-in helpers for custom agent loops. They do **not** change the shape of `client.chat.completions.create(...)`. Import paths:
+
+```python
+from yutori.navigator import (
+    # Models / tool sets
+    N1_MODEL, N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED, N1_COORDINATE_SCALE,
+    # Screenshots
+    aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
+    # Coordinates
+    denormalize_coordinates, normalize_coordinates,
+    # Task / prompt formatting
+    format_task_with_context, format_user_context, format_stop_and_summarize,
+    # Key mapping (n1.5)
+    map_key_to_playwright, map_keys_individual,
+    # Payload trimming
+    estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit,
+    # Trimmed request wrappers
+    create_trimmed, acreate_trimmed,
+    # Misc
+    extract_text_content, RunHooksBase,
+)
+```
+
+### Screenshot helpers
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `screenshot_to_data_url` | `(image_bytes: bytes, *, resize_to=(1280, 800), source_format=None, webp_quality=None) -> str` | Convert raw screenshot bytes into `data:image/webp;base64,...`. Pillow is a required SDK dep. |
+| `playwright_screenshot_to_data_url` | `(page, *, resize_to=(1280, 800), webp_quality=None) -> str` | Capture a sync Playwright page screenshot (JPEG, q=75) and re-encode as WebP. |
+| `aplaywright_screenshot_to_data_url` | `(page, *, resize_to=(1280, 800), webp_quality=None) -> str` | Async version of the above. |
+
+Default quality is WebP q=90 (or q=30 for PNG sources).
+
+### Coordinate helpers
+
+The Navigator emits tool-call coordinates in a normalized `N1_COORDINATE_SCALE × N1_COORDINATE_SCALE` (1000×1000) space.
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `denormalize_coordinates` | `(coordinates, width, height, *, scale=1000, clamp=True) -> tuple[int, int]` | Normalized → viewport pixels. |
+| `normalize_coordinates` | `(coordinates, width, height, *, scale=1000, clamp=True) -> tuple[int, int]` | Viewport pixels → normalized. |
+
+Raises `ValueError` on bad input (non-finite values, wrong length, non-positive dimensions).
+
+### Task / prompt formatting
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `format_user_context` | `(*, user_timezone="America/Los_Angeles", user_location="San Francisco, CA, US") -> str` | Builds a multi-line block with location, timezone, date, time, day. Falls back to UTC if `zoneinfo` has no tzdata. |
+| `format_task_with_context` | `(task: str, *, user_timezone=..., user_location=...) -> str` | `f"{task}\n\n{format_user_context(...)}"`. |
+| `format_stop_and_summarize` | `(task: str) -> str` | Prompt that asks the model to stop iterating and produce a summary — for use when hitting max steps or an error. |
+
+### Key mapping (n1.5)
+
+n1.5 returns lowercase key names (`ctrl+c`, `enter`, `down`) which must be converted for Playwright.
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `map_key_to_playwright` | `(key_expr: str) -> list[str]` | Space-separated sequence → list of Playwright `keyboard.press()`-compatible strings (combos joined with `+`). E.g. `"ctrl+c"` → `["Control+c"]`, `"down down enter"` → `["ArrowDown", "ArrowDown", "Enter"]`. |
+| `map_keys_individual` | `(key_expr: str) -> list[str]` | Same input, but never joins with `+`. Safe for `keyboard.down()`/`keyboard.up()` which only accept single keys. E.g. `"ctrl+c"` → `["Control", "c"]`. |
+
+### Payload trimming
+
+For screenshot-heavy loops where the JSON payload can blow past the API size limit.
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `estimate_messages_size_bytes` | `(messages) -> int` | UTF-8 byte length of `json.dumps(messages, separators=(",",":"))`. |
+| `trim_images_to_fit` | `(messages, *, max_bytes=9_500_000, keep_recent=6) -> tuple[int, int]` | **Mutates** `messages` in place. Returns `(current_size, images_removed)`. Protects the `keep_recent` most recent screenshots; the latest screenshot is always preserved. Uses a two-phase strategy: first drop old screenshots outside the protected window, then dip into it (except the last) if still over limit. |
+| `trimmed_messages_to_fit` | `(messages, *, max_bytes=9_500_000, keep_recent=6) -> tuple[list, int, int]` | Deep-copies `messages` first — safe default. Returns `(trimmed_messages, current_size, images_removed)`. |
+
+When an image is stripped, a `"Screenshot omitted to stay under request size limit."` text block is inserted if the message would otherwise be content-less.
+
+### Trimmed-request wrappers
+
+Thin wrappers around `chat.completions.create(...)` that trim the request copy before sending.
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `create_trimmed` | `(completions, messages, *, model=N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Sync. Expects `completions` to quack like `ChatCompletions`. |
+| `acreate_trimmed` | `(completions, messages, *, model=N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Async. |
+
+Additionally, `yutori.navigator.loop.update_trimmed_history(messages, request_messages=None, *, max_bytes=..., keep_recent=...)` is available for long-lived loops that keep a complete replayable history separate from the trimmed request copy. It returns `(request_messages, size_bytes, removed)`.
+
+### Miscellaneous helpers
+
+| Helper | Signature | Description |
+|--------|-----------|-------------|
+| `extract_text_content` | `(content) -> str \| None` | Normalize OpenAI-style content (string, list of text/image blocks, or object with `.text`) into a single text string. Returns `None` for empty/missing content. |
+| `RunHooksBase` | class | Async no-op lifecycle hooks with `on_agent_start`, `on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, `on_agent_end`. Intentionally not a drop-in of the OpenAI Agents SDK — mirrors phases, not exact signatures. Not wired into `client.chat` automatically. |
+
+### `yutori.navigator.tools`
+
+Packaged JavaScript reference implementations for n1.5's expanded browser tool set. The scripts are shipped as `.js` files inside the wheel (`yutori.navigator.tools.js`).
+
+```python
+from yutori.navigator.tools import (
+    EXECUTE_JS_SCRIPT,
+    EXTRACT_ELEMENTS_SCRIPT,
+    FIND_SCRIPT,
+    GET_ELEMENT_BY_REF_SCRIPT,
+    SET_ELEMENT_VALUE_SCRIPT,
+    load_tool_script,
+    evaluate_tool_script,
+    coerce_result,
+)
+```
+
+| Symbol | Type | Description |
+|--------|------|-------------|
+| `EXECUTE_JS_SCRIPT` | `str` | JS source for `execute_js`. |
+| `EXTRACT_ELEMENTS_SCRIPT` | `str` | JS source for `extract_elements`. |
+| `FIND_SCRIPT` | `str` | JS source for `find` (text search). |
+| `GET_ELEMENT_BY_REF_SCRIPT` | `str` | JS source for resolving an element ref into viewport coordinates. |
+| `SET_ELEMENT_VALUE_SCRIPT` | `str` | JS source for `set_element_value` (robust form input). |
+| `load_tool_script(name: str) -> str` | function | Load any packaged tool script by filename (e.g. `"extract_elements.js"`). Results are cached. |
+| `coerce_result(raw) -> dict` | function | Normalize `page.evaluate(...)` output: `None` → `{"success": False, "message": "Script returned no result"}`; `dict` → passthrough; JSON string parsing to a dict → that dict; anything else → `{"value": raw}`. |
+| `evaluate_tool_script(page, script, *args) -> dict` | async function | `await page.evaluate(f"({script})({json_serialized_args})")` then `coerce_result(...)`. |
 
 ## Authentication
 
-The SDK supports three authentication methods, resolved in this order:
+Resolution order (first match wins):
 
-1. **API Key Parameter** (highest priority):
-   ```python
-   client = YutoriClient(api_key="yt-...")
-   ```
-
-2. **Environment Variable:**
-   ```python
-   # Set YUTORI_API_KEY in your environment
-   client = YutoriClient()  # Reads from YUTORI_API_KEY env var
-   ```
-
-3. **CLI Login** (saved credentials):
-   ```bash
-   yutori auth login
-   ```
-   This opens a browser for Clerk OAuth authentication and saves an API key to `~/.yutori/config.json`. The SDK automatically reads from this file when no explicit key or env var is set.
-   ```python
-   client = YutoriClient()  # Uses key from ~/.yutori/config.json
-   ```
-
-**Resolution order:** explicit `api_key` param > `YUTORI_API_KEY` env var > `~/.yutori/config.json`.
+1. Explicit `api_key` argument on `YutoriClient` / `AsyncYutoriClient`.
+2. `YUTORI_API_KEY` environment variable.
+3. `~/.yutori/config.json` written by `yutori auth login`.
 
 API keys start with `yt-` and can be created at [platform.yutori.com](https://platform.yutori.com) or via `yutori auth login`.
 
-### CLI Auth Commands
+## CLI
+
+Installed as `yutori` (via the `yutori` script entry point). Run any command with `--help` for full option details.
+
+### Root
 
 | Command | Description |
 |---------|-------------|
-| `yutori --version` | Show CLI version and exit |
-| `yutori auth login` | Authenticate via browser (Clerk OAuth + PKCE), saves API key to `~/.yutori/config.json` |
-| `yutori auth status` | Show current auth status (source, masked key) |
-| `yutori auth logout` | Remove saved credentials from `~/.yutori/config.json` |
+| `yutori --version` | Show CLI version and exit (eager flag). |
+| `yutori version` | Show CLI version as a subcommand. |
 
-### CLI Resource Commands
+### Auth
 
 | Command | Description |
 |---------|-------------|
-| `yutori browse run TASK URL [OPTIONS]` | Start a browsing task (`--max-steps`, `--agent`, `--require-auth`, `--browser`) |
-| `yutori browse get TASK_ID` | Get browsing task status and result |
-| `yutori research run QUERY [OPTIONS]` | Start a research task (`--timezone`, `--location`, `--browser`) |
-| `yutori research get TASK_ID` | Get research task status and result |
-| `yutori scouts list` | List scouts (`--limit`, `--status`) |
-| `yutori scouts get SCOUT_ID` | Get scout details |
-| `yutori scouts create -q QUERY` | Create a scout (`--interval`, `--timezone`, etc.) |
-| `yutori scouts delete SCOUT_ID` | Delete a scout |
-| `yutori usage` | Show API usage statistics |
+| `yutori auth login` | Clerk OAuth + PKCE login via browser; saves API key to `~/.yutori/config.json`. Exits with code 1 if `YUTORI_API_KEY` is already set or if a key is already saved. |
+| `yutori auth status` | Show authentication source (`config_file` or `env_var`) and a masked key. Exit code 1 if not authenticated. |
+| `yutori auth logout` | Clear saved credentials. |
+
+### Browse
+
+| Command | Description |
+|---------|-------------|
+| `yutori browse run TASK START_URL [--max-steps N] [--agent NAME] [--require-auth] [--browser cloud\|local]` | Submit a browsing task. |
+| `yutori browse get TASK_ID` | Get status and result (truncates output to 2000 chars). |
+
+### Research
+
+| Command | Description |
+|---------|-------------|
+| `yutori research run QUERY [--timezone/-tz TZ] [--location LOC] [--browser cloud\|local]` | Submit a research task. |
+| `yutori research get TASK_ID` | Get status and result (truncates output to 2000 chars). |
+
+### Scouts
+
+| Command | Description |
+|---------|-------------|
+| `yutori scouts list [--limit N] [--status active\|paused\|done]` | List scouts (rich table). |
+| `yutori scouts get SCOUT_ID` | Show scout detail. |
+| `yutori scouts create [--query/-q Q] [--interval/-i hourly\|daily\|weekly] [--timezone/-tz TZ]` | Create a scout. Prompts for `query` interactively if `-q` is omitted. Only the three named intervals are accepted; for arbitrary seconds, call `scouts.create` from Python. |
+| `yutori scouts delete SCOUT_ID [--force/-f]` | Delete a scout. Prompts for confirmation unless `--force`. |
+
+### Usage
+
+| Command | Description |
+|---------|-------------|
+| `yutori usage [--period 24h\|7d\|30d\|90d]` | API usage statistics (rate limits + activity counts). Default `24h`. |
 
 ## Dependencies
 
-- `httpx>=0.26.0,<0.28.0` - HTTP client for browsing, research, and scouting APIs
-- `openai>=1.0.0` - OpenAI SDK for the n1 chat API (provides `ChatCompletion` types)
-- `typer>=0.9.0` - CLI framework
-- `rich>=13.0.0` - Terminal formatting for CLI output
+Required (installed with `pip install yutori` or `uv add yutori`):
 
-## Error Handling
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `httpx` | `>=0.26.0,<0.28.0` | HTTP client for browsing/research/scouting. |
+| `openai` | `>=1.0.0` | Backs `client.chat` (provides `ChatCompletion` types). |
+| `pillow` | `>=10.0.0` | Screenshot helpers in `yutori.navigator`. |
+| `typer` | `>=0.9.0` | CLI framework. |
+| `rich` | `>=13.0.0` | Terminal output for the CLI. |
+
+Optional extras:
+
+| Extra | Packages | Purpose |
+|-------|----------|---------|
+| `dev` | `pytest`, `pytest-asyncio`, `ruff`, `build` | Development tooling. |
+| `examples` | `loguru`, `playwright`, `pydantic`, `tenacity` | Running the `examples/` scripts. Pydantic is also the library to install if you want to pass Pydantic models to `output_schema=`. |
+
+## Error handling example
 
 ```python
 from yutori import YutoriClient, APIError, AuthenticationError
