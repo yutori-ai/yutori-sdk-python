@@ -48,15 +48,15 @@ def usage(
                 console.print(f"    Remaining:      {rate_limits.get('remaining_requests', 'N/A')}")
             console.print(f"    Resets at:      {rate_limits.get('reset_at', 'N/A')}")
 
-        # n1 rate limits
-        n1_limits = data.get("n1_rate_limits", {})
-        if n1_limits:
-            console.print("\n  [bold]n1 API Rate Limits[/bold]")
-            console.print(f"    Requests today: {n1_limits.get('requests_today', 'N/A')}")
-            console.print(f"    Daily limit:    {n1_limits.get('daily_limit', 'N/A')}")
-            console.print(f"    Remaining:      {n1_limits.get('remaining_requests', 'N/A')}")
-            console.print(f"    Per-second:     {n1_limits.get('per_second_limit', 'N/A')}")
-            console.print(f"    Resets at:      {n1_limits.get('reset_at', 'N/A')}")
+        # Navigator rate limits (falls back to the deprecated n1_rate_limits key on older servers)
+        navigator_limits = data.get("navigator_rate_limits") or data.get("n1_rate_limits") or {}
+        if navigator_limits:
+            console.print("\n  [bold]Navigator API Rate Limits[/bold]")
+            console.print(f"    Requests today: {navigator_limits.get('requests_today', 'N/A')}")
+            console.print(f"    Daily limit:    {navigator_limits.get('daily_limit', 'N/A')}")
+            console.print(f"    Remaining:      {navigator_limits.get('remaining_requests', 'N/A')}")
+            console.print(f"    Per-second:     {navigator_limits.get('per_second_limit', 'N/A')}")
+            console.print(f"    Resets at:      {navigator_limits.get('reset_at', 'N/A')}")
 
         # Activity counts
         activity = data.get("activity", {})
@@ -64,13 +64,15 @@ def usage(
             p = activity.get("period", period)
             console.print(f"\n  [bold]Activity ({p})[/bold]")
 
+            # `navigator_calls` is the canonical key; `n1_calls` is the deprecated alias.
+            navigator_calls = activity.get("navigator_calls", activity.get("n1_calls", 0))
             table = Table(show_header=True, padding=(0, 2))
             table.add_column("Metric")
             table.add_column("Count", justify="right")
             table.add_row("Scout runs", str(activity.get("scout_runs", 0)))
             table.add_row("Browsing tasks", str(activity.get("browsing_tasks", 0)))
             table.add_row("Research tasks", str(activity.get("research_tasks", 0)))
-            table.add_row("n1 API calls", str(activity.get("n1_calls", 0)))
+            table.add_row("Navigator API calls", str(navigator_calls))
             console.print(table)
 
         console.print()

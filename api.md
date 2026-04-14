@@ -80,8 +80,10 @@ usage = client.get_usage(period="7d")
 - `num_active_scouts` (`int`)
 - `active_scout_ids` (`list[str]`)
 - `rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `status` (`"available"` | `"unavailable"`)
-- `n1_rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `per_second_limit`
-- `activity` (`dict`): `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, `n1_calls`
+- `navigator_rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `per_second_limit`
+- `activity` (`dict`): `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, `navigator_calls`
+
+The response also includes `n1_rate_limits` and `activity.n1_calls` as deprecated aliases of `navigator_rate_limits` and `navigator_calls` respectively. They will be removed in a future release — prefer the `navigator_*` names.
 
 ## Model constants and tool sets
 
