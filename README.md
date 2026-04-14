@@ -61,11 +61,11 @@ The Yutori API provides four main capabilities:
 
 ## Navigator API
 
-The Navigator API is a computer-use model for navigating websites. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
+The Navigator API provides a computer-use model for navigating websites. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
 
 ```python
 from yutori import AsyncYutoriClient
-from yutori.navigator import N1_5_MODEL, aplaywright_screenshot_to_data_url
+from yutori.navigator import aplaywright_screenshot_to_data_url
 from playwright.async_api import async_playwright
 
 async with AsyncYutoriClient() as client, async_playwright() as p:
@@ -76,7 +76,6 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
     image_url = await aplaywright_screenshot_to_data_url(page)
 
     response = await client.chat.completions.create(
-        model=N1_5_MODEL,
         messages=[
             {
                 "role": "user",
@@ -91,8 +90,13 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
     message = response.choices[0].message
     print(message.content)  # Model's thoughts
     for tool_call in message.tool_calls or []:
-        print(tool_call.function.name, tool_call.function.arguments)
+        # Execute the requested browser action on `page`, append the tool
+        # result to the conversation, capture a fresh screenshot, and call
+        # the model again...
+        ...
 ```
+
+This snippet shows a single model call. In practice, you'll usually run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it emits `stop`. Complete agent loops live in [examples/](examples/).
 
 The SDK defaults to `n1.5-latest`. `n1-latest` is still supported for callers that want the older model. n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference on docs.yutori.com](https://docs.yutori.com/reference/n1-5) for model IDs, parameters, and the full action space.
 
@@ -110,7 +114,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)` | Convert n1.5's lowercase key names to Playwright format. |
 | `yutori.navigator.tools` | Packaged JS reference implementations for n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 
-Full helper reference: [api.md](api.md). Complete agent loops live in [examples/](examples/).
+Full helper reference: [api.md](api.md).
 
 If you'd rather not manage browser infrastructure, use the **Browsing API** below, which runs the Navigator on Yutori's cloud browser.
 
