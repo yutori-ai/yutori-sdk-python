@@ -98,7 +98,7 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll usually run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it emits `stop`. Complete agent loops live in [examples/](examples/).
 
-The SDK defaults to `n1.5-latest`. `n1-latest` is still supported for callers that want the older model. n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference on docs.yutori.com](https://docs.yutori.com/reference/n1-5) for model IDs, parameters, and the full action space.
+The SDK defaults to `n1.5-latest`. `n1-latest` is still supported for callers that want the older model. n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See [docs](https://docs.yutori.com/reference/n1-5) for model IDs, parameters, and the full action space.
 
 ### Agent-loop helpers
 
