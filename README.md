@@ -9,8 +9,18 @@ The SDK offers sync and async clients with full type annotations, plus a `yutori
 
 ## Installation
 
+Add the SDK to an existing Python project:
+
 ```bash
 uv add yutori
+```
+
+This requires a local `pyproject.toml`.
+
+If you just want the `yutori` CLI from PyPI and are not inside a project:
+
+```bash
+uv tool install yutori
 ```
 
 Python 3.9+ is required.
@@ -26,10 +36,16 @@ pip install yutori
 
 ## Authentication
 
-Run this once in your terminal:
+Run this once to save your API key:
 
 ```bash
 yutori auth login
+```
+
+If you installed `yutori` with `uv add`, run it from your project with:
+
+```bash
+uv run yutori auth login
 ```
 
 This opens your browser to log in with your Yutori account and saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically pick it up.
