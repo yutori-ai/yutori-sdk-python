@@ -7,7 +7,8 @@ from rich.console import Console
 
 from yutori.cli.commands import (
     get_authenticated_client,
-    print_rejection_reason,
+    print_task_get_header,
+    print_task_result_output,
     print_task_submission_result,
 )
 
@@ -52,9 +53,7 @@ def get(
     try:
         result = client.browsing.get(task_id)
 
-        console.print(f"\n[bold]Browsing Task: {result.get('task_id', task_id)}[/bold]\n")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
-        print_rejection_reason(console, result)
+        print_task_get_header(console, "Browsing", task_id, result)
 
         if result.get("start_url"):
             console.print(f"  Start URL: {result['start_url']}")
@@ -63,12 +62,6 @@ def get(
         if result.get("created_at"):
             console.print(f"  Created: {result['created_at']}")
 
-        output = result.get("result") or result.get("output")
-        if output:
-            console.print("\n[bold]Result:[/bold]")
-            text = str(output)
-            if len(text) > 2000:
-                text = text[:2000] + "\n... (truncated)"
-            console.print(text, markup=False)
+        print_task_result_output(console, result)
     finally:
         client.close()

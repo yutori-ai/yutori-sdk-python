@@ -8,7 +8,8 @@ from rich.markup import escape
 
 from yutori.cli.commands import (
     get_authenticated_client,
-    print_rejection_reason,
+    print_task_get_header,
+    print_task_result_output,
     print_task_submission_result,
 )
 
@@ -49,21 +50,13 @@ def get(
     try:
         result = client.research.get(task_id)
 
-        console.print(f"\n[bold]Research Task: {result.get('task_id', task_id)}[/bold]\n")
-        console.print(f"  Status: {result.get('status', 'N/A')}")
-        print_rejection_reason(console, result)
+        print_task_get_header(console, "Research", task_id, result)
 
         if result.get("query"):
             console.print(f"  Query: {escape(result['query'])}")
         if result.get("created_at"):
             console.print(f"  Created: {result['created_at']}")
 
-        output = result.get("result") or result.get("output")
-        if output:
-            console.print("\n[bold]Result:[/bold]")
-            text = str(output)
-            if len(text) > 2000:
-                text = text[:2000] + "\n... (truncated)"
-            console.print(text, markup=False)
+        print_task_result_output(console, result)
     finally:
         client.close()
