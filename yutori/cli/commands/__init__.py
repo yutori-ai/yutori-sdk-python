@@ -14,6 +14,8 @@ __all__ = [
     "format_interval",
     "get_authenticated_client",
     "print_rejection_reason",
+    "print_task_get_header",
+    "print_task_result_output",
     "print_task_submission_result",
 ]
 
@@ -50,6 +52,27 @@ def print_task_submission_result(console: Console, task_type: str, result: dict[
     console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
     console.print(f"  Status: {status}")
     print_rejection_reason(console, result)
+
+
+def print_task_get_header(console: Console, task_type: str, task_id: str, result: dict[str, Any]) -> None:
+    """Print the common header for a task-get response: title, status, and rejection reason."""
+    console.print(f"\n[bold]{task_type} Task: {result.get('task_id', task_id)}[/bold]\n")
+    console.print(f"  Status: {result.get('status', 'N/A')}")
+    print_rejection_reason(console, result)
+
+
+def print_task_result_output(
+    console: Console, result: dict[str, Any], *, max_length: int = 2000
+) -> None:
+    """Print the ``result``/``output`` body of a task, truncated to ``max_length`` chars."""
+    output = result.get("result") or result.get("output")
+    if not output:
+        return
+    console.print("\n[bold]Result:[/bold]")
+    text = str(output)
+    if len(text) > max_length:
+        text = text[:max_length] + "\n... (truncated)"
+    console.print(text, markup=False)
 
 
 def format_interval(seconds: int, *, short: bool = False) -> str:
