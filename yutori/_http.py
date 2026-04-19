@@ -46,3 +46,24 @@ def build_payload(**fields: Any) -> dict[str, Any]:
     together — any field whose value is ``None`` is omitted.
     """
     return {k: v for k, v in fields.items() if v is not None}
+
+
+_SCOUT_STATUS_ENDPOINTS = {
+    "paused": "pause",
+    "active": "resume",
+    "done": "done",
+}
+
+
+def resolve_scout_status_endpoint(status: str) -> str:
+    """Return the scout transition endpoint name for a target status.
+
+    Maps the externally-facing status vocabulary ("paused", "active", "done")
+    onto the API's dedicated transition endpoints ("pause", "resume", "done").
+
+    Raises:
+        ValueError: If ``status`` is not one of the three supported values.
+    """
+    if status not in _SCOUT_STATUS_ENDPOINTS:
+        raise ValueError(f"Invalid status: {status}. Must be 'active', 'paused', or 'done'.")
+    return _SCOUT_STATUS_ENDPOINTS[status]
