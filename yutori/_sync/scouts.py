@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._http import build_headers, build_payload, build_query_params, handle_response
+from .._http import (
+    build_headers,
+    build_payload,
+    build_query_params,
+    handle_response,
+    resolve_scout_status_endpoint,
+)
 from .._schema import resolve_output_schema
 
 if TYPE_CHECKING:
@@ -165,14 +171,7 @@ class ScoutsNamespace:
 
         # Handle status changes via dedicated endpoints
         if status is not None:
-            status_endpoints = {
-                "paused": "pause",
-                "active": "resume",
-                "done": "done",
-            }
-            if status not in status_endpoints:
-                raise ValueError(f"Invalid status: {status}. Must be 'active', 'paused', or 'done'.")
-            endpoint = status_endpoints[status]
+            endpoint = resolve_scout_status_endpoint(status)
             response = self._client.post(
                 f"{self._base_url}/scouting/tasks/{scout_id}/{endpoint}",
                 headers=build_headers(self._api_key),
