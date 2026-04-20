@@ -25,9 +25,7 @@ def run(
     browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new research task."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.research.create(
             query=query,
             user_timezone=timezone,
@@ -36,8 +34,6 @@ def run(
         )
 
         print_task_submission_result(console, "Research", result)
-    finally:
-        client.close()
 
 
 @app.command()
@@ -45,9 +41,7 @@ def get(
     task_id: str = typer.Argument(help="The research task ID"),
 ) -> None:
     """Get the status and result of a research task."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.research.get(task_id)
 
         print_task_get_header(console, "Research", task_id, result)
@@ -58,5 +52,3 @@ def get(
             console.print(f"  Created: {result['created_at']}")
 
         print_task_result_output(console, result)
-    finally:
-        client.close()

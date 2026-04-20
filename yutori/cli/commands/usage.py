@@ -21,9 +21,7 @@ def usage(
     if ctx.invoked_subcommand is not None:
         return
 
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         data = client.get_usage(period=period)
 
         console.print("\n[bold]Usage Statistics[/bold]\n")
@@ -76,5 +74,3 @@ def usage(
             console.print(table)
 
         console.print()
-    finally:
-        client.close()
