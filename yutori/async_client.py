@@ -14,7 +14,6 @@ from ._async import (
 )
 from ._http import build_headers, build_query_params, handle_response
 from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
-from .exceptions import AuthenticationError
 
 
 class AsyncYutoriClient:
@@ -56,15 +55,9 @@ class AsyncYutoriClient:
         Raises:
             AuthenticationError: If no API key is provided or found in environment.
         """
-        from yutori.auth.credentials import resolve_api_key
+        from yutori.auth.credentials import require_api_key
 
-        api_key = resolve_api_key(api_key)
-        if not api_key:
-            raise AuthenticationError(
-                "No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key."
-            )
-
-        self._api_key = api_key
+        self._api_key = require_api_key(api_key)
         self._base_url = sanitize_base_url(base_url)
         self._client = httpx.AsyncClient(timeout=timeout)
 
