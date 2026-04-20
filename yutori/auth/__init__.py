@@ -5,7 +5,7 @@ Lightweight imports (credentials, types) are eager. Heavyweight imports
 penalizing SDK users who never use the OAuth login flow.
 """
 
-from .credentials import clear_config, load_config, resolve_api_key, save_config
+from .credentials import clear_config, load_config, require_api_key, resolve_api_key, save_config
 from .types import AuthStatus, LoginResult
 
 
@@ -25,6 +25,7 @@ __all__ = [
     "clear_config",
     "get_auth_status",
     "load_config",
+    "require_api_key",
     "resolve_api_key",
     "run_login_flow",
     "save_config",

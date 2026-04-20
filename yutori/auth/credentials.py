@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..exceptions import AuthenticationError
 from .constants import CONFIG_DIR, CONFIG_FILE
 
 
@@ -98,3 +99,18 @@ def resolve_api_key(api_key: str | None = None) -> str | None:
             return stored_key
 
     return None
+
+
+def require_api_key(api_key: str | None = None) -> str:
+    """Resolve an API key and raise if none can be found.
+
+    Same precedence chain as :func:`resolve_api_key`, but raises
+    :class:`AuthenticationError` with a uniform user-facing message when
+    no real key is available.
+    """
+    resolved = resolve_api_key(api_key)
+    if not resolved:
+        raise AuthenticationError(
+            "No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key."
+        )
+    return resolved
