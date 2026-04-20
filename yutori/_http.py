@@ -48,6 +48,24 @@ def build_payload(**fields: Any) -> dict[str, Any]:
     return {k: v for k, v in fields.items() if v is not None}
 
 
+def resolve_api_key_or_raise(api_key: str | None) -> str:
+    """Resolve an API key via the standard precedence chain, or raise.
+
+    Uses ``auth.credentials.resolve_api_key`` (parameter > env > config)
+    and raises ``AuthenticationError`` with a client-friendly message when
+    no real key is found. Imported lazily to keep the auth package off the
+    import path for code that does not construct a client.
+    """
+    from .auth.credentials import resolve_api_key
+
+    resolved = resolve_api_key(api_key)
+    if not resolved:
+        raise AuthenticationError(
+            "No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key."
+        )
+    return resolved
+
+
 _SCOUT_STATUS_ENDPOINTS = {
     "paused": "pause",
     "active": "resume",
