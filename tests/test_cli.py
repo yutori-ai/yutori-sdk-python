@@ -14,13 +14,18 @@ def _make_client_mock() -> MagicMock:
     """MagicMock that mimics ``YutoriClient`` as a context manager.
 
     The CLI wraps the client in ``with ... as client:``; the real client's
-    ``__exit__`` calls ``close()``. Mirror that here so tests can keep
-    asserting on ``client.close`` and still access the mocked namespaces
-    inside the ``with`` block.
+    ``__exit__`` calls ``close()`` and returns ``None`` so exceptions
+    propagate. Mirror that here — returning the MagicMock from ``close()``
+    would be truthy and would silently swallow exceptions in the ``with``
+    block.
     """
     client = MagicMock()
     client.__enter__.return_value = client
-    client.__exit__.side_effect = lambda *exc_info: client.close()
+
+    def _exit(*exc_info: object) -> None:
+        client.close()
+
+    client.__exit__.side_effect = _exit
     return client
 
 
