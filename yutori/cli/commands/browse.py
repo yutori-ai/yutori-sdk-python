@@ -26,9 +26,7 @@ def run(
     browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new browsing task."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.browsing.create(
             task=task,
             start_url=start_url,
@@ -39,8 +37,6 @@ def run(
         )
 
         print_task_submission_result(console, "Browsing", result)
-    finally:
-        client.close()
 
 
 @app.command()
@@ -48,9 +44,7 @@ def get(
     task_id: str = typer.Argument(help="The browsing task ID"),
 ) -> None:
     """Get the status and result of a browsing task."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.browsing.get(task_id)
 
         print_task_get_header(console, "Browsing", task_id, result)
@@ -63,5 +57,3 @@ def get(
             console.print(f"  Created: {result['created_at']}")
 
         print_task_result_output(console, result)
-    finally:
-        client.close()

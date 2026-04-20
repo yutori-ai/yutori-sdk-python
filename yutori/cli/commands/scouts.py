@@ -19,9 +19,7 @@ def list_scouts(
     status: str = typer.Option(None, help="Filter by status: active, paused, done"),
 ) -> None:
     """List your scouts."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.scouts.list(limit=limit, status=status)
         scouts = result.get("scouts", [])
 
@@ -52,8 +50,6 @@ def list_scouts(
             )
 
         console.print(table)
-    finally:
-        client.close()
 
 
 @app.command()
@@ -61,9 +57,7 @@ def get(
     scout_id: str = typer.Argument(help="The scout ID"),
 ) -> None:
     """Get details of a specific scout."""
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         scout = client.scouts.get(scout_id)
 
         console.print(f"\n[bold]Scout: {scout.get('id', scout_id)}[/bold]\n")
@@ -80,8 +74,6 @@ def get(
             console.print(f"  Created: {scout['created_at']}")
         if scout.get("next_run_at"):
             console.print(f"  Next Run: {scout['next_run_at']}")
-    finally:
-        client.close()
 
 
 @app.command()
@@ -100,9 +92,7 @@ def create(
         console.print(f"[red]Invalid interval '{escape(interval)}'. Choose from: hourly, daily, weekly[/red]")
         raise typer.Exit(1)
 
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         result = client.scouts.create(
             query=query,
             output_interval=output_interval,
@@ -118,8 +108,6 @@ def create(
         console.print(f"  Query: {escape(result.get('query', query))}")
         console.print(f"  Status: {status}")
         print_rejection_reason(console, result)
-    finally:
-        client.close()
 
 
 @app.command()
@@ -134,10 +122,6 @@ def delete(
             console.print("[yellow]Cancelled.[/yellow]")
             raise typer.Exit(0)
 
-    client = get_authenticated_client()
-
-    try:
+    with get_authenticated_client() as client:
         client.scouts.delete(scout_id)
         console.print(f"[green]Scout {scout_id} deleted.[/green]")
-    finally:
-        client.close()

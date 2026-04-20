@@ -10,6 +10,25 @@ from yutori.cli.main import app
 runner = CliRunner()
 
 
+def _make_client_mock() -> MagicMock:
+    """MagicMock that mimics ``YutoriClient`` as a context manager.
+
+    The CLI wraps the client in ``with ... as client:``; the real client's
+    ``__exit__`` calls ``close()`` and returns ``None`` so exceptions
+    propagate. Mirror that here — returning the MagicMock from ``close()``
+    would be truthy and would silently swallow exceptions in the ``with``
+    block.
+    """
+    client = MagicMock()
+    client.__enter__.return_value = client
+
+    def _exit(*exc_info: object) -> None:
+        client.close()
+
+    client.__exit__.side_effect = _exit
+    return client
+
+
 def test_root_version_option():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
@@ -23,7 +42,7 @@ def test_version_subcommand():
 
 
 def test_browse_run_forwards_local_browser_and_auth():
-    client = MagicMock()
+    client = _make_client_mock()
     client.browsing.create.return_value = {"task_id": "task-123", "status": "queued"}
 
     with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
@@ -47,7 +66,7 @@ def test_browse_run_forwards_local_browser_and_auth():
 
 
 def test_research_run_forwards_local_browser():
-    client = MagicMock()
+    client = _make_client_mock()
     client.research.create.return_value = {"task_id": "research-123", "status": "queued"}
 
     with patch("yutori.cli.commands.research.get_authenticated_client", return_value=client):
@@ -69,7 +88,7 @@ def test_research_run_forwards_local_browser():
 
 
 def test_browse_run_handles_failed_create_response():
-    client = MagicMock()
+    client = _make_client_mock()
     client.browsing.create.return_value = {
         "task_id": "task-123",
         "status": "failed",
@@ -89,7 +108,7 @@ def test_browse_run_handles_failed_create_response():
 
 
 def test_research_run_handles_failed_create_response():
-    client = MagicMock()
+    client = _make_client_mock()
     client.research.create.return_value = {
         "task_id": "r-1",
         "status": "failed",
@@ -108,7 +127,7 @@ def test_research_run_handles_failed_create_response():
 
 
 def test_browse_get_shows_rejection_reason():
-    client = MagicMock()
+    client = _make_client_mock()
     client.browsing.get.return_value = {
         "task_id": "task-123",
         "status": "failed",
@@ -124,7 +143,7 @@ def test_browse_get_shows_rejection_reason():
 
 
 def test_research_get_shows_rejection_reason():
-    client = MagicMock()
+    client = _make_client_mock()
     client.research.get.return_value = {
         "task_id": "research-123",
         "status": "failed",
@@ -140,7 +159,7 @@ def test_research_get_shows_rejection_reason():
 
 
 def test_scouts_get_shows_rejection_reason():
-    client = MagicMock()
+    client = _make_client_mock()
     client.scouts.get.return_value = {
         "id": "scout-123",
         "query": "monitor releases",
@@ -157,7 +176,7 @@ def test_scouts_get_shows_rejection_reason():
 
 
 def test_scouts_list_shows_rejection_reason_column():
-    client = MagicMock()
+    client = _make_client_mock()
     client.scouts.list.return_value = {
         "scouts": [
             {
