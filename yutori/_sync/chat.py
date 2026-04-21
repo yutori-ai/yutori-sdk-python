@@ -7,6 +7,8 @@ from typing import Any, Iterable
 from openai import OpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
+from .._http import apply_chat_extra_body
+
 
 class ChatCompletions:
     """OpenAI-compatible chat completions for n1 API."""
@@ -42,16 +44,12 @@ class ChatCompletions:
         Returns:
             ChatCompletion object.
         """
-        extra_body = kwargs.pop("extra_body", None) or {}
-        if tool_set is not None:
-            extra_body["tool_set"] = tool_set
-        if disable_tools is not None:
-            extra_body["disable_tools"] = disable_tools
-        if json_schema is not None:
-            extra_body["json_schema"] = json_schema
-
-        if extra_body:
-            kwargs["extra_body"] = extra_body
+        apply_chat_extra_body(
+            kwargs,
+            tool_set=tool_set,
+            disable_tools=disable_tools,
+            json_schema=json_schema,
+        )
 
         return self._client.chat.completions.create(model=model, messages=messages, **kwargs)
 
