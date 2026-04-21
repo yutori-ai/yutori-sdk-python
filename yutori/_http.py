@@ -67,3 +67,21 @@ def resolve_scout_status_endpoint(status: str) -> str:
     if status not in _SCOUT_STATUS_ENDPOINTS:
         raise ValueError(f"Invalid status: {status}. Must be 'active', 'paused', or 'done'.")
     return _SCOUT_STATUS_ENDPOINTS[status]
+
+
+def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
+    """Merge non-None ``fields`` into ``kwargs["extra_body"]`` in place.
+
+    Pops any user-provided ``extra_body`` from ``kwargs``, overlays the
+    non-None ``fields`` on top of it, and writes the result back under
+    ``extra_body`` — but only if the merged dict is non-empty. Used by
+    ChatCompletions.create to compose the ``extra_body`` kwarg forwarded
+    to the OpenAI client without letting sync and async implementations
+    drift out of sync.
+    """
+    extra_body = kwargs.pop("extra_body", None) or {}
+    for key, value in fields.items():
+        if value is not None:
+            extra_body[key] = value
+    if extra_body:
+        kwargs["extra_body"] = extra_body
