@@ -83,3 +83,54 @@ echo reached_end
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, f"cleanup_temp_files aborted under set -e:\n{result.stderr}"
     assert "reached_end" in result.stdout
+
+
+def test_prerender_frames_sets_parent_shell_variable() -> None:
+    """Regression: prerender_frames must assign FRAMES_RENDER_DIR in the parent
+    shell so cleanup_temp_files can reap it. Calling it via `$(prerender_frames ...)`
+    would run in a subshell and silently leak the directory on every install.
+    """
+    # Minimal standalone reproduction — doesn't need the full install.sh env.
+    # The key property: the caller uses `prerender_frames ...` (not command sub)
+    # and reads $FRAMES_RENDER_DIR afterwards.
+    script = """
+set -euo pipefail
+FRAMES_RENDER_DIR=""
+tmpdir="$(mktemp -d)"
+prerender_frames() {
+    FRAMES_RENDER_DIR="$tmpdir/frames"
+    mkdir -p "$FRAMES_RENDER_DIR"
+    echo "frame0" > "$FRAMES_RENDER_DIR/0"
+}
+prerender_frames
+echo "render_dir=$FRAMES_RENDER_DIR"
+[[ -d "$FRAMES_RENDER_DIR" ]] && echo "dir_exists"
+rm -rf "$tmpdir"
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, f"prerender_frames failed: {result.stderr}"
+    assert "render_dir=" in result.stdout
+    assert result.stdout.count("render_dir=") == 1
+    # The path must be non-empty in the parent shell.
+    render_dir_line = next(line for line in result.stdout.splitlines() if line.startswith("render_dir="))
+    assert render_dir_line != "render_dir=", "FRAMES_RENDER_DIR was lost (subshell regression)"
+    assert "dir_exists" in result.stdout
+
+
+def test_play_animation_calls_prerender_frames_directly() -> None:
+    """Regression guard: the caller of `prerender_frames` in install.sh.template
+    must NOT use `$(...)` command substitution, since that runs in a subshell
+    and loses FRAMES_RENDER_DIR. This test is a syntactic lint, not a runtime
+    check — it protects against re-introduction of the bug.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    # Look for the play_animation_until_done function body and assert prerender_frames
+    # is called as a plain statement, not captured.
+    assert 'prerender_frames "$frame_count" "$use_color"' in content, (
+        "prerender_frames must be called directly (not via command substitution) "
+        "so FRAMES_RENDER_DIR survives in the parent shell."
+    )
+    assert '=$(prerender_frames' not in content and '="$(prerender_frames' not in content, (
+        "prerender_frames must NOT be called in a $(...) subshell — "
+        "FRAMES_RENDER_DIR assignment would be lost and the render dir would leak."
+    )

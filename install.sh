@@ -1685,6 +1685,11 @@ load_frame_count() {
 
 # Pre-render every frame once into its own file so the hot loop can `cat` a
 # fixed path per tick instead of forking awk 12 times per second.
+#
+# Assigns the resulting directory to the global FRAMES_RENDER_DIR so
+# cleanup_temp_files can reap it on any exit path. Does NOT return the path
+# via stdout — callers would need `$(prerender_frames ...)`, and that runs in
+# a subshell where the FRAMES_RENDER_DIR assignment would be lost.
 prerender_frames() {
     local frame_count="$1"
     local use_color="$2"
@@ -1694,7 +1699,6 @@ prerender_frames() {
     for (( idx = 0; idx < frame_count; idx++ )); do
         render_frame "$idx" "$use_color" >"$FRAMES_RENDER_DIR/$idx"
     done
-    printf '%s\n' "$FRAMES_RENDER_DIR"
 }
 
 render_frame() {
@@ -1790,13 +1794,14 @@ play_animation_until_done() {
     local frame_count
     local frame_top
     local frame_index=0
-    local cache_dir
     # Animation cadence ~12fps; inlined to avoid forking awk for 1/12.
     local frame_sleep="0.0833"
 
     write_frames_cache
     frame_count="$(load_frame_count)"
-    cache_dir="$(prerender_frames "$frame_count" "$use_color")"
+    # Call directly (not via $(...)) so FRAMES_RENDER_DIR survives in the
+    # parent shell — cleanup_temp_files needs it on exit.
+    prerender_frames "$frame_count" "$use_color"
     banner_lines=0
     while IFS= read -r _; do
         (( banner_lines++ ))
@@ -1812,7 +1817,7 @@ play_animation_until_done() {
     # is what actually collects exit status.
     while kill -0 "$install_pid" 2>/dev/null; do
         printf '\033[%s;1H' "$frame_top"
-        cat "$cache_dir/$frame_index"
+        cat "$FRAMES_RENDER_DIR/$frame_index"
         sleep "$frame_sleep"
         frame_index="$(((frame_index + 1) % frame_count))"
     done
