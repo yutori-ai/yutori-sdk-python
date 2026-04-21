@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+YUTORI_BRAND_MINT=$'\033[38;2;29;205;152m'
+YUTORI_MINT_HIGHLIGHT=$'\033[38;2;90;232;189m'
+YUTORI_SLATE_TEXT=$'\033[38;2;148;163;184m'
+YUTORI_ERROR_RED=$'\033[38;2;255;92;92m'
+YUTORI_RESET=$'\033[0m'
+
+YUTORI_BANNER="$(cat <<'__YUTORI_BANNER__'
+__INLINE_BANNER__
+__YUTORI_BANNER__
+)"
+
+INSTALL_LOG=""
+INSTALL_STATUS_FILE=""
+FRAMES_CACHE_FILE=""
+FRAMES_RENDER_DIR=""
+UV_INSTALL_PID=""
+UV_BIN=""
+
+is_interactive_terminal() {
+    [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]
+}
+
+supports_truecolor() {
+    if [[ "${COLORTERM:-}" == "truecolor" || "${COLORTERM:-}" == "24bit" ]]; then
+        return 0
+    fi
+
+    if command -v tput >/dev/null 2>&1; then
+        local colors
+        colors="$(tput colors 2>/dev/null || printf '0')"
+        if [[ "$colors" =~ ^[0-9]+$ ]] && (( colors >= 256 )); then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+note() {
+    printf '%b%s%b\n' "$YUTORI_SLATE_TEXT" "$1" "$YUTORI_RESET"
+}
+
+error() {
+    printf '%b%s%b\n' "$YUTORI_ERROR_RED" "$1" "$YUTORI_RESET" >&2
+}
+
+cleanup_temp_files() {
+    [[ -n "$INSTALL_LOG" && -f "$INSTALL_LOG" ]] && rm -f "$INSTALL_LOG"
+    [[ -n "$INSTALL_STATUS_FILE" && -f "$INSTALL_STATUS_FILE" ]] && rm -f "$INSTALL_STATUS_FILE"
+    [[ -n "$FRAMES_CACHE_FILE" && -f "$FRAMES_CACHE_FILE" ]] && rm -f "$FRAMES_CACHE_FILE"
+    [[ -n "$FRAMES_RENDER_DIR" && -d "$FRAMES_RENDER_DIR" ]] && rm -rf "$FRAMES_RENDER_DIR"
+}
+
+kill_uv_process_group() {
+    # Kill the whole process group of the backgrounded ensure_uv_and_install —
+    # SIGTERM to just $UV_INSTALL_PID would leave curl/uv children running
+    # and leaking disk I/O after we've exited.
+    [[ -z "$UV_INSTALL_PID" ]] && return 0
+    if kill -0 "$UV_INSTALL_PID" 2>/dev/null; then
+        kill -TERM -- "-$UV_INSTALL_PID" 2>/dev/null || kill "$UV_INSTALL_PID" 2>/dev/null || true
+    fi
+}
+
+cleanup() {
+    printf '\033[0m\033[?25h' >/dev/tty 2>/dev/null || true
+    kill_uv_process_group
+    cleanup_temp_files
+}
+
+on_interrupt() {
+    cleanup
+    printf '\n'
+    error "Installation aborted."
+    exit 130
+}
+
+trap cleanup EXIT
+trap on_interrupt INT TERM
+
+assert_supported_platform() {
+    case "$(uname -s)" in
+        Darwin|Linux)
+            ;;
+        *)
+            error "Yutori install.sh currently supports macOS and Linux."
+            error "Windows bootstrap support is out of scope for v1."
+            exit 1
+            ;;
+    esac
+}
+
+render_banner() {
+    if is_interactive_terminal && supports_truecolor; then
+        printf '%b%s%b\n' "$YUTORI_BRAND_MINT" "$YUTORI_BANNER" "$YUTORI_RESET"
+    else
+        printf '%s\n' "$YUTORI_BANNER"
+    fi
+    printf '\n'
+}
+
+resolve_uv_bin() {
+    if command -v uv >/dev/null 2>&1; then
+        command -v uv
+        return 0
+    fi
+
+    if [[ -x "${HOME}/.local/bin/uv" ]]; then
+        printf '%s\n' "${HOME}/.local/bin/uv"
+        return 0
+    fi
+
+    if [[ -x "${HOME}/.cargo/bin/uv" ]]; then
+        printf '%s\n' "${HOME}/.cargo/bin/uv"
+        return 0
+    fi
+
+    return 1
+}
+
+install_uv() {
+    if ! command -v curl >/dev/null 2>&1; then
+        error "curl is required to bootstrap uv."
+        return 1
+    fi
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+}
+
+ensure_uv_and_install() {
+    local current_uv
+
+    if ! current_uv="$(resolve_uv_bin)"; then
+        note "Installing uv..."
+        if ! install_uv; then
+            error "Failed to install uv."
+            return 1
+        fi
+        if ! current_uv="$(resolve_uv_bin)"; then
+            error "uv bootstrap completed but uv binary was not found afterwards."
+            return 1
+        fi
+    fi
+
+    UV_BIN="$current_uv"
+    "$UV_BIN" tool install --force --upgrade yutori
+}
+
+start_install_job() {
+    (
+        set +e
+        ensure_uv_and_install >"$INSTALL_LOG" 2>&1
+        status=$?
+        printf '%s\n' "$status" >"$INSTALL_STATUS_FILE"
+        exit "$status"
+    ) &
+    UV_INSTALL_PID="$!"
+}
+
+write_frames_cache() {
+    FRAMES_CACHE_FILE="$(mktemp "${TMPDIR:-/tmp}/yutori-install-frames.XXXXXX")"
+    cat >"$FRAMES_CACHE_FILE" <<'__YUTORI_AGENT_FRAMES_CACHE__'
+__INLINE_AGENT_LOGO_FRAMES__
+__YUTORI_AGENT_FRAMES_CACHE__
+}
+
+load_frame_count() {
+    awk '/^=== FRAME / { count += 1 } END { print count + 0 }' "$FRAMES_CACHE_FILE"
+}
+
+# Pre-render every frame once into its own file so the hot loop can `cat` a
+# fixed path per tick instead of forking awk 12 times per second.
+prerender_frames() {
+    local frame_count="$1"
+    local use_color="$2"
+    local idx
+    FRAMES_RENDER_DIR="${FRAMES_CACHE_FILE}.rendered.d"
+    mkdir -p "$FRAMES_RENDER_DIR"
+    for (( idx = 0; idx < frame_count; idx++ )); do
+        render_frame "$idx" "$use_color" >"$FRAMES_RENDER_DIR/$idx"
+    done
+    printf '%s\n' "$FRAMES_RENDER_DIR"
+}
+
+render_frame() {
+    local frame_index="$1"
+    local use_color="$2"
+
+    awk \
+        -v frame_index="$frame_index" \
+        -v pad_x="4" \
+        -v pad_y="1" \
+        -v frame_width="31" \
+        -v display_width="31" \
+        -v use_color="$use_color" \
+        -v frames_cache_file="$FRAMES_CACHE_FILE" \
+        '
+        function colorize_row(source_row,    result, char_index, ch, style, last_style) {
+            if (!use_color) {
+                return source_row
+            }
+
+            result = ""
+            last_style = reset_style
+            for (char_index = 1; char_index <= length(source_row); char_index++) {
+                ch = substr(source_row, char_index, 1)
+                if (ch == "u") {
+                    style = bright_style
+                } else if (ch == ":") {
+                    style = medium_style
+                } else {
+                    style = reset_style
+                }
+
+                if (style != last_style) {
+                    result = result style
+                    last_style = style
+                }
+                result = result ch
+            }
+
+            if (last_style != reset_style) {
+                result = result reset_style
+            }
+
+            return result
+        }
+
+        BEGIN {
+            bright_style = sprintf("%c[1;38;2;110;255;190m", 27)
+            medium_style = sprintf("%c[38;2;42;214;158m", 27)
+            reset_style = sprintf("%c[0m", 27)
+            wanted_header = "=== FRAME " frame_index " ==="
+            in_frame = 0
+            row_count = 0
+
+            while ((getline line < frames_cache_file) > 0) {
+                if (line ~ /^=== FRAME /) {
+                    if (line == wanted_header) {
+                        in_frame = 1
+                        continue
+                    }
+                    if (in_frame) {
+                        break
+                    }
+                }
+
+                if (in_frame) {
+                    row_count += 1
+                    rows[row_count] = line
+                }
+            }
+            close(frames_cache_file)
+
+            if (row_count == 0) {
+                exit 1
+            }
+
+            for (pad_row = 0; pad_row < pad_y; pad_row++) {
+                print ""
+            }
+
+            left_pad = sprintf("%" pad_x "s", "")
+            for (row = 1; row <= row_count; row++) {
+                printf "%s%s\n", left_pad, colorize_row(rows[row])
+            }
+        }
+        '
+}
+
+play_animation_until_done() {
+    local install_pid="$1"
+    local use_color="$2"
+    local banner_lines
+    local frame_count
+    local frame_top
+    local frame_index=0
+    local cache_dir
+    # Animation cadence ~12fps; inlined to avoid forking awk for 1/12.
+    local frame_sleep="0.0833"
+
+    write_frames_cache
+    frame_count="$(load_frame_count)"
+    cache_dir="$(prerender_frames "$frame_count" "$use_color")"
+    banner_lines=0
+    while IFS= read -r _; do
+        (( banner_lines++ ))
+    done <<<"$YUTORI_BANNER"
+    frame_top="$((banner_lines + 2))"
+
+    printf '\033[2J\033[H'
+    render_banner
+    printf '%b%s%b\n\n' "$YUTORI_SLATE_TEXT" "Installing Yutori CLI with uv..." "$YUTORI_RESET"
+    printf '\033[?25l'
+
+    # `kill -0` checks liveness without signaling; outer `wait` in main()
+    # is what actually collects exit status.
+    while kill -0 "$install_pid" 2>/dev/null; do
+        printf '\033[%s;1H' "$frame_top"
+        cat "$cache_dir/$frame_index"
+        sleep "$frame_sleep"
+        frame_index="$(((frame_index + 1) % frame_count))"
+    done
+
+    printf '\033[%s;1H' "$frame_top"
+    printf '\033[0m\033[?25h'
+    # cleanup_temp_files (EXIT trap) will rm the render dir on any exit path.
+}
+
+render_static_logo() {
+    local use_color="$1"
+    local frame_count
+    local last_frame
+
+    write_frames_cache
+    frame_count="$(load_frame_count)"
+    last_frame="$((frame_count - 1))"
+    printf '%s\n' "$(render_frame "$last_frame" "$use_color")"
+}
+
+print_log_tail_and_exit() {
+    error "Yutori CLI install failed."
+    if [[ -n "$INSTALL_LOG" && -f "$INSTALL_LOG" ]]; then
+        printf '\n' >&2
+        # Print before the EXIT trap can race and delete the log.
+        if ! tail -n 40 "$INSTALL_LOG" >&2; then
+            error "(Could not read install log at $INSTALL_LOG.)"
+        fi
+    fi
+    exit 1
+}
+
+handoff_to_python_ui() {
+    local bin_dir
+    local yutori_bin
+
+    if [[ -z "$UV_BIN" ]] && ! UV_BIN="$(resolve_uv_bin)"; then
+        error "uv is not available; cannot locate the installed CLI."
+        exit 1
+    fi
+
+    if ! bin_dir="$("$UV_BIN" tool dir --bin 2>&1)"; then
+        error "uv tool dir --bin failed: $bin_dir"
+        exit 1
+    fi
+    yutori_bin="${bin_dir}/yutori"
+
+    if [[ ! -x "$yutori_bin" ]]; then
+        error "Installed CLI was not found at ${yutori_bin}."
+        exit 1
+    fi
+
+    printf '\n'
+    cleanup_temp_files
+    # The Python UI reuses uv via YUTORI_UV_BIN when PATH may not yet include
+    # the uv tool bin dir (e.g., first-time installs where update-shell hasn't
+    # run). Reopen /dev/tty for stdin so interactive prompts work under
+    # `curl | bash` — the script's stdin is the downloaded bytes by default.
+    export YUTORI_UV_BIN="$UV_BIN"
+    if [[ -r /dev/tty ]]; then
+        exec "$yutori_bin" __install_ui </dev/tty
+    fi
+    exec "$yutori_bin" __install_ui
+}
+
+main() {
+    local interactive
+    local animation_mode
+    local use_color=0
+    local install_status=0
+
+    assert_supported_platform
+    interactive=0
+    if is_interactive_terminal; then
+        interactive=1
+    fi
+
+    animation_mode="off"
+    if (( interactive )) && [[ "${YUTORI_INSTALL_SKIP_ANIM:-0}" != "1" ]]; then
+        if supports_truecolor; then
+            animation_mode="full"
+            use_color=1
+        else
+            animation_mode="static"
+        fi
+    fi
+
+    # Enable job control so the backgrounded install gets its own process
+    # group — needed for kill_uv_process_group() to actually reach uv and its
+    # curl/cargo children on Ctrl-C. Harmless in non-animation modes.
+    set -m
+
+    INSTALL_LOG="$(mktemp "${TMPDIR:-/tmp}/yutori-install-log.XXXXXX")"
+    INSTALL_STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/yutori-install-status.XXXXXX")"
+    if [[ "$animation_mode" == "full" ]]; then
+        start_install_job
+        play_animation_until_done "$UV_INSTALL_PID" "$use_color"
+    else
+        render_banner
+        note "Installing Yutori CLI with uv..."
+        if [[ "$animation_mode" == "static" ]]; then
+            render_static_logo "$use_color"
+        fi
+        # Still background + capture even in static/off modes so failure
+        # output renders consistently via print_log_tail_and_exit.
+        start_install_job
+    fi
+
+    # Prefer the status file (written by the install subshell) over `wait`'s
+    # return — under job-control, `wait` can return 127 ("no such job") for a
+    # successfully reaped PID. Fall back to `wait`'s status when the file is
+    # missing or unparseable, so SIGKILL / setup-crash paths still surface as
+    # a non-zero install_status rather than defaulting to 1 with no context.
+    local wait_status=0
+    wait "$UV_INSTALL_PID" 2>/dev/null || wait_status=$?
+    UV_INSTALL_PID=""
+    if [[ -s "$INSTALL_STATUS_FILE" ]]; then
+        install_status="$(tr -d '\n' < "$INSTALL_STATUS_FILE")"
+    else
+        install_status="$wait_status"
+    fi
+    if [[ ! "$install_status" =~ ^[0-9]+$ ]]; then
+        install_status="${wait_status:-1}"
+    fi
+    if [[ ! "$install_status" =~ ^[0-9]+$ ]]; then
+        install_status=1
+    fi
+
+    if (( install_status != 0 )); then
+        print_log_tail_and_exit
+    fi
+
+    # Echo the install output in non-animation modes so users see uv's
+    # progress; in `full` mode it was intentionally hidden by the animation.
+    if [[ "$animation_mode" != "full" && -f "$INSTALL_LOG" ]]; then
+        cat "$INSTALL_LOG"
+    fi
+
+    note "Yutori CLI installed."
+    handoff_to_python_ui
+}
+
+main "$@"

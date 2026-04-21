@@ -14,6 +14,7 @@ import logging
 import os
 import secrets
 import socketserver
+import sys
 import threading
 import webbrowser
 from datetime import datetime, timezone
@@ -39,14 +40,15 @@ from .constants import (
     REDIRECT_URI,
     build_auth_api_url,
 )
-from .credentials import get_config_path, load_config, save_config
+from .credentials import _is_real_key, get_config_path, load_config, save_config
 from .types import AuthStatus, LoginResult
 
 logger = logging.getLogger(__name__)
 
 REGISTER_INCOMPATIBLE_STATUS_CODES = {404, 405, 501}
 REGISTER_INCOMPATIBLE_ERROR = (
-    "This CLI version requires backend support for /client/register-api. Deploy the backend update and try again."
+    "Yutori servers are out of sync with this CLI version. Please retry shortly, "
+    "or contact support@yutori.ai if this persists."
 )
 
 
@@ -174,8 +176,18 @@ def generate_api_key(jwt: str, key_name: str | None = None) -> str:
         return response.json()["key"]
 
 
-def check_registration_status(jwt: str) -> bool:
-    """Best-effort registration check. Returns False on any failure."""
+def check_registration_status(jwt: str) -> bool | None:
+    """Best-effort registration check.
+
+    Returns:
+        ``True`` when the backend confirms the user is already registered,
+        ``False`` when it confirms the user is not registered, and ``None``
+        when the status probe fails.
+
+    Callers must distinguish ``None`` from ``False``. Treating unknown as
+    "new user" would incorrectly trigger registration for existing users when
+    the probe endpoint is transiently unreachable.
+    """
     try:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(
@@ -184,9 +196,9 @@ def check_registration_status(jwt: str) -> bool:
             )
             if response.status_code == 200:
                 return bool(response.json().get("is_registered", False))
-    except Exception:
-        logger.debug("Registration status check failed", exc_info=True)
-    return False
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Registration status probe failed: %s", exc)
+    return None
 
 
 def register_user(jwt: str, signup_source: str = "cli") -> None:
@@ -237,8 +249,14 @@ def run_login_flow(
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
+    # webbrowser.open returns False when no browser could be launched (headless
+    # remote shell, locked-down container). Print the URL to stderr so the user
+    # can copy it manually instead of waiting out AUTH_TIMEOUT_SECONDS in silence.
     if not webbrowser.open(auth_url):
-        logger.warning("Could not open browser. Open this URL manually:\n  %s", auth_url)
+        print(
+            f"Could not launch a browser. Open this URL manually to finish login:\n  {auth_url}",
+            file=sys.stderr,
+        )
 
     try:
         callback_result.received.wait(timeout=AUTH_TIMEOUT_SECONDS)
@@ -261,7 +279,8 @@ def run_login_flow(
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
-        is_new_user = not check_registration_status(jwt)
+        registration_status = check_registration_status(jwt)
+        is_new_user = registration_status is False
         if on_registration_state:
             try:
                 on_registration_state("creating_account" if is_new_user else "logging_in")
@@ -270,7 +289,7 @@ def run_login_flow(
         try:
             register_user(jwt)
         except RegisterEndpointUnavailableError:
-            if is_new_user:
+            if registration_status is not True:
                 raise
             logger.warning("Registration endpoint unavailable; continuing for existing user", exc_info=True)
         api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
@@ -308,7 +327,7 @@ def get_auth_status() -> AuthStatus:
     config_path = str(get_config_path())
 
     env_key = os.environ.get("YUTORI_API_KEY")
-    if env_key:
+    if _is_real_key(env_key):
         return AuthStatus(
             authenticated=True,
             masked_key=_mask_key(env_key),
@@ -318,7 +337,7 @@ def get_auth_status() -> AuthStatus:
 
     config = load_config()
     config_key = config.get("api_key") if config else None
-    if config_key and isinstance(config_key, str):
+    if isinstance(config_key, str) and _is_real_key(config_key):
         return AuthStatus(
             authenticated=True,
             masked_key=_mask_key(config_key),

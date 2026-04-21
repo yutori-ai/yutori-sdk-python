@@ -66,3 +66,29 @@ def test_auth_login_surfaces_backend_incompatibility(monkeypatch):
     assert result.exit_code == 1
     assert "Creating account..." in result.stdout
     assert "/client/register-api" in result.stdout
+
+
+def test_auth_login_ignores_placeholder_env_var(monkeypatch):
+    monkeypatch.setenv("YUTORI_API_KEY", "YOUR_API_KEY")
+
+    with (
+        patch("yutori.cli.commands.auth.load_config", return_value=None),
+        patch("yutori.cli.commands.auth.run_login_flow", return_value=LoginResult(success=True, api_key="yt-key")),
+    ):
+        result = runner.invoke(app, ["auth", "login"])
+
+    assert result.exit_code == 0
+    assert "Successfully authenticated!" in result.stdout
+
+
+def test_auth_login_ignores_placeholder_config_key(monkeypatch):
+    monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+
+    with (
+        patch("yutori.cli.commands.auth.load_config", return_value={"api_key": "YOUR_API_KEY"}),
+        patch("yutori.cli.commands.auth.run_login_flow", return_value=LoginResult(success=True, api_key="yt-key")),
+    ):
+        result = runner.invoke(app, ["auth", "login"])
+
+    assert result.exit_code == 0
+    assert "Successfully authenticated!" in result.stdout

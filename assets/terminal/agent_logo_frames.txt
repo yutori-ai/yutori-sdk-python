@@ -1,0 +1,1504 @@
+=== FRAME 0 ===
+           :::uuu:::
+         :uuu  :  uuuu
+       uuu   :u u   :uuu
+      uu :u uuu uuu u: uu
+     uu uu uuuu uuu::uu uu
+    uu:uuu:uuuu uuuu:uuu::u
+   u::uuu uuuuu uuuuu uuu::u
+  uu uuuu:uuu:: :uuuu:uuuu uu
+  u uuuu: ::::u :::::  uuuu u
+ :u:uu:  uuuuuu uuuuuu  :uu:uu
+ u u::uu:uuuuuu uuuuuu:uu::u:u
+ u  uuu:uuuuuuu uuuuuuu:uu:  u:
+:: :uuu:uuuuuuu:uuuuuuu:uuu: :u
+:::uuuu uuuuuuuuuuuuuuu uuuu::u
+::uuuuu uuuuuuu:uuuuuuu uuuuu u
+u           uu   uu           u
+u uuuuu uuuuuuu :uuuuuu uuuuu u
+:::uuuu uuuuuuu uuuuuuu uuuu: u
+uu uuuu uuuuuuu uuuuuuu:uuuu :u
+ u  uuu:uuuuu     uuuuu:uuu  u:
+ u u uuuuuu         uuuuuu u u
+ :::u: uu             uu::uu:u
+  u uuuu:             :uuuu u
+  u::uuu               uuu::u
+   u uu     u     u     uu u:
+    uuu    :u     uu    uuu:
+    :uu                 uu:
+     :u:                u:
+       uu:            uu:
+         uu:      ::uu:
+          ::uuuuuuu::
+=== FRAME 1 ===
+           :::uuu:::
+         :uuu  :  uuuu
+       uuu   :u u   :uuu
+      uu :u uuu uuu u: uu
+     uu uu uuuu uuu::uu :u
+    u::uuu:uuuu uuuu:uuu::u
+   u::uuu uuuuu uuuuu uuu::u
+  uu uuuu:uuu:: :uuuu:uuuu:u:
+  u uuuu: ::::u ::::: :uuuu u
+ :::uu:  uuuuuu uuuuuu  :uu:u:
+ u u::uu:uuuuuu uuuuuu:uu::u u
+ u  :uu:uuuuuuu uuuuuuu:uu:  u:
+:: uuuu uuuuuuu:uuuuuuu:uuuu :u
+u::uuuu uuuuuuuuuuuuuuu uuuu: u
+u uuuuu uuuuuuu:uuuuuuu uuuuu u
+u           uu   uu           u
+u uuuuu uuuuuuu :uuuuuu uuuuu u
+u :uuuu uuuuuuu uuuuuuu uuuuu u
+:u uuuu uuuuuuu uuuuuuu uuuu :u
+::  uuu:uuuuu     uuuuu:uuu  ::
+ u u uuuuuu         uuuuuu : u
+ ::uu: uu             uu::uu:u
+  u uuuuu             :uuuu u
+  u::uuu               uuu::u
+   u uu     u     u     uu u:
+    uuu    :u     uu    uuuu
+    :uu                 uu:
+     :u:                u:
+      :uu:            uu:
+         uu:      ::uu:
+          ::uuuuuuu::
+=== FRAME 2 ===
+           :::uuu:::
+         :uuu  :  uuuu
+       uuu   :u u   :uuu
+      uu :u uuu uuu u: uu
+     uu uu uuuu uuu::uu :u
+    uu:uuu:uuuu uuuu:uuu::u
+   u::uuu uuuuu uuuuu uuu::u
+  uu uuuu:uuuu: :uuuu:uuuu:uu
+  u uuuu: ::::u ::::: :uuuu u
+ :u:uu:  uuuuuu uuuuuu  :uu:u:
+ u u::uu:uuuuuu uuuuuu:uu::u u
+ u  :uu:uuuuuuu uuuuuuu:uu:  u:
+:: uuuu:uuuuuuu:uuuuuuu:uuuu :u
+:::uuuu uuuuuuuuuuuuuuu uuuu: u
+u uuuuu uuuuuuu:uuuuuuu uuuuu u
+u           uu   uu           u
+u uuuuu uuuuuuu :uuuuuu uuuuu u
+u::uuuu uuuuuuu uuuuuuu uuuuu u
+:u uuuu uuuuuuu uuuuuuu uuuu :u
+:u  uuu:uuuuu     :uuuu:uuu  ::
+ u u uuuuuu         uuuuuu : u
+ ::uu: uu             uu::uu:u
+  u uuuu:             :uuuu u
+  u::uuu               uuu::u
+   u uu     u     u     uu u:
+    uuu    :u     uu    uuuu
+    :uu                 uu:
+     :u:                u:
+      :uu:            uu:
+         uu:      ::uu:
+          ::uuuuuuu::
+=== FRAME 3 ===
+           :::uuu:::
+         :uuu::  :uuu:
+       :uu:  :u u:  :uuu
+      uu :u uuu uu: u: uu
+     u: uu uuuu uuu::uu uu
+    u::uu::uuuu uuuu uuu::u
+   u::uuu uuuuu uuuuu uuu uu
+  uu uuuu:uuuu: uuuuu uuuu u:
+  u uuuu  ::::u :::::  uuuu u
+ uu:uu: :uuuuuu uuuuuu  :uu:u:
+ u u: uu:uuuuuu uuuuuu uu::u:u
+ u: :uu:uuuuuuu uuuuuuuuuu:: u:
+uu :uuu:uuuuuuu:uuuuuuuuuuu: u:
+u: uuuu uuuuuuuuuuuuuuu uuuu::u
+u:uuuuu uuuuuuu:uuuuuuu uuuuu u
+u:          uu   uu           u
+u:uuuuu uuuuuu: :uuuuuu uuuuu u
+u:uuuuu uuuuuuu uuuuuuu uuuu: u
+u: uuuu:uuuuuuu uuuuuuu:uuuu :u
+:u  uuu:uuuuu:  ::uuuuuuuuu  ::
+ u u uuuuuu         uuuuuu u u
+ u::u  uu:           :uu  uu:u
+ :u:uuuu:             uuuuu u:
+  u uuuu               uuu::u
+   u uu    :u     u    :uu u:
+   :uuu    uu    :uu    uuuu
+    :u:                 uu:
+     uu:                uu
+      :uu:            uu
+        :uu         uu:
+          uuuuuuuuuu:
+=== FRAME 4 ===
+           :::uuu:::
+         uuuu:  ::uuu:
+       uuu   :u u   :uu:
+      uu :: uuu uu: u: uu
+    :uu:uu uuuu uuu:uuu uu
+    u::uu:uuuuu uuuu uuu uu
+   u: uuu uuuuu uuuuu:uuu uu
+  :u:uuuuuuuuu: uuuuu uuuu u:
+  u uuuu  ::::: u:::: :uuu::u
+ uu:uu:  uuuuuu uuuuu:  :uu u:
+ u u::uuuuuuuuu uuuuuu uu u::u
+ u  :uu:uuuuuuu uuuuuu uuu:: u
+:u uuuu:uuuuuuu:uuuuuu:uuuu  u:
+u :uuuu:uuuuuuuuuuuuuu:uuuuu u:
+u uuuuu uuuuuu::uuuuuu::uuuu:uu
+u          :uu  :uu          uu
+u uuuuu uuuuuu  uuuuuu::uuuu:u:
+u uuuuu uuuuuuu uuuuuu:uuuuu:u:
+:: uuuu:uuuuuuu uuuuuu:uuuu: u
+:u  uuu:uuuu::  ::uuuu:uuuu  u
+ u u:uuuuuu         uuuuuu ::u
+ u:uu::uu:           :uu :u u:
+  u uuuu:             uuuuu u:
+  u:uuuu               uuu:u:
+   u:uu:   :u     u    :uu u
+   :uuu    uu    uuu    uuu
+    :u:                 uu:
+     :u                :u:
+       u:            :uu
+        :uu        :uu
+          uuuuuuuuuu:
+=== FRAME 5 ===
+           :::uuu:::
+         :uuu: :  uuuu
+       :uu:   u u:  :uuu
+      uu:::::uu uu: u: uu
+     uu :u::uuu:uuu::uu uu
+    uu:uuu:uuuu:uuuu uuu uu
+   :u uuu:uuuuu:uuuuu:uuu:u:
+   u:uuuu uuuuu :uuuu:uuuu u
+  :::uuu: ::::u ::::: :uuuu:u
+  u uu:  uuuuuu:uuuuuu  :uu u
+ :u:u uu:uuuuuu:uuuuuu:uu :uuu
+ u : uuu:uuuuuu:uuuuuu:uuu   u
+ u :uuuuuuuuuuuuuuuuuuuuuuu: u
+ u uuuu:uuuuuuuuuuuuuuuuuuuu u:
+ u:uuuu:uuuuuuu:uuuuuuu:uuuu:::
+ u          uu   uu          u:
+ u:uuuu:uuuuuu: :uuuuuu:uuuu:::
+ u uuuuuuuuuuuu:uuuuuuu:uuuu:u:
+ u :uuu:uuuuuuu:uuuuuuuuuuuu u
+ u  uuu::uuuu:: ::uuuu::uuu  u
+ u:u :uuuuu         uuuuuu u:u
+  u:u: uuu           uuu  u:u:
+  u uuuuu             uuuuu u
+  :u uuu               uuu:uu
+   u::uu    u     u    :u::u
+    uuu    :u:    u:    uuu:
+     uu                 uu:
+      u:               :u:
+       uu:           :uu:
+        :uu:        uu:
+          :uuuuuuuuuu
+=== FRAME 6 ===
+           :::uuu:::
+         :uuu:   :uuu
+       :uu:  :u u   :uu:
+      uu :u uuu uu::u :u:
+     uu uuu:uuu uuu:uu::u:
+    uu uuu:uuuu uuuu:uuu uu
+    u uuu uuuuu uuuu:uuuu u:
+   u uuuu uuuuu uuuuu:uuu:uu
+  :u:uuu: ::::u u:::: uuuu u
+  u uu:  uuuuuu uuuuu:  :uu:u
+ :u:u uu uuuuuu uuuuuu uu u u
+ u:  uuu:uuuuuu uuuuuu uuu  ::
+ u  uuuuuuuuuuu:uuuuuu uuuu :u
+ u uuuu:uuuuuuuuuuuuuu:uuuu: u
+ u uuuu:uuuuuuu:uuuuuuuuuuuu u
+ u          uu  :uu          u
+ u:uuuu:uuuuuu: uuuuuu:uuuuu u
+ u uuuu:uuuuuuu uuuuuu:uuuuu u
+ u :uuu::uuuuuu uuuuuu uuuu  u
+ u  uuuu:uuuu:: ::uuuu uuu: :u
+ uuu uuuuuu        :uuuuu:: u:
+  u u: uu:           uuu :u u
+  u:uuuuu             uuuuuuu
+   u:uuu               uuu u
+   uu:u:    u     u    uu u:
+    uuu    uu    :u    :uuu
+     uu                :uu
+      uu               uu
+       uu            :uu
+         uu         uu
+          :uuuuuuuuu:
+=== FRAME 7 ===
+           ::uuuu:::
+          uuu:   :uuu
+        uu:  :u u   :uu:
+      :u: u uuu uu :: :u:
+     :u::uu:uuu uuu uu::u:
+     u:uuu uuuu uuuu uuu:u
+    u uuu:uuuuu uuuu:uuu::u
+   uu:uuu uuuuu uuuuu:uuu:u:
+   u uuu: ::::: u:::: uuuu u
+  :uuu:  :uuuuu uuuuu: :uu:u:
+  u u uu uuuuuu uuuuuuuu::u:u
+ ::  uuu uuuuuu uuuuuu uu:: u
+ uu uuuu:uuuuuu:uuuuuu uuuu u:
+ u :uuuu:uuuuuuuuuuuuu uuuu ::
+ u uuuuu:uuuuuu:uuuuuu uuuuu::
+ u          uu: :uu         uu
+ u uuuuu:uuuuu: uuuuuu uuuuu:u
+ u uuuuuuuuuuuu uuuuuu uuuu:u:
+ :  uuuu:uuuuuu uuuuuu uuuu u:
+ :: :uuu:uuuu:: ::uuuu uuu  u:
+  u ::uuuuu        :uuuuu u:u
+  u uu uuu           uu: :u::
+  :uuuuuu             uuuu u:
+   u uuu              :uu::u
+   :u uu    u    :u    uu u
+    uuu:   :u:   :u    uuuu
+     uu:               :u:
+      uu               uu
+       :u:           :u:
+         uu        :uu
+          :uuuuuuuuu:
+=== FRAME 8 ===
+            :uuuu::
+          uuu:   :uuu
+        uuu  :u u   :uu
+       u: : :uu uu :: uu
+      uu:uu:uuu uuu uu uu
+     u:uuu:uuuu uuuu:uu:uu
+    uu uu::uuuu uuuu:uuu ::
+    u uuu:uuuuu uuuuuuuuu u
+   u uuuu ::::u u:::  uuuu:u
+   u:uu  :uuuuu uuuuu  :uu u
+  u:u::u:uuuuuu uuuuu:uu uuu:
+  u  :uu uuuuuu uuuuuu:uu ::u
+  u :uuu uuuuuu:uuuuuu:uuu: u
+  : uuuu uuuuuuuuuuuuu uuuu u
+ :::uuuu:uuuuuu:uuuuuu uuuu u
+ :u         uu  :uu         u
+ :::uuuu:uuuuu: uuuuuu uuuu u
+ :u:uuuu:uuuuuu uuuuuu uuuu u
+  u uuuu uuuuuu uuuuuu uuuu u
+  u  uuu uuuu:: ::uuuu:uuu :u
+  u:: uuuuu:       :uuuuu uuu
+  :::u :uu          :uu: u:u
+   u:uuuu:           :uuuu u
+   :::uu:             uuu:u
+    u uu    u    ::    uu:u
+    :uuu    u:   uu    uuu:
+     :u:               uu:
+      uu               u:
+       :u:           :u:
+        :uu:       :uu
+           uuuuuuuuu
+=== FRAME 9 ===
+            ::uuu:::
+          :uu: : :uuu
+        :uu:  u u   uuu
+       uu :u:uu:uu:u: uu
+      :u uu:uuu:uuu:uu uu
+     :u uu:uuuu:uuuu:uu u:
+     u:uuu uuuu:uuuu uuu u
+    uuuuuuuuuuu :uuuuuuuu:u
+    u uuu  :::: ::::  uuu:u:
+   ::uu:  uuuuu:uuuuu  :uu u
+   u u uu:uuuuu:uuuuu:uu:u u
+   u  uuu:uuuuu:uuuuuu:uu  u
+  :u uuu:uuuuuu:uuuuuu:uuu ::
+  :: uuu:uuuuuuuuuuuuu:uuuu:u
+  : uuuu:uuuuuu:uuuuuu:uuuu u
+  u         uuu  uu         u
+  u uuuu:uuuuuu uuuuuu:uuuu u
+  : uuuu:uuuuuu:uuuuuu:uuuu u
+  :u uuu:uuuuuu:uuuuuuuuuu::u
+   u :uuuuuuu     uuuu:uu: u:
+   u ::uuuu:       :uuuu:::u:
+   : uu uu           uu :u u
+    u:uuu:           :uuuu:u
+    u uuu             uuu:u
+     u u:   u:    u   :u:u:
+     :uu:   u:   :u    uuu
+      uu               uu
+       u:             :u
+        uu:          uu
+         :uu      :uu:
+           :uuuuuuu:
+=== FRAME 10 ===
+            ::uu:::
+          :uu    uuu:
+        :uu   : :  :uu
+       :u : :uu:u: u :u
+      :: uu uuu:uuuuu:uu
+     :u uu:uuuu:uuu uuu u
+     u:uuu:uuuu:uuu::uu ::
+    ::uuu:uuu:: uuuu uuu u
+    u uuu  :::: :::: uuuuu:
+    :uu: :uuuuu:uuuu: ::u:u
+   u u :uuuuuuu:uuuuu:u:::u
+   u  uuuuuuuuu:uuuuu uu::::
+   u :uu:uuuuuuuuuuuu uuu:uu
+   u uuu:uuuuuuuuuuuu uuuu u
+   ::uuu:uuuuu::uuuuu:uuuu u
+            uu  uu         u
+    uuuu:uuuuu  uuuuu:uuuu:u
+   ::uuu:uuuuuu:uuuuu:uuuu u
+   u uuu:uuuuuu:uuuuu uuu: u
+   :  uu:uuuu :  :uuu uuu ::
+   u :uuuuu:       uuuuu :u:
+   ::u: uu          uu: u:u
+    u:uuu:           uuuu:u
+    u uuu            :uu:u
+     u:u:   u    ::   uu u
+     uuu    u    u:   uuu
+      uu              :u:
+       u:             u:
+        uu          :uu
+         :u:       uu
+           uuu:uuuu:
+=== FRAME 11 ===
+            ::uuu::
+          :uu:   :uu:
+         uu:  u :   u:
+        u :u:uu:uu u:uu
+       u :u:uuu:uu::u :u
+      uu:uu:uuu:uuu:uu:::
+      u:uu:uuuu:uuu:uuu u
+     u uuu:u::: :::u:uuu:u
+     ::uu: :::u :::: :uu:u
+    u uu  :uuuu uuuu   u:::
+    u u u:uuuuu uuuuu:u:u u
+    u :uu uuuuu uuuuu:uu :u
+    : uuu:uuuuu:uuuuu:uuu u:
+   ::uuuu:uuuuuuuuuuu:uuu:u
+   uuuuu::uuuu: uuuuu:uuu::
+   u:       :u  uu
+   u:uuu::uuuuu uuuuu:uuuu
+   uuuuuu:uuuuu uuuuu:uuuu:
+     :uuu uuuuu uuuuu:uuu u:
+    : :uu uuu    :uuu:uu  u
+    u::uu:uu       uuuu:: u
+    u u :u:         :u :u :
+    ::uuuu           uuu u
+     u uu            :uu:u
+     ::uu   ::   :    u:u
+      uuu   uu   u:   uuu
+       u:             :u
+       :u             u
+        :u:         :u
+          :u       u:
+           ::uu:uu::
+=== FRAME 12 ===
+            u:uu:::
+          :uu    uu:
+         uu  ::::  :u
+        u: : uuuuu:: u:
+       :: u uuuuuu:uu:u
+      :u:uu:uuuuuuu:uu u
+      u uu:uuuuuuuu:uu:::
+     ::uuu uu:::::u:uuu:u
+     u:uu: :::: :::  uu:u:
+     u:u: uuuuu:uuuu  :u:u
+    :uu u:uuuuuuuuuu:u:uuu
+    : :uuuuuuuuuuuuu uu  u:
+    u:uuuuuuuuuuuuuuuuuu u
+    u:uuuuuuuuuuuuuuu:uuu::
+    ::uuu:uuuuu:uuuuu:uuu::
+    u       :u  uu       :u
+    ::uuu:uuuu: uuuu::uuu:u
+    u:uuu:uuuuu:uuuuu:uuu:u
+    u uuuuuuuuuuuuuuuuuu::
+    : :uu:uuu:   uuu:uu: u:
+    uu::uuuu      :uuuu :u
+     :u::u:        :u: u u
+     u:uuu          :uuu:u
+     :uuuu           uu:u
+      : u   :    u   :u::
+      uuu   uu   u:  :uu
+       uu             u
+        u            ::
+         u:         u:
+          uu      :u
+           :uuuuuuu
+=== FRAME 13 ===
+            :uuuuu
+           uu    uu:
+         :u:  u::  uu
+        :u u:uuuu : :u
+        u uuuuuuuu:u:uu
+       u:uu:uuuuuuuuu:u
+      ::uuuuuuuuuuu:uu::
+      u:uuuuu:::u:uuuuuu:
+      uuuu :::u ::: uuu:u
+     ::uu :uuuuuuuuu :u:u
+     uu::uuuuuuuuuuuuu:uu:
+     u :uuuuuuuuuuuuuuu u:
+     u uuuuuuuuuuuuuuuu: u
+     :uuu:uuuuuuuuuu:uuu u
+     :uuu uuuuu:uuuu uuu:u
+     u      :u  uu       u
+     uuuu uuuuu uuuu uuu:u
+     uuuu:uuuuuuuuuu uuu:u
+     ::uuuuuuuuuuuuu:uuu u
+     u :uuuuu    uuuuuu: :
+     u: uuuu      uuuu:uuu
+     u:u uu        uu uuu
+     :uuuu          uuu:u
+      uuuu          :uuu:
+      ::u:  ::   u   u:u
+       uuu  uu  :u   uu:
+       :u            u:
+        u:           u
+         uu        :u
+          :u:     uu
+           :uuuuuu:
+=== FRAME 14 ===
+            :uuuuu
+           uuu   uuu
+          u:  u::  uu
+         uu::uuuuuu:u:
+        :::u:uu:uu:u:u
+        u:uuuuuuuuuuu:u
+       u:uu:uuu:uuuuuuuu
+       uuuuuu:: ::u:uu:u
+      ::uuu uuu uu: uuuu:
+      uuu  uuuu:uuu: :u::
+      u::uuuuuuuuuuuu::uu
+      u:uuuuuuuuuuuuuuu u
+      ::uuuuuuuuuuuuuuu u:
+      uuuuuuuuuuuuuu:uuuu:
+      uuuu:uuuu uuuu:uuu:
+      u      uu uu      u
+      uuuu:uuuu uuuu:uuu:
+      uuuu:uuuuuuuuu:uuu::
+      uuuuuuuuuuuuuuuuu:u:
+      ::uuuuu:   uuuuu: u
+      uu:uuu:     :uuu uu
+      :uu:uu       uu u::
+      ::uuu         uuuu:
+       uuuu         uuuu
+       ::u   u   :  :u::
+       :uu   u  :u:  uu
+        :u           u:
+         u:         :u
+          u:       :u
+           u:     uu
+            uuuuuu:
+=== FRAME 15 ===
+             u:uuu
+           :uu   uu:
+           u  ::  :u
+          u uuuuu u:u
+         u u:uuuu::uuu
+        :uuuuuuuuu:uuu:
+        ::uuuuuuuuuuu:u
+       :uuu:u:::::uuu:u
+       ::uu :::::: :uuuu
+       ::u :uuuuuuu  uu:
+       u::u:uuuuuuuuu uu
+      :  uuuuuuuuuuuu: u
+      ::uuuuuuuuuuu:uuuu:
+      :uuuuuuuuuuuu:uuuu:
+       uuu:uuuu:uuu:uuu:
+      :u     uu u:     :
+       uuu:uuuu uuu:uuu::
+      :uuu:uuuuuuuu:uuuu:
+      :uuuuuuuuuuuu:uuu::
+      : :uuuuu   uuuuu:u
+       u::uuu     uuu::u
+       u::uu       u uuu
+       :uuu:       :uu:u
+       :uuu         uuu:
+        uuu  :  :u  u:u
+        uu:  u  :u  uu:
+         uu         :u
+         :u         u:
+          u:       u:
+           :u     u:
+            :uu:uu:
+=== FRAME 16 ===
+             uuuu:
+           :u:  :uu
+           u  :u  uu
+          uuuuuuuu:uu
+         :uuuuuuuuuuu
+         uuuuuuuuuuuuu
+        ::uuuuuuuu:u:u
+        :uuuu:: :uuuuu
+        uuuu:uu:uu uu:u
+        uu: uuuuuu: uuu
+        uuu:uuuuuuuuu:u
+       ::uuuuuuuuuuuu:u
+       :uuuuuuuuuuuuu:::
+       :uuuuuuuuuuuuuuuu
+        uuuuuuu:uuu:uu::
+        :    uu u:    u:
+        uuuuuuu:uuu:uuu:
+       :uuuuuuuuuuuuuu::
+       :uuuuuuuuuuuuuuuu
+       : uuuuu  :uuuu :
+        :uuuu    :uu: u
+        uu:u      uu:uu
+        :uuu       uu::
+        uuu:       uuu:
+         :u: :: :  :uu
+         uu  u: u: uuu
+         :u         u:
+          u        :
+          :u      :u
+           :u    :u
+            :uuuuu
+=== FRAME 17 ===
+             :uuu
+            uu  :u
+           u: ::: u
+          :uuuuuuuuu
+          :uuuuuu:uu
+          uu:uuuuuu:u
+         ::uuuuuuuuuu
+         :uu:::::uuuu:
+         :uu:u::u::uuu
+         u: uuuuuu ::u
+         :::uuuuuuuuuu
+        ::uuuuuuuuuu::
+        uuuuuuuuuuuuu::
+        uuuuuuuuuu:uu:u
+        :uuuuuu:uu:uu:u
+        :    u::u    :u
+         uuuuuuuuu:uu:u
+        :uuuuuuuuu:uu:u
+        uuuuuuuuuuuuu:u
+        : uuu:  :uuu::
+         ::uu    uuu:u
+        :u:u:     u::u
+         :uu      uuu:
+         uuu      :uuu
+         :uu :: :: uu
+          u: :  u: uu
+          u        u
+           :       u
+           :      u
+            u    ::
+             uuuu:
+=== FRAME 18 ===
+              :u:
+            ::  ::
+            u  : :
+           :u:uu:uu:
+           :uuu:u:u:
+           uuuuuuuuu
+          :u:uu:u:u::
+          uu ::::uu::
+          :u::::: uuu
+          uu u:uu: :
+          :u:uuuuuuuu:
+          ::uuuuuuuu:
+         uuuuuuuuuuu:
+         uuuuuuuuuuu :
+         ::uu:uuu::u :
+         u    uuu    u
+         :uuuuuuuuuu::
+         uuuuuuuuuuu :
+         uuuuuuuuuuu:
+         ::::u  :uuu:
+           uuu   uu:u:
+          u::    ::::
+          :u:     uu:
+          :u:     u:u
+           :    : :u
+          :u :u u  u:
+           u      :u
+           :      ::
+            :    :u
+             :   u
+             uuuu
+=== FRAME 19 ===
+              ::
+             :  :
+            :::  :
+            ::uuuuu
+            u :::::
+           :uuuu:u::
+            ::::::u:
+           :::: ::::
+           :: ::: uu
+           : :::: : :
+           :uuuuu:::u
+           :::::u:u::
+          :u:uuuuuuu:
+          uu:uuuu:u
+          ::::::::u
+          u   uu:   :
+          ::::u:u:u:
+          :u:uuuu:u
+          :u:uuuuuuu:
+           u::  ::u::
+           :uu   uuuu
+          ::u:   :  :
+           u:    :::
+           :u     uu
+           u: u   :
+           :u u u :u
+            :     :
+            :     :
+            :    ::
+                 :
+              uu:
+=== FRAME 20 ===
+              u:
+
+             ::: u
+              :::::
+            ::uu:::
+            ::u::::
+            : ::::
+            :    u::
+            : ::
+            ::uuu :
+            :::::: :
+            u:uuu::u
+            u:uuu:uu
+           :u:uu:::u
+            ::uu:  u
+           :  :::  :
+           :uuuuu::u
+           :::::::::
+            u:u:u:uu
+            ::  :: :
+            ::   : :
+             u   u:
+            :    ::
+            :u   :::
+             :  :
+             : :::u
+                 ::
+             :    :
+             :   :
+                 :
+              u:
+=== FRAME 21 ===
+              :::
+                :
+             :  ::
+
+              :::u
+              :u::
+             ::u:
+             :  ::
+             : : :
+             ::u::
+             ::::
+             ::u:
+             :uu:::
+            ::uu: :
+             :u:  :
+              :   :
+            ::uu:::
+             :::: :
+             ::u:u:
+             :  :
+             :  u
+             u   :
+             :   :
+             :   :
+             ::
+             uu :u
+             u   :
+             :   :
+             :   :
+              : :
+              ::
+=== FRAME 22 ===
+               :
+                :
+                :
+                :
+               ::
+               ::
+              :
+              : ::
+                 :
+              :: :
+              :: :
+              ::::
+              :u::
+              ::::
+               :::
+               : :
+              ::::
+              ::::
+              ::::
+               :::
+                 :
+              u  :
+              :  :
+              :  :
+               u
+               uu
+                u
+              : :
+              u :
+                :
+               :
+=== FRAME 23 ===
+               :
+               :
+               :
+               :
+               :
+               :
+
+                :
+                :
+                :
+                :
+                :
+                :
+                :
+                :
+              :::
+                :
+                :
+                :
+                :
+                :
+               ::
+               ::
+               :
+
+               :
+               u
+               u
+               u
+               :
+
+=== FRAME 24 ===
+               :
+               :
+               :
+               :
+
+
+
+               :
+               :
+               :
+               :
+               :
+               :
+               :
+               :
+               u
+               u
+               :
+               u
+               :
+               :
+               u
+               :
+               u
+               :
+               :
+               :
+               :
+               :
+               :
+               :
+=== FRAME 25 ===
+               :
+              :
+              :
+              :
+              :
+              :
+              :
+              :
+              :
+              ::
+              ::
+              ::
+              ::
+              ::
+              :
+              : :
+              ::
+              ::
+              :u
+              :
+              ::
+              ::
+              : :
+              u u
+              : :
+              u :
+              : :
+              u :
+              :::
+               :
+
+=== FRAME 26 ===
+              ::
+              :
+              :
+             :
+               :
+             ::::
+             :
+             u   :
+             :
+             u u::
+             : ::
+             : u:
+             : u:
+               ::
+             : :
+             : :
+             :::::
+             : ::
+             : u:
+             u
+             :  :
+             u  u
+             :   :
+             u   :
+             :  u:
+             :::u:
+             ::  :
+                 :
+              : :
+              :
+                :
+=== FRAME 27 ===
+              :::
+             :
+             :
+               :
+            :  ::
+            : :u::
+            :  :::
+            ::   u
+            :  ::
+              :uu:
+              :::
+             :::u
+            :::uu:
+             ::uu::
+            :  :u :
+              :::
+            :u:uu:u
+             ::::::
+            :u::u::
+             :  :
+                ::
+            :   :
+            :    u
+            ::   :
+            : :: :
+            : :: u
+            :    u
+             :   :
+             :
+                :
+              :::
+=== FRAME 28 ===
+              :::
+             u
+            :  : :
+            :  :: :
+            :: :u:
+           ::u::u :
+           : :::: :
+           u::    u
+              ::: :
+           :: uuu:
+           :  :::::
+           :: u:uu:
+           :u uuuu::
+           :: :uu:::
+           :: ::u:::
+              :::
+           :u uuuu:u
+           :: ::::::
+           uu u:uu::
+           :: : :u:
+           : :   ::
+           ::    ::
+           :     ::
+           u:    ::
+           :    : u
+           :: : u u
+            u     :
+            :
+             :   u
+
+               ::
+=== FRAME 29 ===
+               ::
+             ::  :
+            :    ::
+            :  :u :
+           :   :: ::
+           u::::u::
+           :u u:u::
+          : :     ::
+          u:u : : ::
+          :   :::: :
+          u  :uuuu u
+          : ::uuuu:u
+           u::uu:::u:
+         : :uuuuuu:uu
+         : :::::u::::
+         :    :u:   :
+         : u:uu:u::u:
+         : :::u::::uu
+         : uuuu:uu:uu
+            :::  :::
+          u:u:   :u:
+          u :    ::u
+          : u     u:
+          u:u     uu
+          : : : : :
+           uu u u u
+           :      :
+           ::     :
+            :     :
+             :
+              :::
+=== FRAME 30 ===
+              :uu:
+             u   u:
+            u::   u
+           u :: u:::
+          ::::u::::u
+          uuu u:uuu:
+          u:uuu:uu::u
+         u:u: :  :uu
+         :uu: : :::u:
+         u : :u:uu  :
+         uu: uu:uuuu:
+           u:uu:uuuu:
+          :u:uuuuuuuuu
+        :::uuuuuuuu:uu
+         u:u:uuuu:: ::
+        :u    u:u    :
+         uuuuuu:uuu:u:
+         uuuuuu:uuu:uu
+        ::uuuuu:uuuuu:
+           u:u:  uu::
+         ::uu:   :uu:
+         u  u     u ::
+          :u:     :::
+         u:u:     :uu
+          :u :     :
+          :u u: :: ::
+          :u       u
+           :       u
+           :u     u
+            ::   ::
+             :uuu:
+=== FRAME 31 ===
+             :uuu:
+            uu   :u
+           :u   : u:
+           u uu:uu:::
+          ::u:u:uu:::
+         :uuuuu:uuuuu:
+         u:uuuu:uu:u::
+        ::uu:u: ::uuu:
+        :uuu :: ::::uu
+        u u :uu:uuu u::
+        uu uuuu:uuuuuuu
+        ::uuuuu:uuuuu:
+        u:uuuuuuuuu:uuu
+        uuuuuuuuuuu:uuu
+        uuuuuuuuuuu uuu
+        u    :u u:    u
+        uuuuuuu:uuu:uuu
+        uuuuuuu:uuu:uuu
+        uuuuuuu:uuu:uuu
+        ::uuuu:  uu:u:
+        uuuuu:    uuuu:
+        u uuu     :u:u:
+         :uu:      uuu
+        :uuu       uu:
+         u:u  : :: :uu
+         uu:  u  u :u:
+          u:       :u
+          ::       u:
+           u:      u
+            u:    u
+             uuuuu
+=== FRAME 32 ===
+             :uuuu
+            uu   :u
+          :u:  ::  u
+         :u:u:u:uu: u
+         :::uuu:uuuu :
+         u uuuu:uuuu:u
+        ::uu:uu:uuuuuu:
+        u:uu::: ::uuuuu
+       :uuuu :: ::::uuu
+       :uu  uuu:uuu: u:
+       uuu::uuu:uuuuu:uu
+       u:uuuuuu:uuuuuu
+       u uuuuuuuuuuuuu:u
+       uuuuuuuuuuuuuuuuu
+       ::uu:uuu:uuu::uuu
+       u     :u u:     u
+       uuuu:uuu:uuuu:uuu
+       u:uuuuuu:uuuuuuuu
+       u:uuuuuu:uuuuuuuu
+       u::uuuu:  :uuuu:
+       :u uuu     :uu:u:
+       uuu u       uuuu:
+        uuuu       uuuu
+        uuu:       :uuu
+        :uu  :  ::  uu:
+         uu  u: :u  uu
+         uu         uu
+          :        ::
+           u       u:
+           :u:    u
+             uuuuu:
+=== FRAME 33 ===
+             :uuuu:
+            uu   :uu
+          :u: : :  uu
+          u uuuuuuu::u
+         u::uuu:uuuu:::
+        uuuu:uuuuuuuu u
+        u:uu:uu:uuu:uu::
+       :uuuuu:: ::::uu::
+       u:uu: uu:::: uuuu
+       u:u :uuu:uuuu  uu
+       u::u uuuuuuuuuuu:u
+      :u uuuuuu:uuuuuuuu:
+      u:uuuuuuuuuuuu:uu::
+      :uuuuuuuuuuuuu:uuuu
+      ::uuu:uuu uuuu:uuuu
+      u:     :u uu      u
+      :uuuuuuuu :uuu:uuuu
+      :uuuuuuuu:uuuu:uuuu
+      u:uuuuuuuuuuuu:uu:u
+      u::uuuuu   uuuuuuu:
+      :u:uuuu     :uuuuuu
+       uuu:u       :u uu:
+       uuuuu        uuu:
+       :uuu         uuuu
+        u:u  :   :   uu:
+        :uu  u:  u  :uu
+         u:         :u:
+         ::         ::
+          :u       :u
+           :u     :u
+            :uuuuuu
+=== FRAME 34 ===
+            :uuuuu
+           :u:   :uu
+          uu  : u  :u
+         u::::u:uu ::u
+        :u:u:uu:uuuu::u
+        uuuuuuu:uuuuuuu:
+       uuuuuuuu:uuuuuu :
+      :u:uuuu:: ::uuuuuu:
+      uuuuu ::u:::u uuu:u
+      u u: uuuu:uuuu  u:u
+      uu:uuuuuu:uuuuuu uu
+     u: uuuuuuu:uuuuuuu ::
+     u::uu:uuuuuuuuuuuu:::
+     ::uuuuuuuuuuuuuuuuu::
+     ::uuu:uuuu:uuuu:uuu::
+     :       uu uu       u
+     ::uuu:uuuu uuuu:uuuuu
+     :uuuuuuuuu:uuuu:uuu :
+     u uuuuuuuu:uuuuuuuu::
+     uu uuuuu:   :uuuuu:::
+      uu uuu:     :uuu::::
+      u:u u:       uu:uuu
+      uuuuu         uuu::
+       uuu:         :uu:
+       ::u   u   u   uuu
+       uuu   u   u:  uu
+        uu           :u
+         u           u
+         :u:       :u:
+           uu     :u
+            :uuuuuu
+=== FRAME 35 ===
+            ::uuuuu
+           uu:   :uu:
+          u:  : u  :u:
+        :u uuuu:uuuu:u:
+       :u::uuuu:uuuuu u
+      :u:uuuuuu:uuu:uuuu
+       uuuuuuuu:uuuuuuuu:
+      uuuuuuu:: :::u:uu u
+     :u:uu: u:u:::u: uuuu:
+     ::u: :uuuu:uuuu: uuuu
+     u:::u:uuuu:uuuuuu::uu
+     :::uu uuuu:uuuuuuuuu:
+    uu uuuuuuuuuuuuuu:uuuu
+    ::uuuuuuuuuuuuuuu:uuuu:
+     :uuuuuuuuu uuuuu uuu::
+     :       uu uu        :
+     uuuuuuuuuu uuuuu uuu::
+    ::uuuuuuuuu:uuuuu:uuuu:
+    uuuuuuuuuuu:uuuuu:uu:u
+     : uuuuuuu   :uuuuuu :
+     u::uuuu       uuuu uu
+     :uu::u:        uu uu:
+     :uuuuu         :uuu::
+      u uu           uu:u
+      uuuu   :   u:  :u :
+       uu:  uu   u:  uuu
+        u             u:
+        ::           :u
+         uu         :u
+           u:     :u:
+            uuuuuu:
+=== FRAME 36 ===
+            :uuuu::
+           uuu    uuu
+         :u:  :::   uu
+        uu:u::u:uu::::u
+       :u uu uu::uu u: u
+      :u uuuuuu:uuuuuuuuu
+      u uuu:uuu:uuuu:uuuu
+      u:uu:::::  : uuuuu:u
+     uuuuu  ::::::::  uu:u
+    :u:u   uuuu::uuuu  :u::
+    u:u :uuuuuu:uuuuu u:u:u
+    u: :uu:uuuu:uuuuuuuu: u
+    :  uuuuuuuuuuuuuu:uuu u
+   :u uuuuuuuuuuuuuuu:uuu::
+    u uuu:uuuuu :uuuu::uuu:
+   :u        u: uu:       u
+   :u uuuuuuuuu :uuuuu:uuuu
+    u:uuuuuuuuu:uuuuuu:uuu:
+    u :uuuuuuuu:uuuuu:uuu::
+    :  uuu:uu:    uuu:uuu:u
+    uuu uuuu       :u:uu:::
+     u:u :u          u: u::
+     u:uuu:          :uuuu:
+     uuuuu           uuu:u
+      uuu:   u    :   u::
+       uu   :u   uu   uuu
+       :u              u
+        u:            u:
+         uu         :u
+          :u:      :u
+            :uuu:u::
+=== FRAME 37 ===
+            uuuuu::
+          :uuu    uuu
+         uu   u::   :u
+        u: u:uu:uu u: u:
+       u: uuuuu:uuu:uu u
+      :::uu uuu:uuuu:uuuu
+     :u uu::uuu:uuuu:uuuu:
+     u uuu:u::: :::u:uuu:u
+    :uuuuu ::::::::: :uuu :
+    u:uu   uuuu:uuuuu  :u:u
+    u:u:u:uuuuu:uuuuu:u::::
+   ::: uu:uuuuu:uuuuu:uuu ::
+   :u:uuu:uuuuuuuuuuu:uuu  :
+   : uuuu uuuuuuuuuuu:uuuuuu
+   u:uuuu:uuuuu :uuuu::uuu:u
+   u         u: :u:        u
+   u:uuuu:uuuuu :uuuu::uuu:u
+   : uuuu:uuuuu:uuuuu:uuuu:u
+   :: uuu:uuuuu:uuuuu:uuuu u
+   u: :uu:uuu:    uuu:uuu  :
+    u::uuuuu       :uuuu :u:
+    u:u: u:         :uu ::u
+    u::uuu           uuuu:u
+     uuuu:            uu:::
+     :::u    :    :   uu u
+      uuu   uu   uu   :uu:
+      :u:             :u:
+       :u             :u
+        :u:          u:
+          :u       uu
+           :uuuuuu::
+=== FRAME 38 ===
+            uuuuuu:
+          :uu:    uuu
+        :uu:  ::::  uu:
+       :u::u uuuuu::: uu
+       u :u::uu:uuu:uu ::
+      u uuu:uuuuuuuu:uu u
+     :::uu:uuuu:uuuu::uu:u
+    :u uuu:u:u:::u:uu:uuuuu
+    u:uuu: :::u:::::  uuu u
+   :u u:  uuuuu:uuuuu   uu::
+   u:u :u:uuuuuuuuuuuuuu ::u
+   u: uuu:uuuuu:uuuuuu:uu  u
+   u :uuu:uuuuuuuuuuuu uuu u
+  :u:uuuu uuuuuuuuuuuu:uuuu::
+  :uuuuuu uuuuu::uuuuuuuuuu :
+   u        :uu  uu         u
+   u:uuu: uuuuu :uuuuu:uuuu :
+  :u:uuuu:uuuuu:uuuuuuuuuuu :
+   u uuuu:uuuuu:uuuuuu:uuu u:
+   u  uuu:uuu:   :uuuu uu: u
+   u:u uuuuu       :uuuu:::u
+   :::u :uu          uu :u :
+    u uuu:            uuuuu:
+    :uuuu:            uuu u
+    :u uu   ::    u   :u u:
+     :uu:   uu   uu    uuu
+      :u               uu
+       uu              u:
+        uu:          :u:
+         :uu       :u:
+           :uuuuuuuu
+=== FRAME 39 ===
+           :uuuuuuu
+          uuu:    uuu
+        uuu   u ::  :uu
+       uu :u uu:uu: : :u
+      uu uu:uuu:uuu:uu:uu
+     uu uuu:uuu:uuuu uu::u
+    :u uuu uuuu:uuuu::uu u:
+    u uuuu:uuu:::uuuu:uuu:u
+   :u:uuu  :::u ::::  uuuu::
+   u uu:  uuuuu:uuuuu: :uu:u
+  :u:u uu:uuuuu:uuuuuu:u:::u:
+  :u  uuu:uuuuu:uuuuuu:uu:  :
+  u: uuuuuuuuuu:uuuuuu uuu  u
+  u:uuuuuuuuuuuuuuuuuu uuuu u
+  u uuuu:uuuuuu:uuuuuu:uuuu :
+  u         uuu  uu         u
+  u uuuu:uuuuuu :uuuuu:uuuu::
+  u:uuuu:uuuuuu:uuuuuu:uuuu :
+  u::uuuuuuuuuu:uuuuuu uuu: u
+  u: uuu:uuuu:   :uuuu:uuu  u
+  :u: :uuuu:       :uuuu: :u:
+   u:u: uu:          uu::u:u
+   u:uuuu:            uuuu:u
+    u uuu             uuu u
+    u::u:   :     u    uu u
+     uuu    uu   :u:   uuu
+      uu               :u:
+      :u:              u:
+        uu           :u
+         :u:       :u:
+           uuuuuuuuu
+=== FRAME 40 ===
+           :uuuuuuu:
+         :uuu     uuu
+        uu:   u u:  :uu
+      :u: u::uu uu::: uu
+      u: uu uuu uuu uu :u
+     u::uu uuuu uuuu uu::u
+    u::uuu:uuuu uuuu::uu:::
+   :u uuu:uuu:: ::uuu uuu u:
+   u uuuu  :::u u:::  uuuu u
+  :u u:  :uuuuu uuuuu:  uu:u
+  u:u :u:uuuuuu uuuuuuuu::u:u
+  u  :uu:uuuuuu uuuuuu uu:  u
+  u :uuu uuuuuu:uuuuuu:uuu: u
+ :u uuuu:uuuuuuuuuuuuu:uuuu u
+ :::uuuu:uuuuuu:uuuuuu:uuuu::
+ u:         uu:  uu         ::
+ u::uuuu:uuuuuu uuuuuu uuuu::
+ ::uuuuu:uuuuuu uuuuuu:uuuu::
+  u uuuu uuuuuu uuuuuu:uuuu u
+  u  uuu:uuuu     uuuu uuu  u
+  u:u uuuuu:       :uuuuu u u
+  :u:u :uu           uu: u:::
+  :u uuuu             uuuu u
+   uuuuu:             :uuu::
+    u uu    u     u    uu u
+    :uuu   :u:   :u:   uuu:
+     :u:               :u:
+      uu               uu
+       :uu           uu:
+         uu:       :u:
+           uuuuuuuuu
+=== FRAME 41 ===
+           :uuuuuuu:
+          uuu     uuu:
+        uuu   u ::  :uu:
+      :u: u: uu uuu u: u:
+     :u::uu uuu uuu:uuu u:
+     u:uuu uuuu uuuu:uuu uu
+    u uuuu:uuuu uuuuu uuu u:
+   :u:uuu:uu:u: :u:uu uuuu:u
+   u:uuuu ::::u ::::: :uuu:u:
+  :u:uu  :uuuuu uuuuuu  :uu u
+  u:u::u:uuuuuu uuuuuu uu u:u:
+ :u  :uu uuuuuu uuuuuu:uuu :::
+ :: uuuu uuuuuu:uuuuuu:uuuu  u
+ u::uuuu uuuuuuuuuuuuu::uuuu u
+ u uuuuu uuuuuu :uuuuu::uuuu u
+ u          uu:  uu          u
+ u uuuuu uuuuuu :uuuuuu:uuuu :
+ u :uuuu uuuuuu uuuuuuu:uuuu u
+ :u uuuu uuuuuu uuuuuuuuuuu: u
+ ::  uuu uuuu:    :uuu:uuu:  u
+  u ::uuuuu:        uuuuu:::u:
+  ::uu :uu           :uu :u u
+   u uuuu             uuuuu:u
+   u:uuu:              uuu u
+   :u uu    u:    u    :u u
+    uuuu    u:    u:    uuu
+     uu:                uu
+      uu               :u
+       :u:           :uu
+         uu:       :uu
+          :uuuuuuuuu:
+=== FRAME 42 ===
+           :uuuuuuu:
+         :uuu     uuuu
+       :uu:   u ::  :uu:
+      :u  u::uu uuu u: uu
+     uu :u::uuu uuuu:uu u:
+    uu uuu:uuuu uuuu:uuu uu
+   :u uuu::uuuu uuuuu uuu u:
+   u::uuu uu:uu :u:uu:uuuu u
+  uu uuu: ::::u :::::  uuuu:u
+  u uu:  :uuuuu uuuuuu  :uu u
+ :u u uu uuuuuu uuuuuu:uu u:u:
+ u:: uuu uuuuuu uuuuuu:uuu:  u
+ u  uuuu uuuuuu:uuuuuu::uuu  u
+ u uuuuu:uuuuuuuuuuuuuu:uuuu u
+ u uuuuu:uuuuuu :uuuuuu:uuuu:u
+ u          uu   uu          u
+ u uuuuu:uuuuuu :uuuuuu:uuuu:u
+ u uuuuu:uuuuuu uuuuuuu:uuuu u
+ u  uuuu uuuuuu uuuuuuu:uuu: u
+ u  :uuu uuuu:    :uuu::uuu  u
+ uu:::uuuuu         uuuuu: ::u
+  u:u: uuu           :uu :u u:
+  u:uuuuu             uuuuu:u
+   u uuu               uuu:u
+   uu uu    u     u    :u::u
+    uuu:   :u:   :u:    uuu
+     uu                 uu:
+      uu               :u
+       uu:           :uu
+         uu        :uu
+          :uuuuuuuuu:
+=== FRAME 43 ===
+           :uuuuuu::
+         uuuu     uuu:
+       :uu:   u u:  ::u:
+      uu :u :uu uuu u: uu
+     uu uu::uuu uuuu uu uu
+    uu uuu:uuuu uuuuuuuu::u
+   uu uuu:uuuuu uuuuu uuu uu
+  :u uuuu uu:u: uu:uu:uuuu:u:
+  u:uuuu: :::uu u::::  uuuu u
+  u uu:  :uuuuu uuuuuu  :uu u:
+ uuuu uu uuuuuu uuuuuuuuu::u:u
+ u  :uuu uuuuuu uuuuuu::uu:: u
+:u  uuuu:uuuuuu:uuuuuuu:uuu: u
+:u uuuuuuuuuuuuuuuuuuuu:uuuu u:
+:u:uuuu::uuuuuu :uuuuuu:uuuu:::
+uu          uu   uu          :u
+:u:uuuu::uuuuuu :uuuuuu:uuuu: :
+:u uuuuuuuuuuuu uuuuuuu:uuuu:::
+:u uuuuuuuuuuuu uuuuuuu:uuuu u:
+ u  uuuu:uuu::    :uuuu:uuu  u
+ u:: uuuuuu         uuuuuu u u
+ :u u: uu:           :uu :u:::
+  u:uuuuu             :uuuu u
+  :u:uuu               uuu:u:
+   u::u:    u     u    :u::u
+    uuu    uu:   :u:    uuu
+    :uu                 uu
+      u:               :u
+       uu:            uu
+         uu        :uu
+          :uuuuuuuuu:
+=== FRAME 44 ===
+           :uuuuuu::
+         uuuu     uuu:
+       uuu:   u u:  ::u:
+      uu :u :uu uuu :: uu
+     uu uu::uuu uuuu uu uu
+    u::uuu:uuuu uuuuu:uu::u
+   uu uuu uuuuu uuuuu uuu :u
+  :u uuuu u::u: uu:uu:uuuu u:
+  u:uuuu: :::uu u::::  uuuu u
+ :u uu:  uuuuuu uuuuuu  :uu u:
+ u:u::uu uuuuuu uuuuuuuuu::u u
+ u ::uuu:uuuuuu uuuuuu::uu:  u
+:u :uuuuuuuuuuu:uuuuuuu:uuu: u
+u::uuuu:uuuuuuuuuuuuuuu:uuuu :u
+u :uuuu uuuuuuu uuuuuuu uuuu: u
+u           uu   uu          :u
+u uuuuu uuuuuu: :uuuuuu uuuuu u
+u :uuuu:uuuuuuu uuuuuuu:uuuu::u
+uu uuuu:uuuuuuu uuuuuuu:uuuu ::
+:u  uuuu:uuu::    :uuuu:uuu  u
+ u u uuuuuu         uuuuuu u u
+ u::u: uu:           :uu :u::u
+  u uuuu:             :uuuu u
+  uu:uuu               uuuuuu
+   u :u:    u     u    :u::u
+   :uuu    :u:   :uu    uuu:
+    :uu                 :u:
+     :u                :u:
+       uu:            uu
+        :uu        :uu:
+          :uuuuuuuuu:
+=== FRAME 45 ===
+           :::uuu:::
+         :uuu: :  uuuu
+       :uu:   u uu   uuu
+      uu :u::uu:uuu :: :u
+     uu uu: uuu:uuuu uu :u:
+    uu uuu uuuu:uuuuu uu::u
+   u: uuu::uuuu:uuuuu uuu: u
+  uu uuuu:uuuuu :uuuuu:uuu::u
+  u uuuu: ::::u u::::  uuuu u:
+ :u:uu:  uuuuuu:uuuuuu   uuu:u
+ u:u: uu uuuuuu:uuuuuuu:u: u u
+ u  :uuu:uuuuuu:uuuuuuu uuu  ::
+:u :uuuu:uuuuuu:uuuuuuu uuuu :u
+u: uuuu:uuuuuuuuuuuuuuu uuuu: u
+u:uuuuu:uuuuuuu::uuuuuu uuuuu u
+u:          uu:  uu:          u
+u:uuuuu:uuuuuuu  uuuuuu uuuuu u
+u:uuuuu:uuuuuuu:uuuuuuu uuuuu u
+:: uuuuuuuuuuuu:uuuuuuu uuuu  u
+:u  uuuu:uuuu::  ::uuuu uuu: ::
+ u u uuuuuu         uuuuuu:: u
+ :::u: uuu            uu: uu u
+ :u uuuuu              uuuu:u:
+  u::uuu               :uuu u
+   u uu:    u     u:    uu ::
+   :uuu    :u:    uu    uuuu
+    :uu                  u:
+     :u:                uu
+       uu:            uu:
+        :uu         uuu
+          :uuuuuuuuu:
+=== FRAME 46 ===
+           :::uuu:::
+         :uuu: :  uuuu
+       :uu:   u uu   uuu
+      uu :u::uu:uuu :: :u
+     uu uu: uuu:uuuu uu :u:
+    uu:uuu uuuu:uuuuu uu::u
+   u: uuu::uuuu:uuuuu uuu: u
+  uu uuuu:uuuuu :uuuuu:uuu::u
+  u uuuu: ::::u u::::  uuuu u:
+ :u:uu:  uuuuuu:uuuuuu   uuu:u
+ u:u: uu uuuuuu:uuuuuuu:u: u u
+ u  :uuu:uuuuuu:uuuuuuu uuu  ::
+:u :uuuu:uuuuuu:uuuuuuu uuuu  u
+u: uuuu:uuuuuuuuuuuuuuu uuuu: u
+u:uuuuu:uuuuuuu::uuuuuu uuuuu u
+u:          uu:  uu:          u
+u:uuuuu:uuuuuuu  uuuuuu uuuuu u
+u:uuuuu:uuuuuuu:uuuuuuu uuuuu u
+:: uuuuuuuuuuuu:uuuuuuu uuuu  u
+:u  uuuu:uuuu::  ::uuuu uuu: :u
+ u u uuuuuu         uuuuuu:: u
+ :::u: uuu            uu: uu u
+ :u uuuuu              uuuu:u:
+  u::uuu               :uuu u
+   u uu:    u     u:    uu ::
+   :uuu    :u:    uu    uuuu
+    :uu                  u:
+     :u:                uu
+       uu:            uu:
+        :uu         uuu
+          :uuuuuuuuu:
