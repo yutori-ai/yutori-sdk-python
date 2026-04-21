@@ -62,3 +62,24 @@ def test_authored_shellcheck_clean_if_available(script: Path) -> None:
         text=True,
     )
     assert result.returncode == 0, f"shellcheck failed for {script}:\n{result.stdout}\n{result.stderr}"
+
+
+def test_cleanup_temp_files_returns_zero_under_set_e() -> None:
+    """Regression: with `set -e`, cleanup_temp_files must not exit non-zero when
+    all tracked files are unset (static / off animation modes). Before the fix,
+    the final `[[ -z "" ]] && rm` in cleanup_temp_files returned 1 under `set -e`,
+    aborting handoff_to_python_ui before the Python installer UI could run.
+    """
+    script = f"""
+set -euo pipefail
+source <(sed -n '/^cleanup_temp_files()/,/^}}/p' {INSTALL_TEMPLATE})
+INSTALL_LOG=""
+INSTALL_STATUS_FILE=""
+FRAMES_CACHE_FILE=""
+FRAMES_RENDER_DIR=""
+cleanup_temp_files
+echo reached_end
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, f"cleanup_temp_files aborted under set -e:\n{result.stderr}"
+    assert "reached_end" in result.stdout

@@ -49,10 +49,15 @@ error() {
 }
 
 cleanup_temp_files() {
+    # Each `[[ ... ]] && rm` evaluates to exit-code 1 when the guard is false
+    # (e.g. in static / off animation modes where FRAMES_RENDER_DIR is never
+    # set). Under `set -e` that would abort the caller — so we explicitly
+    # return 0 regardless of which paths existed.
     [[ -n "$INSTALL_LOG" && -f "$INSTALL_LOG" ]] && rm -f "$INSTALL_LOG"
     [[ -n "$INSTALL_STATUS_FILE" && -f "$INSTALL_STATUS_FILE" ]] && rm -f "$INSTALL_STATUS_FILE"
     [[ -n "$FRAMES_CACHE_FILE" && -f "$FRAMES_CACHE_FILE" ]] && rm -f "$FRAMES_CACHE_FILE"
     [[ -n "$FRAMES_RENDER_DIR" && -d "$FRAMES_RENDER_DIR" ]] && rm -rf "$FRAMES_RENDER_DIR"
+    return 0
 }
 
 kill_uv_process_group() {
