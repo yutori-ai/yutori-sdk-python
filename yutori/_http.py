@@ -85,3 +85,17 @@ def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
             extra_body[key] = value
     if extra_body:
         kwargs["extra_body"] = extra_body
+
+
+class _BaseNamespace:
+    """Shared base for SDK namespace classes (sync and async).
+
+    Stores the HTTP client, base URL, and a precomputed auth header dict
+    so namespace methods can reference ``self._headers`` directly instead
+    of rebuilding headers on every request.
+    """
+
+    def __init__(self, client: Any, base_url: str, api_key: str) -> None:
+        self._client = client
+        self._base_url = base_url
+        self._headers = build_headers(api_key)
