@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .._http import (
-    build_headers,
+    _BaseNamespace,
     build_payload,
     build_query_params,
     handle_response,
@@ -13,17 +13,9 @@ from .._http import (
 )
 from .._schema import resolve_output_schema
 
-if TYPE_CHECKING:
-    import httpx
 
-
-class AsyncScoutsNamespace:
+class AsyncScoutsNamespace(_BaseNamespace):
     """Async namespace for scout-related operations (continuous web monitoring)."""
-
-    def __init__(self, client: httpx.AsyncClient, base_url: str, api_key: str) -> None:
-        self._client = client
-        self._base_url = base_url
-        self._api_key = api_key
 
     async def list(
         self,
@@ -44,7 +36,7 @@ class AsyncScoutsNamespace:
         params = build_query_params(page_size=limit, status=status)
         response = await self._client.get(
             f"{self._base_url}/scouting/tasks",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
             params=params,
         )
         return handle_response(response)
@@ -60,7 +52,7 @@ class AsyncScoutsNamespace:
         """
         response = await self._client.get(
             f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
         )
         return handle_response(response)
 
@@ -110,7 +102,7 @@ class AsyncScoutsNamespace:
 
         response = await self._client.post(
             f"{self._base_url}/scouting/tasks",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
             json=payload,
         )
         return handle_response(response)
@@ -174,7 +166,7 @@ class AsyncScoutsNamespace:
             endpoint = resolve_scout_status_endpoint(status)
             response = await self._client.post(
                 f"{self._base_url}/scouting/tasks/{scout_id}/{endpoint}",
-                headers=build_headers(self._api_key),
+                headers=self._headers,
             )
             return handle_response(response)
 
@@ -184,7 +176,7 @@ class AsyncScoutsNamespace:
 
         response = await self._client.patch(
             f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
             json=payload,
         )
         return handle_response(response)
@@ -200,7 +192,7 @@ class AsyncScoutsNamespace:
         """
         response = await self._client.delete(
             f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
         )
         return handle_response(response)
 
@@ -224,7 +216,7 @@ class AsyncScoutsNamespace:
         params = build_query_params(limit=limit, cursor=cursor)
         response = await self._client.get(
             f"{self._base_url}/scouting/tasks/{scout_id}/updates",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
             params=params,
         )
         return handle_response(response)

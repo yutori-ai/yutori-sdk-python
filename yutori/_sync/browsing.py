@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from .._http import build_headers, build_payload, handle_response
+from .._http import _BaseNamespace, build_payload, handle_response
 from .._schema import resolve_output_schema
 
-if TYPE_CHECKING:
-    import httpx
 
-
-class BrowsingNamespace:
+class BrowsingNamespace(_BaseNamespace):
     """Namespace for browsing operations (one-time browser automation)."""
-
-    def __init__(self, client: httpx.Client, base_url: str, api_key: str) -> None:
-        self._client = client
-        self._base_url = base_url
-        self._api_key = api_key
 
     def create(
         self,
@@ -64,7 +56,7 @@ class BrowsingNamespace:
 
         response = self._client.post(
             f"{self._base_url}/browsing/tasks",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
             json=payload,
         )
         return handle_response(response)
@@ -80,6 +72,6 @@ class BrowsingNamespace:
         """
         response = self._client.get(
             f"{self._base_url}/browsing/tasks/{task_id}",
-            headers=build_headers(self._api_key),
+            headers=self._headers,
         )
         return handle_response(response)
