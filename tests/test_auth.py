@@ -26,7 +26,6 @@ from yutori.auth.constants import (
 )
 from yutori.auth.credentials import clear_config, load_config, resolve_api_key, save_config
 from yutori.auth.flow import (
-    RegisterEndpointUnavailableError,
     _build_key_name,
     _CallbackHandler,
     _CallbackResult,
@@ -428,19 +427,16 @@ class TestRegistrationHelpers:
             assert call_kwargs[1]["json"] == {"signup_source": "cli"}
             assert "Bearer jwt_token" in call_kwargs[1]["headers"]["Authorization"]
 
-    def test_register_user_raises_for_backend_incompatibility(self):
+    def test_register_user_raises_httpstatuserror_on_bad_status(self):
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 404
-        mock_response.raise_for_status = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("500", request=MagicMock(), response=mock_response)
+        )
 
         with patch.object(httpx.Client, "post", return_value=mock_response):
-            with pytest.raises(RegisterEndpointUnavailableError) as exc_info:
+            with pytest.raises(httpx.HTTPStatusError):
                 register_user("jwt_token")
-
-        # Message should be user-facing, not reference internal endpoints.
-        assert "out of sync" in str(exc_info.value)
-        assert "/client/register-api" not in str(exc_info.value)
-        assert "(received 404)" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -592,107 +588,6 @@ class TestRunLoginFlow:
         assert result.success is False
         assert "backend missing" in str(result.error)
         mock_gen_key.assert_not_called()
-
-    @patch("yutori.auth.flow.webbrowser.open")
-    @patch("yutori.auth.flow.generate_api_key", return_value="yt-existing-key")
-    @patch(
-        "yutori.auth.flow.register_user",
-        side_effect=RegisterEndpointUnavailableError("backend missing register"),
-    )
-    @patch("yutori.auth.flow.check_registration_status", return_value=True)
-    @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
-    @patch("yutori.auth.flow.save_config")
-    @patch("yutori.auth.flow.logger.warning")
-    def test_existing_user_can_fallback_when_register_endpoint_is_missing(
-        self,
-        mock_warning,
-        mock_save,
-        mock_exchange,
-        mock_status,
-        mock_register,
-        mock_gen_key,
-        mock_browser,
-    ):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
-
-        assert result.success is True
-        assert result.api_key == "yt-existing-key"
-        mock_gen_key.assert_called_once_with("jwt123", key_name=mock_gen_key.call_args.kwargs["key_name"])
-        mock_save.assert_called_once_with("yt-existing-key")
-        mock_warning.assert_called_once()
-
-    @patch("yutori.auth.flow.webbrowser.open")
-    @patch("yutori.auth.flow.generate_api_key", return_value="yt-existing-key")
-    @patch(
-        "yutori.auth.flow.register_user",
-        side_effect=RegisterEndpointUnavailableError("backend missing register"),
-    )
-    @patch("yutori.auth.flow.check_registration_status", return_value=None)
-    @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
-    @patch("yutori.auth.flow.save_config")
-    @patch("yutori.auth.flow.logger.warning")
-    def test_probe_failure_does_not_fallback_when_register_endpoint_is_missing(
-        self,
-        mock_warning,
-        mock_save,
-        mock_exchange,
-        mock_status,
-        mock_register,
-        mock_gen_key,
-        mock_browser,
-    ):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
-
-        assert result.success is False
-        assert "backend missing register" in str(result.error)
-        mock_save.assert_not_called()
-        mock_warning.assert_not_called()
 
     def test_port_in_use(self):
         with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):

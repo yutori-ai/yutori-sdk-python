@@ -46,16 +46,18 @@ def test_auth_login_prints_logging_in_message(monkeypatch):
     assert "Successfully authenticated!" in result.stdout
 
 
-def test_auth_login_surfaces_backend_incompatibility(monkeypatch):
-    from yutori.auth.flow import REGISTER_INCOMPATIBLE_ERROR
-
+def test_auth_login_surfaces_backend_error(monkeypatch):
+    # Generic "backend rejected the login" path — any LoginResult failure
+    # message gets surfaced to the user. This replaces the old test for
+    # /client/register-api unavailability, which the backend no longer
+    # exercises (endpoint has been live since ENG-4003 landed 2026-03).
     monkeypatch.delenv("YUTORI_API_KEY", raising=False)
 
     def fake_run_login_flow(*args, **kwargs):
         kwargs["on_registration_state"]("creating_account")
         return LoginResult(
             success=False,
-            error=REGISTER_INCOMPATIBLE_ERROR,
+            error="Authentication failed (500): backend exploded",
             auth_url="https://example.com/auth",
         )
 
@@ -67,14 +69,8 @@ def test_auth_login_surfaces_backend_incompatibility(monkeypatch):
 
     assert result.exit_code == 1
     assert "Creating account..." in result.stdout
-    # Rich may wrap long error lines, so substring-match on the normalized
-    # stdout rather than the literal message. Source the message from the
-    # module so renaming/rewording doesn't leave this test mocking a
-    # hypothetical error the CLI never actually emits.
     normalized_stdout = " ".join(result.stdout.split())
-    normalized_error = " ".join(REGISTER_INCOMPATIBLE_ERROR.split())
-    assert normalized_error in normalized_stdout
-    assert "out of sync" in normalized_stdout
+    assert "Authentication failed (500): backend exploded" in normalized_stdout
 
 
 def test_auth_login_ignores_placeholder_env_var(monkeypatch):

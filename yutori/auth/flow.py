@@ -45,15 +45,6 @@ from .types import AuthStatus, LoginResult
 
 logger = logging.getLogger(__name__)
 
-REGISTER_INCOMPATIBLE_STATUS_CODES = {404, 405, 501}
-REGISTER_INCOMPATIBLE_ERROR = (
-    "Yutori servers are out of sync with this CLI version. Please retry shortly, "
-    "or contact support@yutori.ai if this persists."
-)
-
-
-class RegisterEndpointUnavailableError(RuntimeError):
-    """Raised when the backend does not yet support the registration endpoint."""
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -209,15 +200,17 @@ def check_registration_status(jwt: str) -> bool | None:
 
 
 def register_user(jwt: str, signup_source: str = "cli") -> None:
-    """Ensure the current Clerk user is registered before key generation."""
+    """Ensure the current Clerk user is registered before key generation.
+
+    Raises ``httpx.HTTPStatusError`` on non-2xx — the outer login flow turns
+    that into a user-facing `Authentication failed (<status>): ...` message.
+    """
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             build_auth_api_url("/client/register-api"),
             headers={"Authorization": f"Bearer {jwt}"},
             json={"signup_source": signup_source},
         )
-        if response.status_code in REGISTER_INCOMPATIBLE_STATUS_CODES:
-            raise RegisterEndpointUnavailableError(f"{REGISTER_INCOMPATIBLE_ERROR} (received {response.status_code})")
         response.raise_for_status()
 
 
@@ -293,12 +286,9 @@ def run_login_flow(
                 on_registration_state("creating_account" if is_new_user else "logging_in")
             except Exception:
                 logger.warning("Registration-state callback failed", exc_info=True)
-        try:
-            register_user(jwt)
-        except RegisterEndpointUnavailableError:
-            if registration_status is not True:
-                raise
-            logger.warning("Registration endpoint unavailable; continuing for existing user", exc_info=True)
+        # register-api is idempotent server-side for existing users, so we
+        # always call it regardless of registration_status.
+        register_user(jwt)
         api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
