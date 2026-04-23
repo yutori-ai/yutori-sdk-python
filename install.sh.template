@@ -218,8 +218,6 @@ render_frame() {
         -v frame_index="$frame_index" \
         -v pad_x="4" \
         -v pad_y="1" \
-        -v frame_width="31" \
-        -v display_width="31" \
         -v use_color="$use_color" \
         -v frames_cache_file="$FRAMES_CACHE_FILE" \
         '
