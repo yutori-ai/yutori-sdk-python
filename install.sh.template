@@ -383,6 +383,11 @@ play_animation_until_done() {
     done
 
     printf '\033[%s;1H' "$frame_top"
+    # Clear from the cursor to the end of the screen. Without this, the final
+    # animation frame stays drawn below frame_top, and when the Python UI
+    # starts printing it only overwrites the first few rows — residual frame
+    # characters bleed through below the step prompts and summary table.
+    printf '\033[0J'
     printf '\033[0m\033[?25h'
     # cleanup_temp_files (EXIT trap) will rm the render dir on any exit path.
 }
