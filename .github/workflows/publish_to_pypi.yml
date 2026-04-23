@@ -12,36 +12,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: yutori-ai/yutori
-          path: yutori-monorepo
-          sparse-checkout: |
-            scripts/brand/agent_logo_terminal/play.sh
-            webapps/landing-page/public/AgentLogo4.webm
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build twine pillow
+        run: pip install build twine
 
       - name: Build package
         run: python -m build
 
-      # install.sh is a build artifact assembled from install.sh.template +
-      # an inlined banner and Navigator animation frames sourced from the
-      # monorepo's play.sh. We always regenerate in CI so the uploaded asset
-      # matches the tagged commit; the committed copy is informational.
+      # install.sh is regenerated from the committed template + banner +
+      # frames so the uploaded release asset matches the tagged commit
+      # deterministically. The committed install.sh is informational.
+      # Brand/animation updates happen locally via:
+      #   bash scripts/build_install.sh <path-to-yutori-monorepo>
       - name: Regenerate install.sh
-        run: bash scripts/build_install.sh "$GITHUB_WORKSPACE/yutori-monorepo"
+        run: bash scripts/build_install.sh
 
-      - name: Check for drift in committed installer artifacts
+      - name: Check for drift in committed install.sh
         run: |
-          if ! git diff --quiet -- install.sh assets/terminal/agent_logo_frames.txt 2>/dev/null; then
-            echo "::warning::install.sh or assets/terminal/agent_logo_frames.txt changed during regeneration."
-            git diff --stat -- install.sh assets/terminal/agent_logo_frames.txt || true
+          if ! git diff --quiet -- install.sh 2>/dev/null; then
+            echo "::warning::install.sh drifted during regeneration. Run scripts/build_install.sh locally and commit the result."
+            git diff --stat -- install.sh || true
           fi
 
       - name: Generate installer checksums

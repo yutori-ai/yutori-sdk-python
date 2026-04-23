@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+#
+# Regenerate install.sh by inlining the banner and Navigator animation frames
+# into install.sh.template. By default, uses the committed frames file at
+# assets/terminal/agent_logo_frames.txt — the SDK repo is self-contained.
+#
+# Optional: pass a path to the yutori-ai/yutori monorepo (or set
+# YUTORI_MONOREPO=...) to re-extract the frames from play.sh against the
+# source AgentLogo4.webm. This is for brand/anim updates — regular releases
+# do NOT need the monorepo.
+#
+# Usage:
+#   bash scripts/build_install.sh                              # use committed frames
+#   bash scripts/build_install.sh ~/projects/yutori-monorepo   # regen from source
 
 set -euo pipefail
 
@@ -8,8 +21,7 @@ template_path="$repo_root/install.sh.template"
 output_path="$repo_root/install.sh"
 banner_path="$repo_root/assets/terminal/yutori_banner.txt"
 frames_path="$repo_root/assets/terminal/agent_logo_frames.txt"
-monorepo_root="${1:-${YUTORI_MONOREPO:-$HOME/projects/yutori-monorepo}}"
-play_script="$monorepo_root/scripts/brand/agent_logo_terminal/play.sh"
+monorepo_root="${1:-${YUTORI_MONOREPO:-}}"
 frames_cache_file="${TMPDIR:-/tmp}/yutori-agent-logo-terminal-frames-v3.txt"
 
 if [[ ! -f "$template_path" ]]; then
@@ -22,17 +34,24 @@ if [[ ! -f "$banner_path" ]]; then
     exit 1
 fi
 
-if [[ -x "$play_script" ]]; then
+if [[ -n "$monorepo_root" ]]; then
+    play_script="$monorepo_root/scripts/brand/agent_logo_terminal/play.sh"
+    if [[ ! -x "$play_script" ]]; then
+        printf 'play.sh not found at %s\n' "$play_script" >&2
+        exit 1
+    fi
     bash "$play_script" --dump-frame 0 >/dev/null
-
     if [[ ! -f "$frames_cache_file" ]]; then
         printf 'Frame cache not found after running %s\n' "$play_script" >&2
         exit 1
     fi
-
     cp "$frames_cache_file" "$frames_path"
-elif [[ ! -f "$frames_path" ]]; then
+    printf 'Regenerated %s from %s\n' "$frames_path" "$play_script"
+fi
+
+if [[ ! -f "$frames_path" ]]; then
     printf 'Navigator animation frames not found: %s\n' "$frames_path" >&2
+    printf 'Run `bash scripts/build_install.sh <path-to-yutori-monorepo>` to regenerate.\n' >&2
     exit 1
 fi
 
