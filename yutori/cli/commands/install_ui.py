@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal, Mapping, Sequence
 
@@ -246,9 +247,20 @@ def python_has_pip(interpreter: str, env: Mapping[str, str] | None = None) -> bo
     return run_command((interpreter, "-m", "pip", "--version"), env=env).returncode == 0
 
 
+def _yutori_version() -> str:
+    try:
+        return version("yutori")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def render_header(console: Console, *, interactive: bool) -> None:
     mode = "Interactive terminal detected." if interactive else "Non-interactive terminal detected."
-    console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer[/bold {MINT_HIGHLIGHT}]")
+    # Only used when bash didn't render its own intro (direct
+    # `yutori __install_ui` invocation). The bash intro reads its version
+    # from pyproject.toml at build time; here we read from installed
+    # package metadata. In a `curl | bash` flow the two match.
+    console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer v{_yutori_version()}[/bold {MINT_HIGHLIGHT}]")
     console.print(f"[{SLATE_TEXT}]| {mode}[/]")
 
 
@@ -537,7 +549,7 @@ def run_verification(
     console: Console,
     *,
     interactive: bool,
-    cli_path: Path,
+    cli_state: CLIInstallState,
 ) -> tuple[StepResult, bool]:
     """Run the canonical browsing task through the installed CLI.
 
@@ -549,8 +561,15 @@ def run_verification(
     if not interactive:
         return StepResult("Verification", "skipped", "Skipped verification because no interactive terminal is available."), False
 
+    # Use bare `yutori` when the current shell already resolves it to the
+    # freshly-installed binary (on_path=True from inspect_cli_install). This
+    # keeps the demonstrated command copy-pasteable — users see what they
+    # would actually type. Fall back to the absolute path when `yutori` is
+    # not on PATH (first-time install without an opened new shell), since
+    # the bare name would fail there.
+    cli_invocation = "yutori" if cli_state.on_path else str(cli_state.cli_path)
     submit_command = (
-        str(cli_path),
+        cli_invocation,
         "browse",
         "run",
         VERIFICATION_TASK,
@@ -602,7 +621,7 @@ def run_verification(
                 return StepResult("Verification", "failed", detail), False
 
             time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
-            poll = run_command((str(cli_path), "browse", "get", task_id))
+            poll = run_command((cli_invocation, "browse", "get", task_id))
             poll_output = collect_process_output(poll)
             if poll.returncode != 0:
                 auth_failed = looks_like_auth_failure(poll_output)
@@ -660,7 +679,7 @@ def install_ui_command() -> None:
     elif cli_state is None:
         verification_result = StepResult("Verification", "skipped", "Verification requires a working CLI install.")
     else:
-        verification_result, auth_failed = run_verification(console, interactive=interactive, cli_path=cli_state.cli_path)
+        verification_result, auth_failed = run_verification(console, interactive=interactive, cli_state=cli_state)
         if auth_failed:
             auth_result = StepResult(
                 "Auth", "failed", "Saved credentials were rejected by the API during verification."
