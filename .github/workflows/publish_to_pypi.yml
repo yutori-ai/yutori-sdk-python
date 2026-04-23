@@ -24,18 +24,10 @@ jobs:
 
       # install.sh is regenerated from the committed template + banner +
       # frames so the uploaded release asset matches the tagged commit
-      # deterministically. The committed install.sh is informational.
-      # Brand/animation updates happen locally via:
-      #   bash scripts/build_install.sh <path-to-yutori-monorepo>
+      # deterministically. The pre-commit hook at
+      # scripts/check_install_sh_fresh.sh catches drift at PR time.
       - name: Regenerate install.sh
         run: bash scripts/build_install.sh
-
-      - name: Check for drift in committed install.sh
-        run: |
-          if ! git diff --quiet -- install.sh 2>/dev/null; then
-            echo "::warning::install.sh drifted during regeneration. Run scripts/build_install.sh locally and commit the result."
-            git diff --stat -- install.sh || true
-          fi
 
       - name: Generate installer checksums
         run: |
