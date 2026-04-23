@@ -13,6 +13,7 @@ INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_TEMPLATE = REPO_ROOT / "install.sh.template"
 UNINSTALL_SH = REPO_ROOT / "uninstall.sh"
 
+
 # Scripts that must always be present (hand-authored or committed artifact).
 AUTHORED_SCRIPTS = [
     INSTALL_TEMPLATE,
@@ -71,9 +72,12 @@ def test_cleanup_temp_files_returns_zero_under_set_e() -> None:
     the final `[[ -z "" ]] && rm` in cleanup_temp_files returned 1 under `set -e`,
     aborting handoff_to_python_ui before the Python installer UI could run.
     """
+    # Use `eval "$(sed ...)"` instead of `source <(sed ...)` — on bash 3.2
+    # (macOS system bash), process substitution + set -e races and the
+    # source sometimes sees EOF before the function body arrives.
     script = f"""
 set -euo pipefail
-source <(sed -n '/^cleanup_temp_files()/,/^}}/p' {INSTALL_TEMPLATE})
+eval "$(sed -n '/^cleanup_temp_files()/,/^}}/p' {INSTALL_TEMPLATE})"
 INSTALL_LOG=""
 INSTALL_STATUS_FILE=""
 FRAMES_CACHE_FILE=""
@@ -215,20 +219,40 @@ def test_uninstall_summary_rule_is_not_misread_as_printf_flag() -> None:
 
 
 def test_frame_top_skips_status_message_line() -> None:
-    """Regression: frame_top must place the frame BELOW the "Installing..."
-    status message. Layout is:
+    """Regression: frame_top must place the frame BELOW the bootstrap intro.
+    Layout is:
       rows 1..N    banner
       row N+1      blank (render_banner's trailing '\\n')
-      row N+2      "Installing Yutori CLI with uv..." status line
-      row N+3      blank (status line's '\\n\\n')
-      row N+4      first row available for the frame
+      row N+2      > Yutori installer
+      row N+3      | Interactive terminal detected.
+      row N+4      | Installing Yutori CLI with uv...
+      row N+5      blank (render_bootstrap_intro's '\\n\\n')
+      row N+6      first row available for the frame
 
-    Previously frame_top was banner_lines + 2 (row N+2), so every frame's
-    pad_y=1 blank overwrote the status line on every tick.
+    The frame must start after the three intro lines and their trailing blank,
+    otherwise the first pad row will erase part of the installer intro.
     """
     content = INSTALL_TEMPLATE.read_text()
-    assert 'frame_top="$((banner_lines + 4))"' in content, (
-        "frame_top must be banner_lines + 4 to skip both the status message "
-        "and its trailing blank — otherwise the animation overwrites "
-        "'Installing Yutori CLI with uv...'."
+    assert 'frame_top="$((banner_lines + 6))"' in content, (
+        "frame_top must be banner_lines + 6 to skip the bootstrap intro "
+        "and its trailing blank — otherwise the animation overwrites the "
+        "installer step text."
     )
+
+
+def test_full_animation_keeps_bootstrap_intro_in_shell() -> None:
+    """The shell bootstrap should introduce the installer before the Python UI
+    starts, then suppress the duplicate Python header via an env var.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert 'render_bootstrap_intro "Interactive terminal detected."' in content
+    assert 'export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"' in content
+
+
+def test_full_animation_renders_at_least_two_frames() -> None:
+    """Fast reinstalls can finish before the first loop iteration. Keep a
+    minimum of two frames so users still see the Navigator move at least once.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert 'local minimum_frames=2' in content
+    assert 'while kill -0 "$install_pid" 2>/dev/null || (( displayed_frames < minimum_frames )); do' in content

@@ -22,7 +22,9 @@ from yutori.cli.commands.install_ui import (
     maybe_repair_path,
     resolve_uv_path,
     run_verification,
+    VERIFICATION_MAX_STEPS,
     VERIFICATION_TASK,
+    VERIFICATION_TASK_DASHBOARD_BASE_URL,
     VERIFICATION_URL,
 )
 from yutori.cli.main import app
@@ -276,9 +278,17 @@ def test_run_verification_succeeds_via_cli(tmp_path: Path):
 
     assert auth_failed is False
     assert result.status == "success"
-    assert "task-123" in result.detail
-    assert "Found 5 team members." in result.detail
-    assert mock_run.call_args_list[0].args[0] == (str(cli_path), "browse", "run", VERIFICATION_TASK, VERIFICATION_URL)
+    assert f"{VERIFICATION_TASK_DASHBOARD_BASE_URL}/task-123" in result.detail
+    assert "succeeded" in result.detail.lower()
+    assert mock_run.call_args_list[0].args[0] == (
+        str(cli_path),
+        "browse",
+        "run",
+        VERIFICATION_TASK,
+        VERIFICATION_URL,
+        "--max-steps",
+        str(VERIFICATION_MAX_STEPS),
+    )
     assert mock_run.call_args_list[1].args[0] == (str(cli_path), "browse", "get", "task-123")
 
 
@@ -313,6 +323,29 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
     assert auth_failed is False
     assert result.status == "failed"
     assert "502" in result.detail
+
+
+def test_install_ui_skips_header_when_bootstrap_already_rendered():
+    cli_state = CLIInstallState(
+        cli_path=Path("/tmp/yutori"),
+        bin_dir=Path("/tmp"),
+        uv_path="/usr/bin/uv",
+        version="yutori 0.7.0",
+        on_path=True,
+    )
+    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+
+    with (
+        patch("yutori.cli.commands.install_ui.inspect_cli_install", return_value=(cli_state, StepResult("CLI", "success", "ok"))),
+        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_ui.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
+        patch("yutori.cli.commands.install_ui.maybe_authenticate", return_value=(StepResult("Auth", "skipped", "skip"), False)),
+    ):
+        result = runner.invoke(app, ["__install_ui"], env={"YUTORI_INSTALLER_BOOTSTRAP_SHOWN": "1"})
+
+    assert result.exit_code == 0
+    assert "> Yutori installer" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -617,4 +650,3 @@ def test_looks_like_auth_failure_detects_auth_signals(output: str) -> None:
 )
 def test_looks_like_auth_failure_ignores_non_auth_errors(output: str) -> None:
     assert looks_like_auth_failure(output) is False
-
