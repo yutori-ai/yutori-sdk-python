@@ -3,7 +3,6 @@
 set -euo pipefail
 
 YUTORI_BRAND_MINT=$'\033[38;2;29;205;152m'
-YUTORI_MINT_HIGHLIGHT=$'\033[38;2;90;232;189m'
 YUTORI_SLATE_TEXT=$'\033[38;2;148;163;184m'
 YUTORI_ERROR_RED=$'\033[38;2;255;92;92m'
 YUTORI_RESET=$'\033[0m'
@@ -1882,8 +1881,25 @@ handoff_to_python_ui() {
         exit 1
     fi
 
-    if ! bin_dir="$("$UV_BIN" tool dir --bin 2>&1)"; then
-        error "uv tool dir --bin failed: $bin_dir"
+    # Capture stdout and stderr separately — if uv emits a warning on stderr
+    # but still writes the path to stdout, we must not let the warning text
+    # bleed into yutori_bin. On failure, the stderr content goes into the
+    # user-facing error message.
+    local bin_dir_stderr
+    bin_dir_stderr="$(mktemp "${TMPDIR:-/tmp}/yutori-uv-bin-dir.XXXXXX")"
+    if ! bin_dir="$("$UV_BIN" tool dir --bin 2>"$bin_dir_stderr")"; then
+        local stderr_content
+        stderr_content="$(cat "$bin_dir_stderr")"
+        rm -f "$bin_dir_stderr"
+        error "uv tool dir --bin failed: $stderr_content"
+        exit 1
+    fi
+    rm -f "$bin_dir_stderr"
+    # uv may print multi-line output (rare, but possible). Use the last
+    # non-empty line as the path — matches inspect_cli_install in Python.
+    bin_dir="$(printf '%s\n' "$bin_dir" | awk 'NF { line = $0 } END { print line }')"
+    if [[ -z "$bin_dir" ]]; then
+        error "uv tool dir --bin returned empty output."
         exit 1
     fi
     yutori_bin="${bin_dir}/yutori"
