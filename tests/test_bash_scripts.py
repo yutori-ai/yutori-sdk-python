@@ -249,12 +249,23 @@ def test_full_animation_keeps_bootstrap_intro_in_shell() -> None:
     assert 'export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"' in content
 
 
-def test_full_animation_renders_at_least_two_frames() -> None:
-    """Fast reinstalls can finish before the first loop iteration. Keep a
-    minimum of two frames so users still see the Navigator move at least once.
+def test_full_animation_renders_enough_frames_for_fast_reinstalls() -> None:
+    """Fast reinstalls (version bumps over an existing install) can complete
+    in well under a second. Without a sensible minimum-frames floor, the
+    animation flashes past in ~170ms and users perceive a hang when the
+    screen is cleared for the Python UI handoff. Lock in at least ~1s of
+    animation at 12fps cadence.
     """
     content = INSTALL_TEMPLATE.read_text()
-    assert 'local minimum_frames=2' in content
+    import re
+
+    match = re.search(r"local minimum_frames=(\d+)", content)
+    assert match, "minimum_frames must be defined in play_animation_until_done"
+    minimum_frames = int(match.group(1))
+    assert minimum_frames >= 12, (
+        f"minimum_frames={minimum_frames} is under 1s at 12fps — fast "
+        "reinstalls will flash the animation past unreadably fast."
+    )
     assert 'while kill -0 "$install_pid" 2>/dev/null || (( displayed_frames < minimum_frames )); do' in content
 
 
