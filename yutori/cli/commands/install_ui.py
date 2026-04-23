@@ -42,8 +42,21 @@ ERROR_RED = "#FF5C5C"
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
 VERIFICATION_MAX_STEPS = 5
+# Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
+# serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
-FINAL_TASK_STATUSES = {"succeeded", "failed"}
+
+# Terminal task statuses. Broader than just {succeeded, failed} so the poll
+# loop exits on any server-side termination (e.g. the task exceeded
+# max_steps, got cancelled, or hit a platform-level timeout) instead of
+# spinning until VERIFICATION_POLL_BUDGET_SECONDS and falsely reporting a
+# poll timeout.
+FINAL_SUCCESS_STATUSES = {"succeeded", "success", "completed"}
+FINAL_FAILURE_STATUSES = {
+    "failed", "error", "rejected", "cancelled", "canceled",
+    "timeout", "timed_out", "exceeded_max_steps",
+}
+FINAL_TASK_STATUSES = FINAL_SUCCESS_STATUSES | FINAL_FAILURE_STATUSES
 # Case-insensitive substrings that identify an auth failure in CLI output.
 # We can't rely on any single marker because the CLI's error phrasing varies
 # across commands (see yutori/cli/commands/__init__.py and yutori/_http.py).
@@ -403,8 +416,16 @@ def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bo
     if not Confirm.ask("Install the Python SDK into this project?", default=plan.default, console=console):
         return StepResult("SDK", "skipped", "SDK install was skipped.")
 
-    console.print(f"[{SLATE_TEXT}]| Running...[/]")
-    result = run_command(plan.command, cwd=cwd or Path.cwd(), timeout=INSTALL_CMD_TIMEOUT)
+    # Show a dot-animation status line so the user sees the installer is alive
+    # during the pip/uv subprocess (up to INSTALL_CMD_TIMEOUT / 5 minutes).
+    # simpleDots fits the `| `-prefixed aesthetic; the default "dots" spinner
+    # renders as a rotating braille block that reads as a "box" on some terminals.
+    with console.status(
+        f"[{SLATE_TEXT}]| Running {format_command(plan.command)}[/]",
+        spinner="simpleDots",
+        spinner_style=SLATE_TEXT,
+    ):
+        result = run_command(plan.command, cwd=cwd or Path.cwd(), timeout=INSTALL_CMD_TIMEOUT)
 
     if result.returncode != 0:
         return StepResult("SDK", "failed", describe_completed_process(result))
@@ -538,35 +559,41 @@ def run_verification(
     status = parse_cli_field(submission.stdout, "Status") or "queued"
     last_output = submission.stdout
     console.print(f"[{SLATE_TEXT}]| Task: {task_url}[/]")
-    last_reported_status: str | None = None
-    while status not in FINAL_TASK_STATUSES:
-        if status != last_reported_status:
-            console.print(f"[{SLATE_TEXT}]| Status: {status}[/]")
-            last_reported_status = status
-        if time.monotonic() >= deadline:
-            detail = (
-                "Verification timed out. View task: "
-                f"{task_url}"
-            )
-            return StepResult("Verification", "failed", detail), False
 
-        time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
-        poll = run_command((str(cli_path), "browse", "get", task_id))
-        poll_output = collect_process_output(poll)
-        if poll.returncode != 0:
-            auth_failed = looks_like_auth_failure(poll_output)
-            detail = poll_output or describe_completed_process(poll)
-            return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
+    # Live status line: updates in place so the user sees both the current
+    # status and continuous dot-motion confirming the installer is alive
+    # during queued/running phases that may last the full 180s poll budget.
+    with console.status(
+        f"[{SLATE_TEXT}]| Status: {status}[/]",
+        spinner="simpleDots",
+        spinner_style=SLATE_TEXT,
+    ) as spinner:
+        while status not in FINAL_TASK_STATUSES:
+            if time.monotonic() >= deadline:
+                detail = (
+                    f"Verification timed out after {VERIFICATION_POLL_BUDGET_SECONDS}s. "
+                    f"View task: {task_url}"
+                )
+                return StepResult("Verification", "failed", detail), False
 
-        last_output = poll.stdout
-        status = parse_cli_field(poll.stdout, "Status") or "queued"
+            time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
+            poll = run_command((str(cli_path), "browse", "get", task_id))
+            poll_output = collect_process_output(poll)
+            if poll.returncode != 0:
+                auth_failed = looks_like_auth_failure(poll_output)
+                detail = poll_output or describe_completed_process(poll)
+                return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
+
+            last_output = poll.stdout
+            status = parse_cli_field(poll.stdout, "Status") or "queued"
+            spinner.update(f"[{SLATE_TEXT}]| Status: {status}[/]")
 
     summary = _summarize_cli_output(last_output)
     console.print(f"[{SLATE_TEXT}]| Result: {summary}[/]")
-    if status == "succeeded":
+    if status in FINAL_SUCCESS_STATUSES:
         return StepResult("Verification", "success", f"Verification succeeded. View task: {task_url}"), False
 
-    return StepResult("Verification", "failed", f"Verification failed. View task: {task_url}"), False
+    return StepResult("Verification", "failed", f"Verification failed ({status}). View task: {task_url}"), False
 
 
 def install_ui_command() -> None:

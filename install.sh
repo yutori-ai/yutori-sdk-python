@@ -8,14 +8,18 @@ YUTORI_SLATE_TEXT=$'\033[38;2;148;163;184m'
 YUTORI_ERROR_RED=$'\033[38;2;255;92;92m'
 YUTORI_RESET=$'\033[0m'
 
-YUTORI_BANNER="$(cat <<'__YUTORI_BANNER__'
+# Read the banner into a variable via `read -d ''` rather than `$(cat <<EOF)`.
+# Bash 3.2 (macOS /bin/bash) has a known parser bug where a heredoc nested
+# in `$(...)` mishandles literal apostrophes in the heredoc body — and the
+# banner ASCII contains one (`'__| |`). `read -d ''` reads until EOF with
+# no command substitution wrapper, which parses cleanly on bash 3.2+.
+IFS= read -r -d '' YUTORI_BANNER <<'__YUTORI_BANNER__' || true
 __   __      _             _
 \ \ / /_   _| |_ ___  _ __(_)
  \ V /| | | | __/ _ \| '__| |
   | | | |_| | || (_) | |  | |
   |_|  \__,_|\__\___/|_|  |_|
 __YUTORI_BANNER__
-)"
 
 INSTALL_LOG=""
 INSTALL_STATUS_FILE=""
@@ -129,9 +133,23 @@ render_banner() {
 
 render_bootstrap_intro() {
     local mode_line="$1"
-    printf '%b> Yutori installer%b\n' "$YUTORI_MINT_HIGHLIGHT" "$YUTORI_RESET"
-    printf '%b| %s%b\n' "$YUTORI_SLATE_TEXT" "$mode_line" "$YUTORI_RESET"
-    printf '%b| Installing Yutori CLI with uv...%b\n\n' "$YUTORI_SLATE_TEXT" "$YUTORI_RESET"
+    local use_color="${2:-0}"
+    # Gate ANSI codes on use_color so dumb terminals (TERM=dumb, no truecolor,
+    # redirected stdout) don't render raw escape bytes. Matches render_static_logo.
+    if (( use_color )); then
+        printf '%b> Yutori installer%b\n' "$YUTORI_MINT_HIGHLIGHT" "$YUTORI_RESET"
+        printf '%b| %s%b\n' "$YUTORI_SLATE_TEXT" "$mode_line" "$YUTORI_RESET"
+        printf '%b| Installing Yutori CLI with uv...%b\n\n' "$YUTORI_SLATE_TEXT" "$YUTORI_RESET"
+    else
+        printf '> Yutori installer\n'
+        printf '| %s\n' "$mode_line"
+        printf '| Installing Yutori CLI with uv...\n\n'
+    fi
+    # Flag the intro as shown so the Python UI (install_ui.py) suppresses its
+    # duplicate header. Set here — at the exact site of the render — rather
+    # than at handoff time, so a future code path that skips the intro can't
+    # accidentally suppress the Python header too.
+    export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"
 }
 
 resolve_uv_bin() {
@@ -1848,7 +1866,7 @@ play_animation_until_done() {
 
     printf '\033[2J\033[H'
     render_banner
-    render_bootstrap_intro "Interactive terminal detected."
+    render_bootstrap_intro "Interactive terminal detected." "$use_color"
     printf '\033[?25l'
 
     printf '\033[%s;1H' "$frame_top"
@@ -1939,7 +1957,8 @@ handoff_to_python_ui() {
     # run). Reopen /dev/tty for stdin so interactive prompts work under
     # `curl | bash` — the script's stdin is the downloaded bytes by default.
     export YUTORI_UV_BIN="$UV_BIN"
-    export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"
+    # YUTORI_INSTALLER_BOOTSTRAP_SHOWN is exported by render_bootstrap_intro
+    # itself (when the intro actually prints), so no unconditional export here.
     if has_usable_tty; then
         exec "$yutori_bin" __install_ui </dev/tty
     fi
@@ -1988,9 +2007,9 @@ main() {
     else
         render_banner
         if (( interactive )); then
-            render_bootstrap_intro "Interactive terminal detected."
+            render_bootstrap_intro "Interactive terminal detected." "$use_color"
         else
-            render_bootstrap_intro "Non-interactive terminal detected."
+            render_bootstrap_intro "Non-interactive terminal detected." "$use_color"
         fi
         if [[ "$animation_mode" == "static" ]]; then
             render_static_logo "$use_color"

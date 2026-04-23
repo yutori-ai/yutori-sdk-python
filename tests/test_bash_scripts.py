@@ -13,6 +13,7 @@ INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_TEMPLATE = REPO_ROOT / "install.sh.template"
 UNINSTALL_SH = REPO_ROOT / "uninstall.sh"
 
+
 # Scripts that must always be present (hand-authored or committed artifact).
 AUTHORED_SCRIPTS = [
     INSTALL_TEMPLATE,
@@ -71,9 +72,12 @@ def test_cleanup_temp_files_returns_zero_under_set_e() -> None:
     the final `[[ -z "" ]] && rm` in cleanup_temp_files returned 1 under `set -e`,
     aborting handoff_to_python_ui before the Python installer UI could run.
     """
+    # Use `eval "$(sed ...)"` instead of `source <(sed ...)` — on bash 3.2
+    # (macOS system bash), process substitution + set -e races and the
+    # source sometimes sees EOF before the function body arrives.
     script = f"""
 set -euo pipefail
-source <(sed -n '/^cleanup_temp_files()/,/^}}/p' {INSTALL_TEMPLATE})
+eval "$(sed -n '/^cleanup_temp_files()/,/^}}/p' {INSTALL_TEMPLATE})"
 INSTALL_LOG=""
 INSTALL_STATUS_FILE=""
 FRAMES_CACHE_FILE=""
