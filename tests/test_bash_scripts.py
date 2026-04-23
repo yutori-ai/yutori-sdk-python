@@ -11,6 +11,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_TEMPLATE = REPO_ROOT / "install.sh.template"
+UNINSTALL_SH = REPO_ROOT / "uninstall.sh"
 
 # Scripts that must always be present (hand-authored or committed artifact).
 AUTHORED_SCRIPTS = [
@@ -176,6 +177,40 @@ def test_cleanup_probes_tty_before_writing() -> None:
     assert "has_usable_tty" in handoff_body, (
         "handoff_to_python_ui must probe the TTY before exec'ing with "
         "</dev/tty — otherwise the redirect fails on non-interactive runs."
+    )
+
+
+def test_uninstall_probes_tty_before_prompting() -> None:
+    """Regression: prompt_confirm used `[[ ! -r "$TTY" ]]` which passes on
+    non-interactive docker/CI where the device exists with readable mode bits
+    but no controlling terminal. `read <$TTY` then fails silently (via
+    `|| reply=""`), reply defaults to `default_answer` ("Y" for both
+    prompts), and the uninstaller silently removes the CLI + ~/.yutori
+    without actual user confirmation. Must use a has_usable_tty probe.
+    """
+    content = UNINSTALL_SH.read_text()
+    assert "has_usable_tty" in content, (
+        "uninstall.sh must probe the TTY before relying on read <\"$TTY\" — "
+        "otherwise it silently auto-accepts destructive prompts on non-TTY."
+    )
+    # prompt_confirm must call the probe, not just `[[ -r "$TTY" ]]`.
+    prompt_start = content.index("prompt_confirm()")
+    prompt_end = content.index("\n}\n", prompt_start)
+    prompt_body = content[prompt_start:prompt_end]
+    assert "has_usable_tty" in prompt_body, (
+        "prompt_confirm must invoke has_usable_tty before proceeding."
+    )
+
+
+def test_uninstall_summary_rule_is_not_misread_as_printf_flag() -> None:
+    """Regression: `printf '-------\\n'` errors with 'invalid option' because
+    `-------` is parsed as flags. Must quote the argument separately, e.g.
+    `printf '%s\\n' "-------"`.
+    """
+    content = UNINSTALL_SH.read_text()
+    assert "printf '-------\\n'" not in content and "printf '------\\n'" not in content, (
+        "`printf '-------\\n'` errors with `printf: --: invalid option`. "
+        "Use `printf '%s\\n' \"-------\"` instead."
     )
 
 

@@ -8,6 +8,18 @@ TTY="/dev/tty"
 # YUTORI_UNINSTALL_ASSUME_YES=1 to accept all defaults without a TTY.
 ASSUME_YES="${YUTORI_UNINSTALL_ASSUME_YES:-0}"
 
+# `[[ -r /dev/tty ]]` passes on non-interactive docker/CI where the device
+# exists with permissive mode bits but has no controlling terminal. The
+# subsequent `read <"$TTY"` then fails silently (via `|| reply=""`), the
+# default_answer is honored, and destructive prompts auto-accept — removing
+# the CLI and ~/.yutori without actual user confirmation. Probe by opening
+# fd 3 on /dev/tty and closing it.
+has_usable_tty() {
+    { exec 3<"$TTY"; } 2>/dev/null || return 1
+    exec 3<&-
+    return 0
+}
+
 prompt_confirm() {
     local prompt="$1"
     local default_answer="$2"
@@ -19,7 +31,7 @@ prompt_confirm() {
         return
     fi
 
-    if [[ ! -r "$TTY" ]]; then
+    if ! has_usable_tty; then
         printf '%s\n' "No interactive terminal available. Re-run with YUTORI_UNINSTALL_ASSUME_YES=1 to accept defaults." >&2
         exit 1
     fi
@@ -151,7 +163,9 @@ main() {
     fi
 
     printf '\nSummary\n'
-    printf '-------\n'
+    # Use `printf '%s\n' "$arg"` so the leading `--` can't be mistaken for a
+    # printf option flag. `printf -------\n` errors with "invalid option".
+    printf '%s\n' "-------"
     printf 'CLI: %s\n' "$cli_summary"
     printf 'Credentials: %s\n' "$credentials_summary"
     printf 'Project SDK installs were not modified. Remove those with uv remove yutori or pip uninstall yutori inside each project.\n'
