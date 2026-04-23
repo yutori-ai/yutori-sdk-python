@@ -3,11 +3,12 @@ name: Publish yutori to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -21,8 +22,30 @@ jobs:
       - name: Build package
         run: python -m build
 
+      # install.sh is regenerated from the committed template + banner +
+      # frames so the uploaded release asset matches the tagged commit
+      # deterministically. The pre-commit hook at
+      # scripts/check_install_sh_fresh.sh catches drift at PR time.
+      - name: Regenerate install.sh
+        run: bash scripts/build_install.sh
+
+      - name: Generate installer checksums
+        run: |
+          chmod +x install.sh uninstall.sh
+          sha256sum install.sh > install.sh.sha256
+          sha256sum uninstall.sh > uninstall.sh.sha256
+
       - name: Publish to PyPI
         run: twine upload dist/*
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Upload installer assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            install.sh
+            install.sh.sha256
+            uninstall.sh
+            uninstall.sh.sha256

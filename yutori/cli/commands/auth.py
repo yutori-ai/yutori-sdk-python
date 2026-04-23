@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from yutori.auth.credentials import clear_config, load_config
+from yutori.auth.credentials import _is_real_key, clear_config, load_config
 from yutori.auth.flow import get_auth_status, run_login_flow
 
 app = typer.Typer(help="Manage authentication")
@@ -28,7 +28,7 @@ def login() -> None:
 
     Opens your browser to log in with Clerk OAuth and saves an API key locally.
     """
-    if os.environ.get("YUTORI_API_KEY"):
+    if _is_real_key(os.environ.get("YUTORI_API_KEY")):
         console.print(
             "[yellow]YUTORI_API_KEY environment variable is set — it takes precedence over saved credentials.[/yellow]"
         )
@@ -37,7 +37,7 @@ def login() -> None:
 
     config = load_config()
     existing_key = config.get("api_key") if config else None
-    if existing_key and isinstance(existing_key, str):
+    if isinstance(existing_key, str) and _is_real_key(existing_key):
         console.print("[yellow]You are already authenticated.[/yellow]")
         console.print("Run [bold]yutori auth logout[/bold] first to re-authenticate.")
         raise typer.Exit(1)

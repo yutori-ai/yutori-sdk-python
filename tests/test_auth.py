@@ -26,7 +26,6 @@ from yutori.auth.constants import (
 )
 from yutori.auth.credentials import clear_config, load_config, resolve_api_key, save_config
 from yutori.auth.flow import (
-    RegisterEndpointUnavailableError,
     _build_key_name,
     _CallbackHandler,
     _CallbackResult,
@@ -394,7 +393,27 @@ class TestRegistrationHelpers:
 
     def test_check_registration_status_false_on_error(self):
         with patch.object(httpx.Client, "get", side_effect=httpx.HTTPError("boom")):
-            assert check_registration_status("jwt_token") is False
+            assert check_registration_status("jwt_token") is None
+
+    def test_check_registration_status_returns_none_for_non_dict_body(self):
+        # Regression: a 200 response with a non-dict body (e.g. a backend bug
+        # returning `[]` or `"ok"`) must return None, not propagate
+        # AttributeError through run_login_flow and fail the whole login.
+        for bad_body in ([], "ok", 42, None):
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.json.return_value = bad_body
+            with patch.object(httpx.Client, "get", return_value=mock_response):
+                assert check_registration_status("jwt_token") is None, (
+                    f"non-dict body {bad_body!r} should return None, not raise"
+                )
+
+    def test_check_registration_status_returns_none_when_key_missing(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"some_other_field": True}
+        with patch.object(httpx.Client, "get", return_value=mock_response):
+            assert check_registration_status("jwt_token") is None
 
     def test_register_user_posts_cli_source(self):
         mock_response = MagicMock(spec=httpx.Response)
@@ -408,16 +427,16 @@ class TestRegistrationHelpers:
             assert call_kwargs[1]["json"] == {"signup_source": "cli"}
             assert "Bearer jwt_token" in call_kwargs[1]["headers"]["Authorization"]
 
-    def test_register_user_raises_for_backend_incompatibility(self):
+    def test_register_user_raises_httpstatuserror_on_bad_status(self):
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 404
-        mock_response.raise_for_status = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("500", request=MagicMock(), response=mock_response)
+        )
 
         with patch.object(httpx.Client, "post", return_value=mock_response):
-            with pytest.raises(RegisterEndpointUnavailableError) as exc_info:
+            with pytest.raises(httpx.HTTPStatusError):
                 register_user("jwt_token")
-
-        assert "/client/register-api" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -570,57 +589,6 @@ class TestRunLoginFlow:
         assert "backend missing" in str(result.error)
         mock_gen_key.assert_not_called()
 
-    @patch("yutori.auth.flow.webbrowser.open")
-    @patch("yutori.auth.flow.generate_api_key", return_value="yt-existing-key")
-    @patch(
-        "yutori.auth.flow.register_user",
-        side_effect=RegisterEndpointUnavailableError("backend missing register"),
-    )
-    @patch("yutori.auth.flow.check_registration_status", return_value=True)
-    @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
-    @patch("yutori.auth.flow.save_config")
-    @patch("yutori.auth.flow.logger.warning")
-    def test_existing_user_can_fallback_when_register_endpoint_is_missing(
-        self,
-        mock_warning,
-        mock_save,
-        mock_exchange,
-        mock_status,
-        mock_register,
-        mock_gen_key,
-        mock_browser,
-    ):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
-
-        assert result.success is True
-        assert result.api_key == "yt-existing-key"
-        mock_gen_key.assert_called_once_with("jwt123", key_name=mock_gen_key.call_args.kwargs["key_name"])
-        mock_save.assert_called_once_with("yt-existing-key")
-        mock_warning.assert_called_once()
-
     def test_port_in_use(self):
         with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):
             result = run_login_flow()
@@ -722,6 +690,16 @@ class TestGetAuthStatus:
         monkeypatch.setenv("YUTORI_API_KEY", "yt-env-key-xyz")
         status = get_auth_status()
         assert status.source == "env_var"
+
+    def test_placeholder_env_var_treated_as_unauthenticated(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", "YOUR_API_KEY")
+        status = get_auth_status()
+        assert status.authenticated is False
+
+    def test_placeholder_config_value_treated_as_unauthenticated(self):
+        save_config("YOUR_API_KEY")
+        status = get_auth_status()
+        assert status.authenticated is False
 
     def test_non_string_api_key_in_config_treated_as_unauthenticated(self):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)

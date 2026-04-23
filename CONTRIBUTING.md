@@ -17,12 +17,17 @@ Thank you for your interest in contributing to the Yutori Python SDK!
    pip install -e ".[dev]"
    ```
 
-3. Run tests:
+3. Install pre-commit hooks (regenerates `install.sh` when its inputs change):
+   ```bash
+   pip install pre-commit && pre-commit install
+   ```
+
+4. Run tests:
    ```bash
    pytest
    ```
 
-4. Run linting:
+5. Run linting:
    ```bash
    ruff check .
    ruff format .

@@ -46,14 +46,18 @@ def test_auth_login_prints_logging_in_message(monkeypatch):
     assert "Successfully authenticated!" in result.stdout
 
 
-def test_auth_login_surfaces_backend_incompatibility(monkeypatch):
+def test_auth_login_surfaces_backend_error(monkeypatch):
+    # Generic "backend rejected the login" path — any LoginResult failure
+    # message gets surfaced to the user. This replaces the old test for
+    # /client/register-api unavailability, which the backend no longer
+    # exercises (endpoint has been live since ENG-4003 landed 2026-03).
     monkeypatch.delenv("YUTORI_API_KEY", raising=False)
 
     def fake_run_login_flow(*args, **kwargs):
         kwargs["on_registration_state"]("creating_account")
         return LoginResult(
             success=False,
-            error="This CLI version requires backend support for /client/register-api.",
+            error="Authentication failed (500): backend exploded",
             auth_url="https://example.com/auth",
         )
 
@@ -65,4 +69,31 @@ def test_auth_login_surfaces_backend_incompatibility(monkeypatch):
 
     assert result.exit_code == 1
     assert "Creating account..." in result.stdout
-    assert "/client/register-api" in result.stdout
+    normalized_stdout = " ".join(result.stdout.split())
+    assert "Authentication failed (500): backend exploded" in normalized_stdout
+
+
+def test_auth_login_ignores_placeholder_env_var(monkeypatch):
+    monkeypatch.setenv("YUTORI_API_KEY", "YOUR_API_KEY")
+
+    with (
+        patch("yutori.cli.commands.auth.load_config", return_value=None),
+        patch("yutori.cli.commands.auth.run_login_flow", return_value=LoginResult(success=True, api_key="yt-key")),
+    ):
+        result = runner.invoke(app, ["auth", "login"])
+
+    assert result.exit_code == 0
+    assert "Successfully authenticated!" in result.stdout
+
+
+def test_auth_login_ignores_placeholder_config_key(monkeypatch):
+    monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+
+    with (
+        patch("yutori.cli.commands.auth.load_config", return_value={"api_key": "YOUR_API_KEY"}),
+        patch("yutori.cli.commands.auth.run_login_flow", return_value=LoginResult(success=True, api_key="yt-key")),
+    ):
+        result = runner.invoke(app, ["auth", "login"])
+
+    assert result.exit_code == 0
+    assert "Successfully authenticated!" in result.stdout

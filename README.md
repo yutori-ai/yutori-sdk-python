@@ -7,7 +7,32 @@ The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) �
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
-## Installation
+## Quick Install
+
+For the full CLI-first setup on macOS or Linux, use the one-line installer:
+
+```bash
+curl -fsSL https://yutori.com/install.sh | bash
+```
+
+What this does:
+
+- Installs the global `yutori` CLI with `uv tool install`.
+- In an interactive terminal, prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, and run a verification browsing task.
+- In a non-interactive session (CI, pipe), skips the auth and verification prompts with guidance on how to finish setup.
+
+<details>
+<summary>Uninstall the CLI later</summary>
+
+```bash
+curl -fsSL https://yutori.com/uninstall.sh | bash
+```
+
+Removes the global `yutori` CLI. Saved credentials at `~/.yutori/` are left in place so they survive reinstalls — `rm -rf ~/.yutori` manually if you want a clean slate. Set `YUTORI_UNINSTALL_ASSUME_YES=1` for scripted runs.
+
+</details>
+
+## Package Installation
 
 ```bash
 pip install yutori
@@ -57,16 +82,19 @@ Resolution order: explicit `api_key` > `YUTORI_API_KEY` env var > `~/.yutori/con
 
 </details>
 
+
 ## API Overview
 
 The Yutori API provides four main capabilities:
 
-| API             | Description                                   | SDK Namespace     |
-| --------------- | --------------------------------------------- | ----------------- |
-| **Navigator**   | Computer-use model for navigating websites    | `client.chat`     |
-| **Browsing**    | One-time browser automation tasks             | `client.browsing` |
-| **Research**    | Deep web research using 100+ tools            | `client.research` |
-| **Scouting**    | Continuous web monitoring on a schedule       | `client.scouts`   |
+
+| API           | Description                                | SDK Namespace     |
+| ------------- | ------------------------------------------ | ----------------- |
+| **Navigator** | Computer-use model for navigating websites | `client.chat`     |
+| **Browsing**  | One-time browser automation tasks          | `client.browsing` |
+| **Research**  | Deep web research using 100+ tools         | `client.research` |
+| **Scouting**  | Continuous web monitoring on a schedule    | `client.scouts`   |
+
 
 ## Navigator API
 
@@ -113,15 +141,17 @@ The SDK defaults to `n1.5-latest`. `n1-latest` is still supported for callers th
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
 
-| Helper | Purpose |
-| ------ | ------- |
-| `aplaywright_screenshot_to_data_url(page)` | Capture a Playwright screenshot as a Navigator-optimized WebP data URL. |
-| `denormalize_coordinates(coords, width, height)` | Map the model's 1000×1000 coordinate space to viewport pixels. |
-| `format_task_with_context(task, ...)` | Append location, timezone, and current date to a task message. |
-| `format_stop_and_summarize(task)` | Ask the model to summarize when hitting max steps or an error. |
-| `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit. |
-| `map_key_to_playwright(key)` / `map_keys_individual(keys)` | Convert n1.5's lowercase key names to Playwright format. |
-| `yutori.navigator.tools` | Packaged JS reference implementations for n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
+
+| Helper                                                      | Purpose                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `aplaywright_screenshot_to_data_url(page)`                  | Capture a Playwright screenshot as a Navigator-optimized WebP data URL.                                                        |
+| `denormalize_coordinates(coords, width, height)`            | Map the model's 1000×1000 coordinate space to viewport pixels.                                                                 |
+| `format_task_with_context(task, ...)`                       | Append location, timezone, and current date to a task message.                                                                 |
+| `format_stop_and_summarize(task)`                           | Ask the model to summarize when hitting max steps or an error.                                                                 |
+| `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                       |
+| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert n1.5's lowercase key names to Playwright format.                                                                       |
+| `yutori.navigator.tools`                                    | Packaged JS reference implementations for n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
+
 
 Full helper reference: [api.md](api.md).
 
