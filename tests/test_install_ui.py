@@ -252,6 +252,17 @@ def test_maybe_repair_path_reports_shadowed_binary():
     assert "Reorder PATH" in result.detail
 
 
+def _cli_state(cli_path: Path, *, on_path: bool = True) -> CLIInstallState:
+    return CLIInstallState(
+        cli_path=cli_path,
+        bin_dir=cli_path.parent,
+        uv_path="/tmp/uv",
+        version="yutori 0.7.3",
+        on_path=on_path,
+        shell_cli_path=cli_path if on_path else None,
+    )
+
+
 def test_run_verification_succeeds_via_cli(tmp_path: Path):
     cli_path = tmp_path / "yutori"
     responses = [
@@ -274,14 +285,15 @@ def test_run_verification_succeeds_via_cli(tmp_path: Path):
         patch("yutori.cli.commands.install_ui.run_command", side_effect=responses) as mock_run,
         patch("yutori.cli.commands.install_ui.time.sleep", return_value=None),
     ):
-        result, auth_failed = run_verification(Console(), interactive=True, cli_path=cli_path)
+        result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
     assert auth_failed is False
     assert result.status == "success"
     assert f"{VERIFICATION_TASK_DASHBOARD_BASE_URL}/task-123" in result.detail
     assert "succeeded" in result.detail.lower()
+    # on_path=True → bare `yutori`, matching what the user would type in their shell.
     assert mock_run.call_args_list[0].args[0] == (
-        str(cli_path),
+        "yutori",
         "browse",
         "run",
         VERIFICATION_TASK,
@@ -289,7 +301,30 @@ def test_run_verification_succeeds_via_cli(tmp_path: Path):
         "--max-steps",
         str(VERIFICATION_MAX_STEPS),
     )
-    assert mock_run.call_args_list[1].args[0] == (str(cli_path), "browse", "get", "task-123")
+    assert mock_run.call_args_list[1].args[0] == ("yutori", "browse", "get", "task-123")
+
+
+def test_run_verification_uses_absolute_path_when_not_on_path(tmp_path: Path):
+    """When `yutori` is not on PATH, bare `yutori` would fail — fall back to
+    the absolute cli_path for both display and execution."""
+    cli_path = tmp_path / "yutori"
+    response = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="\nBrowsing task submitted.\n  Task ID: task-xyz\n  Status: succeeded\n",
+        stderr="",
+    )
+    with (
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_command", return_value=response) as mock_run,
+    ):
+        result, auth_failed = run_verification(
+            Console(), interactive=True, cli_state=_cli_state(cli_path, on_path=False)
+        )
+
+    assert result.status == "success"
+    assert auth_failed is False
+    assert mock_run.call_args_list[0].args[0][0] == str(cli_path)
 
 
 def test_run_verification_classifies_auth_error_as_auth_failure(tmp_path: Path):
@@ -304,7 +339,7 @@ def test_run_verification_classifies_auth_error_as_auth_failure(tmp_path: Path):
         patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_ui.run_command", return_value=failure),
     ):
-        result, auth_failed = run_verification(Console(), interactive=True, cli_path=cli_path)
+        result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
     assert auth_failed is True
     assert result.status == "failed"
@@ -318,7 +353,7 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
         patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_ui.run_command", return_value=failure),
     ):
-        result, auth_failed = run_verification(Console(), interactive=True, cli_path=cli_path)
+        result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
     assert auth_failed is False
     assert result.status == "failed"
