@@ -21,11 +21,16 @@ What this does:
 - In an interactive terminal, prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, and run a verification browsing task.
 - In a non-interactive session (CI, pipe), skips the auth and verification prompts with guidance on how to finish setup.
 
-To remove the global CLI and saved credentials later:
+<details>
+<summary>Uninstall the CLI later</summary>
 
 ```bash
 curl -fsSL https://yutori.com/uninstall.sh | bash
 ```
+
+Removes the global `yutori` CLI and saved credentials. Set `YUTORI_UNINSTALL_ASSUME_YES=1` for scripted runs.
+
+</details>
 
 ## Package Installation
 
