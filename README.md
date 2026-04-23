@@ -28,7 +28,7 @@ What this does:
 curl -fsSL https://yutori.com/uninstall.sh | bash
 ```
 
-Removes the global `yutori` CLI and saved credentials. Set `YUTORI_UNINSTALL_ASSUME_YES=1` for scripted runs.
+Removes the global `yutori` CLI. Saved credentials at `~/.yutori/` are left in place so they survive reinstalls — `rm -rf ~/.yutori` manually if you want a clean slate. Set `YUTORI_UNINSTALL_ASSUME_YES=1` for scripted runs.
 
 </details>
 

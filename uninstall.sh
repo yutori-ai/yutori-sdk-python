@@ -72,13 +72,11 @@ uv_bin() {
 main() {
     local exit_code=0
     local remove_cli=0
-    local remove_credentials=0
     local cli_installed=0
     local cli_state="not installed"
     local cli_summary="left in place"
     local cli_binary_path=""
     local credentials_state="not found"
-    local credentials_summary="left in place"
     local tool_list_output=""
     local uninstall_output=""
     local uv_path=""
@@ -117,10 +115,6 @@ main() {
         remove_cli=1
     fi
 
-    if prompt_confirm "Remove ~/.yutori and everything inside (credentials, cache)?" "Y"; then
-        remove_credentials=1
-    fi
-
     if (( remove_cli )); then
         if (( ! cli_installed )); then
             if [[ -n "$cli_binary_path" ]]; then
@@ -151,23 +145,17 @@ main() {
         fi
     fi
 
-    if (( remove_credentials )); then
-        # Guard against HOME being unset/empty — `rm -rf /.yutori` would
-        # otherwise attempt a root-level path.
-        if ! rm -rf "${HOME:?HOME is not set}/.yutori"; then
-            credentials_summary="removal failed"
-            exit_code=1
-        else
-            credentials_summary="removed"
-        fi
-    fi
-
     printf '\nSummary\n'
     # Use `printf '%s\n' "$arg"` so the leading `--` can't be mistaken for a
     # printf option flag. `printf -------\n` errors with "invalid option".
     printf '%s\n' "-------"
     printf 'CLI: %s\n' "$cli_summary"
-    printf 'Credentials: %s\n' "$credentials_summary"
+    # Never remove ~/.yutori — it may hold credentials the user wants to
+    # keep across reinstalls (or other files we don't own). Point them at
+    # the path; they can `rm -rf` manually if they want a clean slate.
+    if [[ -d "${HOME}/.yutori" ]]; then
+        printf 'Saved credentials at %s/.yutori were left in place. Remove manually with `rm -rf ~/.yutori` if you want to clear them.\n' "$HOME"
+    fi
     printf 'Project SDK installs were not modified. Remove those with uv remove yutori or pip uninstall yutori inside each project.\n'
     exit "$exit_code"
 }
