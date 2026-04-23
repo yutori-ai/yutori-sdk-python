@@ -145,7 +145,7 @@ def test_install_ui_noninteractive_skips_optional_steps():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=True,
     )
     sdk_plan = SDKInstallPlan(
@@ -207,7 +207,7 @@ def test_install_ui_marks_auth_failure_when_verification_rejects_credentials():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=True,
     )
     sdk_plan = SDKInstallPlan(
@@ -239,7 +239,7 @@ def test_maybe_repair_path_reports_shadowed_binary():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=False,
         shell_cli_path=Path("/usr/local/bin/yutori"),
     )
@@ -325,7 +325,7 @@ def test_install_ui_exits_zero_when_verification_fails_for_non_auth_reason():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=True,
     )
     sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
@@ -449,7 +449,7 @@ def test_inspect_cli_install_success_when_shell_resolves_to_install(tmp_path: Pa
         # uv tool dir --bin
         subprocess.CompletedProcess(args=[], returncode=0, stdout=f"{tmp_path}\n", stderr=""),
         # yutori --version
-        subprocess.CompletedProcess(args=[], returncode=0, stdout="yutori 0.6.1\n", stderr=""),
+        subprocess.CompletedProcess(args=[], returncode=0, stdout="yutori 0.7.0\n", stderr=""),
     ]
     with (
         patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value="/usr/bin/uv"),
@@ -541,7 +541,7 @@ def test_maybe_repair_path_happy_path():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=True,
     )
 
@@ -555,7 +555,7 @@ def test_maybe_repair_path_noninteractive_skips():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=False,
         shell_cli_path=None,
     )
@@ -570,7 +570,7 @@ def test_maybe_repair_path_runs_update_shell_on_consent():
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
         uv_path="/usr/bin/uv",
-        version="yutori 0.6.1",
+        version="yutori 0.7.0",
         on_path=False,
         shell_cli_path=None,
     )
