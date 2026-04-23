@@ -1926,6 +1926,7 @@ print_log_tail_and_exit() {
 }
 
 handoff_to_python_ui() {
+    local use_color="${1:-0}"
     local bin_dir
     local yutori_bin
 
@@ -1966,7 +1967,13 @@ handoff_to_python_ui() {
     # Python UI's first output. Python import + Typer startup can take ~1s,
     # during which the screen is otherwise blank — users may interpret that
     # as a hang. This line gives them something to see during the transition.
-    note "Starting interactive setup..."
+    # Mirrors the `| `-prefix style from render_bootstrap_intro so the message
+    # slots into the same visual block as "Installing Yutori CLI with uv...".
+    if (( use_color )); then
+        printf '%b| Starting interactive setup...%b\n' "$YUTORI_SLATE_TEXT" "$YUTORI_RESET"
+    else
+        printf '| Starting interactive setup...\n'
+    fi
     cleanup_temp_files
     # The Python UI reuses uv via YUTORI_UV_BIN when PATH may not yet include
     # the uv tool bin dir (e.g., first-time installs where update-shell hasn't
@@ -2065,7 +2072,7 @@ main() {
         cat "$INSTALL_LOG"
     fi
 
-    handoff_to_python_ui
+    handoff_to_python_ui "$use_color"
 }
 
 main "$@"

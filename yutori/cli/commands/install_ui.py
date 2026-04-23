@@ -25,7 +25,6 @@ from typing import Literal, Mapping, Sequence
 import typer
 from rich import box
 from rich.console import Console
-from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 
@@ -41,7 +40,7 @@ ERROR_RED = "#FF5C5C"
 # Canonical first-task example, mirroring docs.yutori.com.
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
-VERIFICATION_MAX_STEPS = 5
+VERIFICATION_MAX_STEPS = 3
 # Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
 # serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
@@ -261,8 +260,28 @@ def print_prompt_block(console: Console, title: str, description: str, *, comman
         console.print(f"[{SLATE_TEXT}]| Command: {format_command(command)}[/]")
 
 
+def ask_confirm(console: Console, question: str, *, default: bool) -> bool:
+    """Ask a yes/no question with a `| ` prefix so the prompt aligns with the
+    rest of the step block. Rich's Confirm.ask supports markup in the prompt
+    text, so a slate-colored `|` renders exactly like the description lines
+    above it.
+    """
+    return Confirm.ask(f"[{SLATE_TEXT}]|[/] {question}", default=default, console=console)
+
+
 def summarize_results(console: Console, results: Sequence[StepResult]) -> None:
-    table = Table(box=box.ASCII, show_header=True, header_style=f"bold {MINT_HIGHLIGHT}")
+    # box.SIMPLE_HEAD keeps only the rule under the header — no vertical
+    # separators between columns, no corner glyphs. Matches the `| `-prefixed
+    # text style used everywhere else in the installer.
+    table = Table(
+        title="Install summary",
+        title_style=f"bold {MINT_HIGHLIGHT}",
+        box=box.SIMPLE_HEAD,
+        show_header=True,
+        header_style=f"bold {MINT_HIGHLIGHT}",
+        pad_edge=False,
+        show_edge=False,
+    )
     table.add_column("Step", style="bold")
     table.add_column("Status", width=8)
     table.add_column("Detail")
@@ -272,7 +291,7 @@ def summarize_results(console: Console, results: Sequence[StepResult]) -> None:
         table.add_row(result.name, f"[{color}]{label}[/{color}]", result.detail)
 
     console.print("\n")
-    console.print(Panel.fit(table, title="Install summary", border_style=BRAND_MINT, box=box.ASCII))
+    console.print(table)
 
 
 def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstallState | None, StepResult]:
@@ -389,7 +408,7 @@ def maybe_repair_path(console: Console, state: CLIInstallState, *, interactive: 
     if not interactive:
         return StepResult("PATH", "skipped", f"{detail} Skipped PATH repair because no interactive terminal is available.")
 
-    if not Confirm.ask("Run uv tool update-shell now?", default=True, console=console):
+    if not ask_confirm(console, "Run uv tool update-shell now?", default=True):
         return StepResult("PATH", "skipped", f"{detail} PATH repair was skipped.")
 
     result = run_command((state.uv_path, "tool", "update-shell"))
@@ -413,7 +432,7 @@ def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bo
     if plan.availability_error:
         return StepResult("SDK", "failed", plan.availability_error)
 
-    if not Confirm.ask("Install the Python SDK into this project?", default=plan.default, console=console):
+    if not ask_confirm(console, "Install the Python SDK into this project?", default=plan.default):
         return StepResult("SDK", "skipped", "SDK install was skipped.")
 
     # Show a dot-animation status line so the user sees the installer is alive
@@ -460,7 +479,7 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
             )
 
         print_prompt_block(console, "Authentication", "Browser login saves credentials to ~/.yutori/config.json.")
-        if not Confirm.ask("Log in to Yutori now?", default=True, console=console):
+        if not ask_confirm(console, "Log in to Yutori now?", default=True):
             return StepResult("Auth", "skipped", "Authentication was skipped."), False
 
         messages: dict[RegistrationState, str] = {
@@ -545,7 +564,7 @@ def run_verification(
         f"Runs the canonical browsing task against yutori.com with max_steps={VERIFICATION_MAX_STEPS}.",
         command=submit_command,
     )
-    if not Confirm.ask("Run the verification browsing task now?", default=True, console=console):
+    if not ask_confirm(console, "Run the verification browsing task now?", default=True):
         return StepResult("Verification", "skipped", "Verification task was skipped."), False
 
     submission = run_command(submit_command, timeout=INSTALL_CMD_TIMEOUT)
