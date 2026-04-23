@@ -256,3 +256,23 @@ def test_full_animation_renders_at_least_two_frames() -> None:
     content = INSTALL_TEMPLATE.read_text()
     assert 'local minimum_frames=2' in content
     assert 'while kill -0 "$install_pid" 2>/dev/null || (( displayed_frames < minimum_frames )); do' in content
+
+
+def test_full_animation_clears_frame_region_before_handoff() -> None:
+    """Regression: the final animation frame persists below frame_top. If the
+    Python UI that takes over prints fewer lines than the frame is tall, old
+    frame rows bleed through below the step prompts and summary table. The
+    animation loop must emit a `\\033[0J` (clear from cursor to end of screen)
+    after repositioning the cursor, so the region below is guaranteed blank
+    when the handoff happens.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    # Look inside play_animation_until_done's teardown — the cursor repositions
+    # to frame_top and should be followed by a clear-to-end-of-screen before
+    # the reset-colors line.
+    play_animation_region = content.split("play_animation_until_done()")[1].split("render_static_logo()")[0]
+    assert "\\033[0J" in play_animation_region, (
+        "play_animation_until_done must emit \\033[0J (clear from cursor to "
+        "end of screen) after the animation loop, or leftover frame rows "
+        "will bleed through when the Python UI starts printing."
+    )
