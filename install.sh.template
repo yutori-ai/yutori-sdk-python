@@ -335,7 +335,10 @@ play_animation_until_done() {
     local frame_top
     local frame_index=0
     local displayed_frames=0
-    local minimum_frames=2
+    # ~1.5s at 12fps minimum. Fast reinstalls (user already has yutori
+    # installed; version bump) can finish in under a second — without a
+    # sensible minimum the animation flashes past and users don't see it.
+    local minimum_frames=18
     # Animation cadence ~12fps; inlined to avoid forking awk for 1/12.
     local frame_sleep="0.0833"
 
@@ -452,7 +455,11 @@ handoff_to_python_ui() {
         exit 1
     fi
 
-    printf '\n'
+    # A visible "we're alive" message between the animation end and the
+    # Python UI's first output. Python import + Typer startup can take ~1s,
+    # during which the screen is otherwise blank — users may interpret that
+    # as a hang. This line gives them something to see during the transition.
+    note "Starting interactive setup..."
     cleanup_temp_files
     # The Python UI reuses uv via YUTORI_UV_BIN when PATH may not yet include
     # the uv tool bin dir (e.g., first-time installs where update-shell hasn't
