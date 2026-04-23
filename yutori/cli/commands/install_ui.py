@@ -386,11 +386,16 @@ def maybe_repair_path(console: Console, state: CLIInstallState, *, interactive: 
 def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bool, cwd: Path | None = None) -> StepResult:
     print_prompt_block(console, "Python SDK", plan.reason, command=plan.command)
 
-    if plan.availability_error:
-        return StepResult("SDK", "failed", plan.availability_error)
-
+    # Skip before gating on availability_error: a non-interactive run can't
+    # ask the user anyway, so whether the SDK could have been installed is
+    # academic. Reporting "failed" here would bump the whole installer's
+    # exit code to 1 in CI environments that lack pip — misleading, since
+    # the CLI install itself succeeded.
     if not interactive:
         return StepResult("SDK", "skipped", "Skipped SDK install because no interactive terminal is available.")
+
+    if plan.availability_error:
+        return StepResult("SDK", "failed", plan.availability_error)
 
     if not Confirm.ask("Install the Python SDK into this project?", default=plan.default, console=console):
         return StepResult("SDK", "skipped", "SDK install was skipped.")

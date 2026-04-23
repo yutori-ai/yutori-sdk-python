@@ -516,6 +516,21 @@ def test_maybe_install_sdk_respects_availability_error():
     mock_run.assert_not_called()
 
 
+def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive():
+    # Regression: availability_error used to short-circuit `failed` before
+    # the non-interactive skip check, so CI installs without pip bumped the
+    # whole installer's exit code to 1 even though nothing would have been
+    # installed anyway. Non-interactive runs must always return `skipped`.
+    plan = SDKInstallPlan(
+        reason="ok",
+        command=("python3", "-m", "pip", "install", "--user", "yutori"),
+        default=False,
+        availability_error="`python3 -m pip` is required.",
+    )
+    result = maybe_install_sdk(Console(), plan, interactive=False)
+    assert result.status == "skipped"
+
+
 # ---------------------------------------------------------------------------
 # maybe_repair_path branches
 # ---------------------------------------------------------------------------
