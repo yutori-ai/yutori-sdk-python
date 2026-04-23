@@ -48,6 +48,16 @@ note() {
     printf '%b%s%b\n' "$YUTORI_SLATE_TEXT" "$1" "$YUTORI_RESET"
 }
 
+# `[[ -r /dev/tty ]]` / `[[ -w /dev/tty ]]` only check permission bits —
+# they return true under non-interactive docker and CI runs where the device
+# exists but has no controlling terminal, causing later redirects to fail.
+# Probe by actually opening fd 3 on /dev/tty and closing it.
+has_usable_tty() {
+    { exec 3</dev/tty; } 2>/dev/null || return 1
+    exec 3<&-
+    return 0
+}
+
 error() {
     printf '%b%s%b\n' "$YUTORI_ERROR_RED" "$1" "$YUTORI_RESET" >&2
 }
@@ -75,7 +85,13 @@ kill_uv_process_group() {
 }
 
 cleanup() {
-    printf '\033[0m\033[?25h' >/dev/tty 2>/dev/null || true
+    # Only touch /dev/tty when it's actually usable. Under non-interactive
+    # docker/CI the device can exist with permissive mode bits but no
+    # controlling terminal, so `[[ -w /dev/tty ]]` passes but the redirect
+    # still fails — leaking bash diagnostics to stderr.
+    if has_usable_tty; then
+        printf '\033[0m\033[?25h' >/dev/tty 2>/dev/null || true
+    fi
     kill_uv_process_group
     cleanup_temp_files
 }
@@ -1803,8 +1819,11 @@ play_animation_until_done() {
     # parent shell — cleanup_temp_files needs it on exit.
     prerender_frames "$frame_count" "$use_color"
     banner_lines=0
+    # Use pre-increment. A post-increment expression evaluates to the old
+    # value, so on the first iteration it would be 0 — which under `set -e`
+    # aborts the whole installer before the animation can render.
     while IFS= read -r _; do
-        (( banner_lines++ ))
+        (( ++banner_lines ))
     done <<<"$YUTORI_BANNER"
     # Screen rows after `\033[2J\033[H` + render_banner + status line:
     #   1..N       banner
@@ -1883,7 +1902,7 @@ handoff_to_python_ui() {
     # run). Reopen /dev/tty for stdin so interactive prompts work under
     # `curl | bash` — the script's stdin is the downloaded bytes by default.
     export YUTORI_UV_BIN="$UV_BIN"
-    if [[ -r /dev/tty ]]; then
+    if has_usable_tty; then
         exec "$yutori_bin" __install_ui </dev/tty
     fi
     exec "$yutori_bin" __install_ui

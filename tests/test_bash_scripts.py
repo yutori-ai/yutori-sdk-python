@@ -136,6 +136,49 @@ def test_play_animation_calls_prerender_frames_directly() -> None:
     )
 
 
+def test_banner_line_counter_uses_pre_increment() -> None:
+    """Regression: `(( n++ ))` returns the pre-increment value (0 on the first
+    call), which under `set -euo pipefail` aborts the entire installer before
+    the animation can render. Must use `(( ++n ))` or `(( n += 1 ))`.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert "(( banner_lines++ ))" not in content, (
+        "`(( banner_lines++ ))` under `set -e` aborts on first iteration "
+        "because the expression evaluates to 0. Use `(( ++banner_lines ))`."
+    )
+    assert "(( ++banner_lines ))" in content
+
+
+def test_cleanup_probes_tty_before_writing() -> None:
+    """Regression: cleanup must probe whether /dev/tty is actually usable
+    before writing to it. `[[ -r /dev/tty ]]` / `[[ -w /dev/tty ]]` only check
+    permission bits and return true under non-interactive docker / CI without
+    a controlling terminal, causing the subsequent redirect to fail with
+    'No such device or address' on every exit. `has_usable_tty` actually
+    opens the device as a probe.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert "has_usable_tty()" in content, (
+        "has_usable_tty helper must exist — it's the only way to know "
+        "the TTY is actually openable, not just readable/writable."
+    )
+    # cleanup() must call has_usable_tty before touching /dev/tty.
+    cleanup_start = content.index("cleanup() {")
+    cleanup_end = content.index("}", cleanup_start)
+    cleanup_body = content[cleanup_start:cleanup_end]
+    assert "has_usable_tty" in cleanup_body, (
+        "cleanup() must guard its /dev/tty write with has_usable_tty."
+    )
+    # Same for handoff_to_python_ui's </dev/tty redirect.
+    handoff_start = content.index("handoff_to_python_ui()")
+    handoff_end = content.index("\n}\n", handoff_start)
+    handoff_body = content[handoff_start:handoff_end]
+    assert "has_usable_tty" in handoff_body, (
+        "handoff_to_python_ui must probe the TTY before exec'ing with "
+        "</dev/tty — otherwise the redirect fails on non-interactive runs."
+    )
+
+
 def test_frame_top_skips_status_message_line() -> None:
     """Regression: frame_top must place the frame BELOW the "Installing..."
     status message. Layout is:
