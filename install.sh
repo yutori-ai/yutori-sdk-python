@@ -20,6 +20,10 @@ __   __      _             _
   | | | |_| | || (_) | |  | |
   |_|  \__,_|\__\___/|_|  |_|
 __YUTORI_BANNER__
+# `read -d ''` preserves the trailing newline that heredoc adds; `$(cat <<EOF)`
+# would have stripped it. Strip here so banner_lines and render_banner match
+# the layout the rest of main() assumes.
+YUTORI_BANNER="${YUTORI_BANNER%$'\n'}"
 
 INSTALL_LOG=""
 INSTALL_STATUS_FILE=""

@@ -16,6 +16,10 @@ YUTORI_RESET=$'\033[0m'
 IFS= read -r -d '' YUTORI_BANNER <<'__YUTORI_BANNER__' || true
 __INLINE_BANNER__
 __YUTORI_BANNER__
+# `read -d ''` preserves the trailing newline that heredoc adds; `$(cat <<EOF)`
+# would have stripped it. Strip here so banner_lines and render_banner match
+# the layout the rest of main() assumes.
+YUTORI_BANNER="${YUTORI_BANNER%$'\n'}"
 
 INSTALL_LOG=""
 INSTALL_STATUS_FILE=""

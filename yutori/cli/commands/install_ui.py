@@ -486,7 +486,13 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
         detail = format_auth_status(auth_status)
         print_prompt_block(console, "Authentication", detail)
         return StepResult("Auth", "success", detail), True
-    return StepResult("Auth", "failed", "Authentication state is inconsistent."), False
+    # Rare: resolve_api_key() returned a value but get_auth_status says not
+    # authenticated (e.g. key format changed under the reader). Print a
+    # prompt block so the step still shows up in the same `> step / | detail`
+    # layout as every other step, rather than silently omitting a header.
+    inconsistent_detail = "Authentication state is inconsistent."
+    print_prompt_block(console, "Authentication", inconsistent_detail)
+    return StepResult("Auth", "failed", inconsistent_detail), False
 
 
 def _summarize_cli_output(output: str) -> str:
