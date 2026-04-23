@@ -154,9 +154,13 @@ install_uv() {
     curl -LsSf https://astral.sh/uv/install.sh | sh
 }
 
-ensure_uv_and_install() {
+ensure_uv() {
+    # Resolve or bootstrap uv. Sets UV_BIN in the parent shell — callers rely
+    # on a single consistent uv binary across install + handoff. If we
+    # bundled this into the backgrounded install job (via `(...) &`), the
+    # UV_BIN assignment would be lost to the subshell and handoff_to_python_ui
+    # would have to re-resolve, potentially picking a different binary.
     local current_uv
-
     if ! current_uv="$(resolve_uv_bin)"; then
         note "Installing uv..."
         if ! install_uv; then
@@ -168,15 +172,15 @@ ensure_uv_and_install() {
             return 1
         fi
     fi
-
     UV_BIN="$current_uv"
-    "$UV_BIN" tool install --force --upgrade yutori
 }
 
 start_install_job() {
+    # UV_BIN is read from the parent-shell assignment set by ensure_uv —
+    # subshells inherit parent vars for reads, they just can't write back.
     (
         set +e
-        ensure_uv_and_install >"$INSTALL_LOG" 2>&1
+        "$UV_BIN" tool install --force --upgrade yutori >"$INSTALL_LOG" 2>&1
         status=$?
         printf '%s\n' "$status" >"$INSTALL_STATUS_FILE"
         exit "$status"
@@ -1942,6 +1946,13 @@ main() {
         else
             animation_mode="static"
         fi
+    fi
+
+    # Bootstrap uv up front, in the parent shell, so UV_BIN is set once
+    # and reused by both the backgrounded install and the handoff below.
+    # Any uv-bootstrap output happens before the animation starts.
+    if ! ensure_uv; then
+        exit 1
     fi
 
     # Enable job control so the backgrounded install gets its own process
