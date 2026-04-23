@@ -11,7 +11,6 @@ import hashlib
 import html
 import http.server
 import logging
-import os
 import secrets
 import socketserver
 import sys
@@ -40,7 +39,7 @@ from .constants import (
     REDIRECT_URI,
     build_auth_api_url,
 )
-from .credentials import _is_real_key, get_config_path, load_config, save_config
+from .credentials import _resolve_api_key_with_source, get_config_path, save_config
 from .types import AuthStatus, LoginResult
 
 logger = logging.getLogger(__name__)
@@ -318,28 +317,21 @@ def _mask_key(key: str) -> str:
 def get_auth_status() -> AuthStatus:
     """Check current authentication status.
 
-    Precedence matches resolve_api_key(): env var > config file.
+    Precedence matches resolve_api_key(): env var > config file. (The
+    explicit-parameter source of :func:`_resolve_api_key_with_source` is
+    unreachable here because no ``api_key`` is ever passed in.)
     Returns an AuthStatus — never prints directly.
     """
     config_path = str(get_config_path())
 
-    env_key = os.environ.get("YUTORI_API_KEY")
-    if _is_real_key(env_key):
-        return AuthStatus(
-            authenticated=True,
-            masked_key=_mask_key(env_key),
-            source="env_var",
-            config_path=config_path,
-        )
+    resolved = _resolve_api_key_with_source()
+    if resolved is None:
+        return AuthStatus(authenticated=False, config_path=config_path)
 
-    config = load_config()
-    config_key = config.get("api_key") if config else None
-    if isinstance(config_key, str) and _is_real_key(config_key):
-        return AuthStatus(
-            authenticated=True,
-            masked_key=_mask_key(config_key),
-            source="config_file",
-            config_path=config_path,
-        )
-
-    return AuthStatus(authenticated=False, config_path=config_path)
+    key, source = resolved
+    return AuthStatus(
+        authenticated=True,
+        masked_key=_mask_key(key),
+        source=source,
+        config_path=config_path,
+    )
