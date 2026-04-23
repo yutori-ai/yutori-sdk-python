@@ -78,6 +78,33 @@ def _is_real_key(key: str | None) -> bool:
     return bool(key and key.strip() and key.strip() not in _PLACEHOLDER_KEYS)
 
 
+def _resolve_api_key_with_source(api_key: str | None = None) -> tuple[str, str] | None:
+    """Resolve an API key using the standard precedence chain and report its source.
+
+    Order: explicit parameter > ``YUTORI_API_KEY`` env var > config file.
+    Placeholder values like ``"YOUR_API_KEY"`` are treated as missing.
+
+    Returns a ``(key, source)`` tuple where ``source`` is one of
+    ``"param"``, ``"env_var"``, or ``"config_file"``, or ``None`` if no key
+    is found. Callers that only need the key itself should use
+    :func:`resolve_api_key`.
+    """
+    if _is_real_key(api_key):
+        return api_key, "param"
+
+    env_key = os.environ.get("YUTORI_API_KEY")
+    if _is_real_key(env_key):
+        return env_key, "env_var"
+
+    config = load_config()
+    if config:
+        stored_key = config.get("api_key")
+        if isinstance(stored_key, str) and _is_real_key(stored_key):
+            return stored_key, "config_file"
+
+    return None
+
+
 def resolve_api_key(api_key: str | None = None) -> str | None:
     """Resolve an API key using the standard precedence chain.
 
@@ -85,20 +112,8 @@ def resolve_api_key(api_key: str | None = None) -> str | None:
     Placeholder values like ``"YOUR_API_KEY"`` are treated as missing.
     Returns None if no key is found (caller decides error behavior).
     """
-    if _is_real_key(api_key):
-        return api_key
-
-    env_key = os.environ.get("YUTORI_API_KEY")
-    if _is_real_key(env_key):
-        return env_key
-
-    config = load_config()
-    if config:
-        stored_key = config.get("api_key")
-        if isinstance(stored_key, str) and _is_real_key(stored_key):
-            return stored_key
-
-    return None
+    resolved = _resolve_api_key_with_source(api_key)
+    return resolved[0] if resolved else None
 
 
 def require_api_key(api_key: str | None = None) -> str:
