@@ -12,11 +12,11 @@ from ._async import (
     AsyncResearchNamespace,
     AsyncScoutsNamespace,
 )
-from ._http import build_headers, build_query_params, handle_response
+from ._http import _AsyncBaseNamespace, build_query_params
 from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
 
 
-class AsyncYutoriClient:
+class AsyncYutoriClient(_AsyncBaseNamespace):
     """Asynchronous client for the Yutori API.
 
     Example:
@@ -58,8 +58,8 @@ class AsyncYutoriClient:
         from yutori.auth.credentials import require_api_key
 
         self._api_key = require_api_key(api_key)
-        self._base_url = sanitize_base_url(base_url)
-        self._client = httpx.AsyncClient(timeout=timeout)
+        base_url = sanitize_base_url(base_url)
+        super().__init__(httpx.AsyncClient(timeout=timeout), base_url, self._api_key)
 
         # Initialize async namespaces
         self.scouts = AsyncScoutsNamespace(self._client, self._base_url, self._api_key)
@@ -82,12 +82,7 @@ class AsyncYutoriClient:
             ``navigator_rate_limits`` / ``navigator_calls`` for one
             release; prefer the ``navigator_*`` names.
         """
-        response = await self._client.get(
-            f"{self._base_url}/usage",
-            headers=build_headers(self._api_key),
-            params=build_query_params(period=period),
-        )
-        return handle_response(response)
+        return await self._request("get", "/usage", params=build_query_params(period=period))
 
     async def close(self) -> None:
         """Release the underlying HTTP client resources."""
