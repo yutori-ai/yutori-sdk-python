@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import _BaseNamespace, build_payload, handle_response
+from .._http import _SyncBaseNamespace, build_payload
 from .._schema import resolve_output_schema
 
 
-class ResearchNamespace(_BaseNamespace):
+class ResearchNamespace(_SyncBaseNamespace):
     """Namespace for research operations (one-time deep web research)."""
 
     def create(
@@ -48,13 +48,7 @@ class ResearchNamespace(_BaseNamespace):
             webhook_url=webhook_url,
             webhook_format=webhook_format,
         )
-
-        response = self._client.post(
-            f"{self._base_url}/research/tasks",
-            headers=self._headers,
-            json=payload,
-        )
-        return handle_response(response)
+        return self._request("post", "/research/tasks", json=payload)
 
     def get(self, task_id: str) -> dict[str, Any]:
         """Get the status and results of a research task.
@@ -65,8 +59,4 @@ class ResearchNamespace(_BaseNamespace):
         Returns:
             Dictionary containing task status and results (if completed).
         """
-        response = self._client.get(
-            f"{self._base_url}/research/tasks/{task_id}",
-            headers=self._headers,
-        )
-        return handle_response(response)
+        return self._request("get", f"/research/tasks/{task_id}")
