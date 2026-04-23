@@ -134,3 +134,23 @@ def test_play_animation_calls_prerender_frames_directly() -> None:
         "prerender_frames must NOT be called in a $(...) subshell — "
         "FRAMES_RENDER_DIR assignment would be lost and the render dir would leak."
     )
+
+
+def test_frame_top_skips_status_message_line() -> None:
+    """Regression: frame_top must place the frame BELOW the "Installing..."
+    status message. Layout is:
+      rows 1..N    banner
+      row N+1      blank (render_banner's trailing '\\n')
+      row N+2      "Installing Yutori CLI with uv..." status line
+      row N+3      blank (status line's '\\n\\n')
+      row N+4      first row available for the frame
+
+    Previously frame_top was banner_lines + 2 (row N+2), so every frame's
+    pad_y=1 blank overwrote the status line on every tick.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert 'frame_top="$((banner_lines + 4))"' in content, (
+        "frame_top must be banner_lines + 4 to skip both the status message "
+        "and its trailing blank — otherwise the animation overwrites "
+        "'Installing Yutori CLI with uv...'."
+    )

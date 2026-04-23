@@ -1806,7 +1806,13 @@ play_animation_until_done() {
     while IFS= read -r _; do
         (( banner_lines++ ))
     done <<<"$YUTORI_BANNER"
-    frame_top="$((banner_lines + 2))"
+    # Screen rows after `\033[2J\033[H` + render_banner + status line:
+    #   1..N       banner
+    #   N+1        trailing blank from render_banner's printf '\n'
+    #   N+2        "Installing Yutori CLI with uv..." status line
+    #   N+3        trailing blank from the status line's \n\n
+    #   N+4        first row available for the frame (what we want)
+    frame_top="$((banner_lines + 4))"
 
     printf '\033[2J\033[H'
     render_banner
