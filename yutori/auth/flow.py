@@ -195,7 +195,14 @@ def check_registration_status(jwt: str) -> bool | None:
                 headers={"Authorization": f"Bearer {jwt}"},
             )
             if response.status_code == 200:
-                return bool(response.json().get("is_registered", False))
+                body = response.json()
+                # Defensive: only trust the response if it's the expected
+                # `{"is_registered": bool}` shape. A list, string, or missing
+                # key is a backend contract mismatch — treat as unknown and
+                # fall through to returning None.
+                if isinstance(body, dict) and "is_registered" in body:
+                    return bool(body["is_registered"])
+                logger.warning("Registration status probe returned unexpected body shape: %r", body)
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Registration status probe failed: %s", exc)
     return None

@@ -396,6 +396,26 @@ class TestRegistrationHelpers:
         with patch.object(httpx.Client, "get", side_effect=httpx.HTTPError("boom")):
             assert check_registration_status("jwt_token") is None
 
+    def test_check_registration_status_returns_none_for_non_dict_body(self):
+        # Regression: a 200 response with a non-dict body (e.g. a backend bug
+        # returning `[]` or `"ok"`) must return None, not propagate
+        # AttributeError through run_login_flow and fail the whole login.
+        for bad_body in ([], "ok", 42, None):
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.json.return_value = bad_body
+            with patch.object(httpx.Client, "get", return_value=mock_response):
+                assert check_registration_status("jwt_token") is None, (
+                    f"non-dict body {bad_body!r} should return None, not raise"
+                )
+
+    def test_check_registration_status_returns_none_when_key_missing(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"some_other_field": True}
+        with patch.object(httpx.Client, "get", return_value=mock_response):
+            assert check_registration_status("jwt_token") is None
+
     def test_register_user_posts_cli_source(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
