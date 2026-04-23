@@ -99,3 +99,54 @@ class _BaseNamespace:
         self._client = client
         self._base_url = base_url
         self._headers = build_headers(api_key)
+
+    def _request_kwargs(self, params: Any, json: Any) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"headers": self._headers}
+        if params is not None:
+            kwargs["params"] = params
+        if json is not None:
+            kwargs["json"] = json
+        return kwargs
+
+
+class _SyncBaseNamespace(_BaseNamespace):
+    """Sync namespace base with a shared request helper.
+
+    Centralizes the ``self._client.<method>(url, headers=..., ...)`` +
+    ``handle_response(response)`` boilerplate so concrete namespaces read
+    as one-liners.
+    """
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Any = None,
+        json: Any = None,
+    ) -> dict[str, Any]:
+        http_method = getattr(self._client, method)
+        response = http_method(
+            f"{self._base_url}{path}",
+            **self._request_kwargs(params, json),
+        )
+        return handle_response(response)
+
+
+class _AsyncBaseNamespace(_BaseNamespace):
+    """Async counterpart of :class:`_SyncBaseNamespace`."""
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Any = None,
+        json: Any = None,
+    ) -> dict[str, Any]:
+        http_method = getattr(self._client, method)
+        response = await http_method(
+            f"{self._base_url}{path}",
+            **self._request_kwargs(params, json),
+        )
+        return handle_response(response)

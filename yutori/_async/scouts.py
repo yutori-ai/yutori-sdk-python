@@ -5,16 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from .._http import (
-    _BaseNamespace,
+    _AsyncBaseNamespace,
     build_payload,
     build_query_params,
-    handle_response,
     resolve_scout_status_endpoint,
 )
 from .._schema import resolve_output_schema
 
 
-class AsyncScoutsNamespace(_BaseNamespace):
+class AsyncScoutsNamespace(_AsyncBaseNamespace):
     """Async namespace for scout-related operations (continuous web monitoring)."""
 
     async def list(
@@ -34,12 +33,7 @@ class AsyncScoutsNamespace(_BaseNamespace):
         """
         # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
         params = build_query_params(page_size=limit, status=status)
-        response = await self._client.get(
-            f"{self._base_url}/scouting/tasks",
-            headers=self._headers,
-            params=params,
-        )
-        return handle_response(response)
+        return await self._request("get", "/scouting/tasks", params=params)
 
     async def get(self, scout_id: str) -> dict[str, Any]:
         """Get details of a specific scout.
@@ -50,11 +44,7 @@ class AsyncScoutsNamespace(_BaseNamespace):
         Returns:
             Dictionary containing scout details.
         """
-        response = await self._client.get(
-            f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=self._headers,
-        )
-        return handle_response(response)
+        return await self._request("get", f"/scouting/tasks/{scout_id}")
 
     async def create(
         self,
@@ -100,12 +90,7 @@ class AsyncScoutsNamespace(_BaseNamespace):
             is_public=is_public,
         )
 
-        response = await self._client.post(
-            f"{self._base_url}/scouting/tasks",
-            headers=self._headers,
-            json=payload,
-        )
-        return handle_response(response)
+        return await self._request("post", "/scouting/tasks", json=payload)
 
     async def update(
         self,
@@ -164,22 +149,13 @@ class AsyncScoutsNamespace(_BaseNamespace):
         # Handle status changes via dedicated endpoints
         if status is not None:
             endpoint = resolve_scout_status_endpoint(status)
-            response = await self._client.post(
-                f"{self._base_url}/scouting/tasks/{scout_id}/{endpoint}",
-                headers=self._headers,
-            )
-            return handle_response(response)
+            return await self._request("post", f"/scouting/tasks/{scout_id}/{endpoint}")
 
         # Handle field updates via PATCH
         if not payload:
             raise ValueError("At least one field must be provided for update.")
 
-        response = await self._client.patch(
-            f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=self._headers,
-            json=payload,
-        )
-        return handle_response(response)
+        return await self._request("patch", f"/scouting/tasks/{scout_id}", json=payload)
 
     async def delete(self, scout_id: str) -> dict[str, Any]:
         """Delete a scout.
@@ -190,11 +166,7 @@ class AsyncScoutsNamespace(_BaseNamespace):
         Returns:
             Empty dictionary on success.
         """
-        response = await self._client.delete(
-            f"{self._base_url}/scouting/tasks/{scout_id}",
-            headers=self._headers,
-        )
-        return handle_response(response)
+        return await self._request("delete", f"/scouting/tasks/{scout_id}")
 
     async def get_updates(
         self,
@@ -214,9 +186,4 @@ class AsyncScoutsNamespace(_BaseNamespace):
             Dictionary containing list of updates and pagination info.
         """
         params = build_query_params(limit=limit, cursor=cursor)
-        response = await self._client.get(
-            f"{self._base_url}/scouting/tasks/{scout_id}/updates",
-            headers=self._headers,
-            params=params,
-        )
-        return handle_response(response)
+        return await self._request("get", f"/scouting/tasks/{scout_id}/updates", params=params)
