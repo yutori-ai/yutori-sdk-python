@@ -7,19 +7,17 @@ The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) �
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
-## Quick Install
+## Install
 
-For the full CLI-first setup on macOS or Linux, use the one-line installer:
+On macOS or Linux, the recommended setup is the one-line installer:
 
 ```bash
 curl -fsSL https://yutori.com/install.sh | bash
 ```
 
-What this does:
+This installs the global `yutori` CLI with `uv tool install`, then — in an interactive terminal — prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, and run a verification browsing task. In a non-interactive session (CI, pipe) the auth and verification prompts are skipped with guidance on how to finish setup.
 
-- Installs the global `yutori` CLI with `uv tool install`.
-- In an interactive terminal, prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, and run a verification browsing task.
-- In a non-interactive session (CI, pipe), skips the auth and verification prompts with guidance on how to finish setup.
+Python 3.9+ is required for the SDK.
 
 <details>
 <summary>Uninstall the CLI later</summary>
@@ -32,16 +30,14 @@ Removes the global `yutori` CLI. Saved credentials at `~/.yutori/` are left in p
 
 </details>
 
-## Package Installation
+<details>
+<summary>Install the package manually</summary>
 
 ```bash
 pip install yutori
 ```
 
-Python 3.9+ is required.
-
-<details>
-<summary>Or add it to an existing project with uv</summary>
+Or add it to an existing project with uv:
 
 ```bash
 uv add yutori
@@ -49,7 +45,8 @@ uv add yutori
 
 </details>
 
-## Authentication
+<details>
+<summary>Authenticate manually</summary>
 
 Run this once to save your API key:
 
@@ -59,17 +56,9 @@ yutori auth login
 
 This opens your browser to log in with your Yutori account and saves an API key to `~/.yutori/config.json`. The SDK and CLI automatically pick it up.
 
-<details>
-<summary>If you installed with uv add</summary>
+If you installed the package with `uv add`, run `uv run yutori auth login` instead.
 
-```bash
-uv run yutori auth login
-```
-
-</details>
-
-<details>
-<summary>Or use an env var / pass the key explicitly</summary>
+Or use an env var / pass the key explicitly:
 
 ```python
 from yutori import YutoriClient
