@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import _BaseNamespace, build_payload, handle_response
+from .._http import _SyncBaseNamespace, build_payload
 from .._schema import resolve_output_schema
 
 
-class BrowsingNamespace(_BaseNamespace):
+class BrowsingNamespace(_SyncBaseNamespace):
     """Namespace for browsing operations (one-time browser automation)."""
 
     def create(
@@ -53,13 +53,7 @@ class BrowsingNamespace(_BaseNamespace):
             webhook_url=webhook_url,
             webhook_format=webhook_format,
         )
-
-        response = self._client.post(
-            f"{self._base_url}/browsing/tasks",
-            headers=self._headers,
-            json=payload,
-        )
-        return handle_response(response)
+        return self._request("post", "/browsing/tasks", json=payload)
 
     def get(self, task_id: str) -> dict[str, Any]:
         """Get the status and results of a browsing task.
@@ -70,8 +64,4 @@ class BrowsingNamespace(_BaseNamespace):
         Returns:
             Dictionary containing task status and results (if completed).
         """
-        response = self._client.get(
-            f"{self._base_url}/browsing/tasks/{task_id}",
-            headers=self._headers,
-        )
-        return handle_response(response)
+        return self._request("get", f"/browsing/tasks/{task_id}")
