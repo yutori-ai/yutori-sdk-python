@@ -41,6 +41,8 @@ ERROR_RED = "#FF5C5C"
 # Canonical first-task example, mirroring docs.yutori.com.
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
+VERIFICATION_MAX_STEPS = 5
+VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
 FINAL_TASK_STATUSES = {"succeeded", "failed"}
 # Case-insensitive substrings that identify an auth failure in CLI output.
 # We can't rely on any single marker because the CLI's error phrasing varies
@@ -234,16 +236,13 @@ def python_has_pip(interpreter: str, env: Mapping[str, str] | None = None) -> bo
 
 def render_header(console: Console, *, interactive: bool) -> None:
     mode = "Interactive terminal detected." if interactive else "Non-interactive terminal detected."
-    panel = Panel.fit(
-        f"[bold {BRAND_MINT}]Yutori installer[/bold {BRAND_MINT}]\n[{SLATE_TEXT}]{mode}[/]",
-        border_style=BRAND_MINT,
-        box=box.ASCII,
-    )
-    console.print(panel)
+    console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer[/bold {MINT_HIGHLIGHT}]")
+    console.print(f"[{SLATE_TEXT}]| {mode}[/]")
 
 
 def print_prompt_block(console: Console, title: str, description: str, *, command: Sequence[str] | None = None) -> None:
-    console.print(f"\n[bold {MINT_HIGHLIGHT}]> {title}[/bold {MINT_HIGHLIGHT}]")
+    console.print(f"\n[{SLATE_TEXT}]|[/]")
+    console.print(f"[bold {MINT_HIGHLIGHT}]> {title}[/bold {MINT_HIGHLIGHT}]")
     console.print(f"[{SLATE_TEXT}]| {description}[/]")
     if command:
         console.print(f"[{SLATE_TEXT}]| Command: {format_command(command)}[/]")
@@ -358,13 +357,17 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
 
 def maybe_repair_path(console: Console, state: CLIInstallState, *, interactive: bool) -> StepResult:
     if state.on_path:
-        return StepResult("PATH", "success", f"{state.bin_dir} is already on PATH.")
+        detail = f"{state.bin_dir} is already on PATH."
+        print_prompt_block(console, "PATH", detail)
+        return StepResult("PATH", "success", detail)
 
     if state.shell_cli_path is not None:
+        detail = f"Current shell resolves `yutori` to {state.shell_cli_path}. Reorder PATH so {state.cli_path} wins."
+        print_prompt_block(console, "PATH", detail)
         return StepResult(
             "PATH",
             "failed",
-            f"Current shell resolves `yutori` to {state.shell_cli_path}. Reorder PATH so {state.cli_path} wins.",
+            detail,
         )
 
     detail = f"{state.bin_dir} is not on PATH."
@@ -400,8 +403,8 @@ def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bo
     if not Confirm.ask("Install the Python SDK into this project?", default=plan.default, console=console):
         return StepResult("SDK", "skipped", "SDK install was skipped.")
 
-    with console.status(f"[bold {BRAND_MINT}]Running {format_command(plan.command)}[/]"):
-        result = run_command(plan.command, cwd=cwd or Path.cwd(), timeout=INSTALL_CMD_TIMEOUT)
+    console.print(f"[{SLATE_TEXT}]| Running...[/]")
+    result = run_command(plan.command, cwd=cwd or Path.cwd(), timeout=INSTALL_CMD_TIMEOUT)
 
     if result.returncode != 0:
         return StepResult("SDK", "failed", describe_completed_process(result))
@@ -420,8 +423,7 @@ def format_auth_status(status: AuthStatus) -> str:
 def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResult, bool]:
     if not resolve_api_key():
         if not interactive:
-            console.print(f"\n[bold {MINT_HIGHLIGHT}]> Authentication[/bold {MINT_HIGHLIGHT}]")
-            console.print(f"[{SLATE_TEXT}]| No interactive terminal detected.[/]")
+            print_prompt_block(console, "Authentication", "No interactive terminal detected.")
             console.print(f"[{SLATE_TEXT}]| Skipping auth. To finish setting up:[/]")
             console.print(f"[{SLATE_TEXT}]|   - Run `yutori auth login` on a machine with a browser[/]")
             console.print(
@@ -460,7 +462,9 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
 
     auth_status = get_auth_status()
     if auth_status.authenticated:
-        return StepResult("Auth", "success", format_auth_status(auth_status)), True
+        detail = format_auth_status(auth_status)
+        print_prompt_block(console, "Authentication", detail)
+        return StepResult("Auth", "success", detail), True
     return StepResult("Auth", "failed", "Authentication state is inconsistent."), False
 
 
@@ -499,11 +503,19 @@ def run_verification(
     if not interactive:
         return StepResult("Verification", "skipped", "Skipped verification because no interactive terminal is available."), False
 
-    submit_command = (str(cli_path), "browse", "run", VERIFICATION_TASK, VERIFICATION_URL)
+    submit_command = (
+        str(cli_path),
+        "browse",
+        "run",
+        VERIFICATION_TASK,
+        VERIFICATION_URL,
+        "--max-steps",
+        str(VERIFICATION_MAX_STEPS),
+    )
     print_prompt_block(
         console,
         "Verification task",
-        "Runs the canonical browsing task against yutori.com.",
+        f"Runs the canonical browsing task against yutori.com with max_steps={VERIFICATION_MAX_STEPS}.",
         command=submit_command,
     )
     if not Confirm.ask("Run the verification browsing task now?", default=True, console=console):
@@ -521,36 +533,40 @@ def run_verification(
         detail = submission_output or "CLI did not print a task ID for the verification task."
         return StepResult("Verification", "failed", detail), False
 
+    task_url = f"{VERIFICATION_TASK_DASHBOARD_BASE_URL}/{task_id}"
     deadline = time.monotonic() + VERIFICATION_POLL_BUDGET_SECONDS
     status = parse_cli_field(submission.stdout, "Status") or "queued"
     last_output = submission.stdout
-    with console.status(f"[bold {BRAND_MINT}]Waiting for browsing task {task_id}[/]") as spinner:
-        while status not in FINAL_TASK_STATUSES:
-            if time.monotonic() >= deadline:
-                detail = (
-                    f"Browsing task {task_id} did not complete within "
-                    f"{VERIFICATION_POLL_BUDGET_SECONDS}s. Check status later at "
-                    "https://platform.yutori.com."
-                )
-                return StepResult("Verification", "failed", detail), False
+    console.print(f"[{SLATE_TEXT}]| Task: {task_url}[/]")
+    last_reported_status: str | None = None
+    while status not in FINAL_TASK_STATUSES:
+        if status != last_reported_status:
+            console.print(f"[{SLATE_TEXT}]| Status: {status}[/]")
+            last_reported_status = status
+        if time.monotonic() >= deadline:
+            detail = (
+                "Verification timed out. View task: "
+                f"{task_url}"
+            )
+            return StepResult("Verification", "failed", detail), False
 
-            time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
-            poll = run_command((str(cli_path), "browse", "get", task_id))
-            poll_output = collect_process_output(poll)
-            if poll.returncode != 0:
-                auth_failed = looks_like_auth_failure(poll_output)
-                detail = poll_output or describe_completed_process(poll)
-                return StepResult("Verification", "failed", detail), auth_failed
+        time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
+        poll = run_command((str(cli_path), "browse", "get", task_id))
+        poll_output = collect_process_output(poll)
+        if poll.returncode != 0:
+            auth_failed = looks_like_auth_failure(poll_output)
+            detail = poll_output or describe_completed_process(poll)
+            return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
 
-            last_output = poll.stdout
-            status = parse_cli_field(poll.stdout, "Status") or "queued"
-            spinner.update(f"[bold {BRAND_MINT}]Waiting for browsing task {task_id} ({status})[/]")
+        last_output = poll.stdout
+        status = parse_cli_field(poll.stdout, "Status") or "queued"
 
     summary = _summarize_cli_output(last_output)
+    console.print(f"[{SLATE_TEXT}]| Result: {summary}[/]")
     if status == "succeeded":
-        return StepResult("Verification", "success", f"Browsing task {task_id} succeeded. {summary}".rstrip()), False
+        return StepResult("Verification", "success", f"Verification succeeded. View task: {task_url}"), False
 
-    return StepResult("Verification", "failed", f"Browsing task {task_id} failed: {summary}"), False
+    return StepResult("Verification", "failed", f"Verification failed. View task: {task_url}"), False
 
 
 def install_ui_command() -> None:
@@ -561,12 +577,15 @@ def install_ui_command() -> None:
     """
     console = Console()
     interactive = is_interactive_terminal()
-    render_header(console, interactive=interactive)
+    if os.environ.get("YUTORI_INSTALLER_BOOTSTRAP_SHOWN") != "1":
+        render_header(console, interactive=interactive)
 
     exit_code = 0
     cli_state, cli_result = inspect_cli_install()
     path_result: StepResult | None = None
     verification_result = StepResult("Verification", "skipped", "Verification was not attempted.")
+
+    print_prompt_block(console, "CLI", cli_result.detail)
 
     if cli_result.status == "failed":
         exit_code = 1

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 YUTORI_BRAND_MINT=$'\033[38;2;29;205;152m'
+YUTORI_MINT_HIGHLIGHT=$'\033[38;2;90;232;189m'
 YUTORI_SLATE_TEXT=$'\033[38;2;148;163;184m'
 YUTORI_ERROR_RED=$'\033[38;2;255;92;92m'
 YUTORI_RESET=$'\033[0m'
@@ -124,6 +125,13 @@ render_banner() {
         printf '%s\n' "$YUTORI_BANNER"
     fi
     printf '\n'
+}
+
+render_bootstrap_intro() {
+    local mode_line="$1"
+    printf '%b> Yutori installer%b\n' "$YUTORI_MINT_HIGHLIGHT" "$YUTORI_RESET"
+    printf '%b| %s%b\n' "$YUTORI_SLATE_TEXT" "$mode_line" "$YUTORI_RESET"
+    printf '%b| Installing Yutori CLI with uv...%b\n\n' "$YUTORI_SLATE_TEXT" "$YUTORI_RESET"
 }
 
 resolve_uv_bin() {
@@ -1811,6 +1819,8 @@ play_animation_until_done() {
     local frame_count
     local frame_top
     local frame_index=0
+    local displayed_frames=0
+    local minimum_frames=2
     # Animation cadence ~12fps; inlined to avoid forking awk for 1/12.
     local frame_sleep="0.0833"
 
@@ -1826,26 +1836,35 @@ play_animation_until_done() {
     while IFS= read -r _; do
         (( ++banner_lines ))
     done <<<"$YUTORI_BANNER"
-    # Screen rows after `\033[2J\033[H` + render_banner + status line:
+    # Screen rows after `\033[2J\033[H` + render_banner + bootstrap intro:
     #   1..N       banner
     #   N+1        trailing blank from render_banner's printf '\n'
-    #   N+2        "Installing Yutori CLI with uv..." status line
-    #   N+3        trailing blank from the status line's \n\n
-    #   N+4        first row available for the frame (what we want)
-    frame_top="$((banner_lines + 4))"
+    #   N+2        > Yutori installer
+    #   N+3        | Interactive terminal detected.
+    #   N+4        | Installing Yutori CLI with uv...
+    #   N+5        trailing blank from render_bootstrap_intro's \n\n
+    #   N+6        first row available for the frame
+    frame_top="$((banner_lines + 6))"
 
     printf '\033[2J\033[H'
     render_banner
-    printf '%b%s%b\n\n' "$YUTORI_SLATE_TEXT" "Installing Yutori CLI with uv..." "$YUTORI_RESET"
+    render_bootstrap_intro "Interactive terminal detected."
     printf '\033[?25l'
 
+    printf '\033[%s;1H' "$frame_top"
+    cat "$FRAMES_RENDER_DIR/$frame_index"
+    displayed_frames=1
+
     # `kill -0` checks liveness without signaling; outer `wait` in main()
-    # is what actually collects exit status.
-    while kill -0 "$install_pid" 2>/dev/null; do
-        printf '\033[%s;1H' "$frame_top"
-        cat "$FRAMES_RENDER_DIR/$frame_index"
+    # is what actually collects exit status. Keep at least two frames so a
+    # fast reinstall still visibly shows the Navigator instead of racing from
+    # banner straight to the Python UI with no logo at all.
+    while kill -0 "$install_pid" 2>/dev/null || (( displayed_frames < minimum_frames )); do
         sleep "$frame_sleep"
         frame_index="$(((frame_index + 1) % frame_count))"
+        printf '\033[%s;1H' "$frame_top"
+        cat "$FRAMES_RENDER_DIR/$frame_index"
+        (( displayed_frames += 1 ))
     done
 
     printf '\033[%s;1H' "$frame_top"
@@ -1920,6 +1939,7 @@ handoff_to_python_ui() {
     # run). Reopen /dev/tty for stdin so interactive prompts work under
     # `curl | bash` — the script's stdin is the downloaded bytes by default.
     export YUTORI_UV_BIN="$UV_BIN"
+    export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"
     if has_usable_tty; then
         exec "$yutori_bin" __install_ui </dev/tty
     fi
@@ -1967,7 +1987,11 @@ main() {
         play_animation_until_done "$UV_INSTALL_PID" "$use_color"
     else
         render_banner
-        note "Installing Yutori CLI with uv..."
+        if (( interactive )); then
+            render_bootstrap_intro "Interactive terminal detected."
+        else
+            render_bootstrap_intro "Non-interactive terminal detected."
+        fi
         if [[ "$animation_mode" == "static" ]]; then
             render_static_logo "$use_color"
         fi
@@ -2006,7 +2030,6 @@ main() {
         cat "$INSTALL_LOG"
     fi
 
-    note "Yutori CLI installed."
     handoff_to_python_ui
 }
 
