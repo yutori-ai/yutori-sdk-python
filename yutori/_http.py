@@ -69,6 +69,31 @@ def resolve_scout_status_endpoint(status: str) -> str:
     return _SCOUT_STATUS_ENDPOINTS[status]
 
 
+def prepare_scout_update(
+    scout_id: str, status: str | None, payload: dict[str, Any]
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Resolve ``(method, path, json)`` for a ``scouts.update()`` call.
+
+    Centralizes the mutual-exclusion rule between ``status`` and field
+    updates so the sync and async namespaces can share a single preflight.
+
+    Raises:
+        ValueError: If ``status`` coexists with other fields, or if neither
+            ``status`` nor any payload field was provided.
+    """
+    if status is not None and payload:
+        raise ValueError(
+            "Cannot update status and other fields simultaneously. "
+            "The API requires separate calls: one for status change, another for field updates."
+        )
+    if status is not None:
+        endpoint = resolve_scout_status_endpoint(status)
+        return "post", f"/scouting/tasks/{scout_id}/{endpoint}", None
+    if not payload:
+        raise ValueError("At least one field must be provided for update.")
+    return "patch", f"/scouting/tasks/{scout_id}", payload
+
+
 def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
     """Merge non-None ``fields`` into ``kwargs["extra_body"]`` in place.
 
