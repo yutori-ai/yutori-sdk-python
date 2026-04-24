@@ -22,7 +22,6 @@ def run(
     query: str = typer.Argument(help="Natural language research query"),
     timezone: str = typer.Option(None, "--timezone", "-tz", help="e.g., America/Los_Angeles"),
     location: str = typer.Option(None, "--location", help="e.g., San Francisco, CA, US"),
-    browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new research task."""
     with get_authenticated_client() as client:
@@ -30,7 +29,6 @@ def run(
             query=query,
             user_timezone=timezone,
             user_location=location,
-            browser=browser,
         )
 
         print_task_submission_result(console, "Research", result)

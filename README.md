@@ -208,7 +208,7 @@ while True:
     time.sleep(5)
 ```
 
-Use `browser="local"` if the research task needs a logged-in browser session. Failed tasks may include a `rejection_reason`.
+Failed tasks may include a `rejection_reason`.
 
 ## Scouting API
 
