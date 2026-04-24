@@ -8,7 +8,7 @@ from .._http import (
     _AsyncBaseNamespace,
     build_payload,
     build_query_params,
-    resolve_scout_status_endpoint,
+    prepare_scout_update,
 )
 from .._schema import resolve_output_schema
 
@@ -139,23 +139,8 @@ class AsyncScoutsNamespace(_AsyncBaseNamespace):
             webhook_format=webhook_format,
         )
 
-        # Check for conflicting parameters - API doesn't support both in one call
-        if status is not None and payload:
-            raise ValueError(
-                "Cannot update status and other fields simultaneously. "
-                "The API requires separate calls: one for status change, another for field updates."
-            )
-
-        # Handle status changes via dedicated endpoints
-        if status is not None:
-            endpoint = resolve_scout_status_endpoint(status)
-            return await self._request("post", f"/scouting/tasks/{scout_id}/{endpoint}")
-
-        # Handle field updates via PATCH
-        if not payload:
-            raise ValueError("At least one field must be provided for update.")
-
-        return await self._request("patch", f"/scouting/tasks/{scout_id}", json=payload)
+        method, path, json = prepare_scout_update(scout_id, status, payload)
+        return await self._request(method, path, json=json)
 
     async def delete(self, scout_id: str) -> dict[str, Any]:
         """Delete a scout.
