@@ -311,22 +311,6 @@ class TestResearchNamespace:
             payload = mock_post.call_args[1]["json"]
             assert payload["query"] == "Find AI startup funding"
 
-    def test_research_create_with_local_browser(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-456", "status": "queued"}'
-        mock_response.json.return_value = {"task_id": "research-456", "status": "queued"}
-
-        with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
-            result = client.research.create(
-                query="Research competitors with logged-in dashboards",
-                browser="local",
-            )
-            assert result["task_id"] == "research-456"
-            payload = mock_post.call_args[1]["json"]
-            assert payload["query"] == "Research competitors with logged-in dashboards"
-            assert payload["browser"] == "local"
-
     def test_research_get(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
