@@ -51,16 +51,22 @@ def save_config(api_key: str) -> None:
 
     content = json.dumps({"api_key": api_key}, indent=2)
 
-    # Atomic write: temp file in same directory, then rename
-    fd, tmp_path = tempfile.mkstemp(dir=config_dir, prefix=".config_", suffix=".tmp")
+    # Atomic write: temp file in same directory, then rename.
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=config_dir,
+        prefix=".config_",
+        suffix=".tmp",
+        delete=False,
+    )
+    tmp_path = Path(tmp.name)
     try:
-        with os.fdopen(fd, "w") as f:
+        with tmp as f:
             f.write(content)
         os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, config_path)
     except BaseException:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        tmp_path.unlink(missing_ok=True)
         raise
 
 
