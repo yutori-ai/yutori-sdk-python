@@ -264,23 +264,6 @@ class TestAsyncResearchNamespace:
                 result = await client.research.create(query="Find AI funding")
                 assert result["task_id"] == "research-123"
 
-    async def test_research_create_with_local_browser(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-456"}'
-        mock_response.json.return_value = {"task_id": "research-456"}
-
-        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            async with AsyncYutoriClient(api_key="yt-test") as client:
-                result = await client.research.create(
-                    query="Research a vendor portal behind login",
-                    browser="local",
-                )
-                assert result["task_id"] == "research-456"
-                payload = mock_post.call_args[1]["json"]
-                assert payload["query"] == "Research a vendor portal behind login"
-                assert payload["browser"] == "local"
-
     async def test_research_get(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200

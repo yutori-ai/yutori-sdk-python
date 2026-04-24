@@ -218,7 +218,7 @@ Deep web research using 100+ MCP tools.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.research.create(query, *, user_timezone=None, user_location=None, browser=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/research/tasks` | `dict` |
+| `client.research.create(query, *, user_timezone=None, user_location=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/research/tasks` | `dict` |
 | `client.research.get(task_id)` | GET | `/v1/research/tasks/{task_id}` | `dict` |
 
 #### `research.create`
@@ -228,7 +228,6 @@ task = client.research.create(
     query="What are the latest developments in quantum computing?",
     user_timezone="America/Los_Angeles",
     user_location="San Francisco, CA, US",
-    browser=None,
     output_schema=None,
     webhook_url=None,
     webhook_format=None,
@@ -239,7 +238,6 @@ task = client.research.create(
 - `query` (`str`): Natural language research query.
 - `user_timezone` (`str`, optional): e.g. `"America/Los_Angeles"`.
 - `user_location` (`str`, optional): e.g. `"San Francisco, CA, US"`.
-- `browser` (`str`, optional): `"cloud"` (default) or `"local"`.
 - `output_schema`: See [Structured output](#structured-output).
 - `webhook_url` (`str`, optional): URL for completion notifications.
 - `webhook_format` (`str`, optional): `"scout"` (default), `"slack"`, or `"zapier"`.
@@ -557,7 +555,7 @@ Installed as `yutori` (via the `yutori` script entry point). Run any command wit
 
 | Command | Description |
 |---------|-------------|
-| `yutori research run QUERY [--timezone/-tz TZ] [--location LOC] [--browser cloud\|local]` | Submit a research task. |
+| `yutori research run QUERY [--timezone/-tz TZ] [--location LOC]` | Submit a research task. |
 | `yutori research get TASK_ID` | Get status and result (truncates output to 2000 chars). |
 
 ### Scouts
