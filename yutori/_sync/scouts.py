@@ -6,11 +6,10 @@ from typing import Any
 
 from .._http import (
     _SyncBaseNamespace,
-    build_payload,
+    build_payload_with_schema,
     build_query_params,
     prepare_scout_update,
 )
-from .._schema import resolve_output_schema
 
 
 class ScoutsNamespace(_SyncBaseNamespace):
@@ -77,13 +76,13 @@ class ScoutsNamespace(_SyncBaseNamespace):
         Returns:
             Dictionary containing created scout details.
         """
-        payload = build_payload(
+        payload = build_payload_with_schema(
             query=query,
             output_interval=output_interval,
             start_timestamp=start_timestamp,
             user_timezone=user_timezone,
             user_location=user_location,
-            output_schema=resolve_output_schema(output_schema),
+            output_schema=output_schema,
             skip_email=skip_email,
             webhook_url=webhook_url,
             webhook_format=webhook_format,
@@ -128,12 +127,12 @@ class ScoutsNamespace(_SyncBaseNamespace):
         Raises:
             ValueError: If status is provided along with other fields (API limitation).
         """
-        payload = build_payload(
+        payload = build_payload_with_schema(
             query=query,
             output_interval=output_interval,
             user_timezone=user_timezone,
             user_location=user_location,
-            output_schema=resolve_output_schema(output_schema),
+            output_schema=output_schema,
             skip_email=skip_email,
             webhook_url=webhook_url,
             webhook_format=webhook_format,

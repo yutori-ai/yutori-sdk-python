@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import _AsyncBaseNamespace, build_payload
-from .._schema import resolve_output_schema
+from .._http import _AsyncBaseNamespace, build_payload_with_schema
 
 
 class AsyncBrowsingNamespace(_AsyncBaseNamespace):
@@ -42,14 +41,14 @@ class AsyncBrowsingNamespace(_AsyncBaseNamespace):
         Returns:
             Dictionary containing task details including task_id.
         """
-        payload = build_payload(
+        payload = build_payload_with_schema(
             task=task,
             start_url=start_url,
             max_steps=max_steps,
             agent=agent,
             require_auth=require_auth,
             browser=browser,
-            output_schema=resolve_output_schema(output_schema),
+            output_schema=output_schema,
             webhook_url=webhook_url,
             webhook_format=webhook_format,
         )

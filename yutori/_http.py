@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from ._schema import resolve_output_schema
 from .exceptions import APIError, AuthenticationError
 
 
@@ -46,6 +47,22 @@ def build_payload(**fields: Any) -> dict[str, Any]:
     together — any field whose value is ``None`` is omitted.
     """
     return {k: v for k, v in fields.items() if v is not None}
+
+
+def build_payload_with_schema(
+    *,
+    output_schema: object | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Like :func:`build_payload`, but resolve ``output_schema`` to a JSON dict first.
+
+    Centralizes the ``output_schema=resolve_output_schema(...)`` step used by
+    every scout / research / browsing payload builder so namespace methods do
+    not need to import :func:`resolve_output_schema` directly.
+    """
+    if output_schema is not None:
+        fields["output_schema"] = resolve_output_schema(output_schema)
+    return build_payload(**fields)
 
 
 _SCOUT_STATUS_ENDPOINTS = {
