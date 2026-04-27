@@ -11,6 +11,11 @@ from rich.markup import escape
 from yutori.auth.credentials import resolve_api_key
 
 __all__ = [
+    "INTERVAL_PRESETS",
+    "SECONDS_PER_DAY",
+    "SECONDS_PER_HOUR",
+    "SECONDS_PER_MINUTE",
+    "SECONDS_PER_WEEK",
     "format_interval",
     "get_authenticated_client",
     "print_aligned_fields",
@@ -20,6 +25,17 @@ __all__ = [
     "print_task_result_output",
     "print_task_submission_result",
 ]
+
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE
+SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
+SECONDS_PER_WEEK = 7 * SECONDS_PER_DAY
+
+INTERVAL_PRESETS: dict[str, int] = {
+    "hourly": SECONDS_PER_HOUR,
+    "daily": SECONDS_PER_DAY,
+    "weekly": SECONDS_PER_WEEK,
+}
 
 _console = Console()
 
@@ -129,10 +145,10 @@ def format_interval(seconds: int, *, short: bool = False) -> str:
         short: If True, use compact form (e.g. ``"1d"``). Otherwise use the
             verbose form (e.g. ``"1 day(s)"``).
     """
-    if seconds >= 86400:
-        value, unit_short, unit_long = seconds // 86400, "d", "day(s)"
-    elif seconds >= 3600:
-        value, unit_short, unit_long = seconds // 3600, "h", "hour(s)"
+    if seconds >= SECONDS_PER_DAY:
+        value, unit_short, unit_long = seconds // SECONDS_PER_DAY, "d", "day(s)"
+    elif seconds >= SECONDS_PER_HOUR:
+        value, unit_short, unit_long = seconds // SECONDS_PER_HOUR, "h", "hour(s)"
     else:
-        value, unit_short, unit_long = seconds // 60, "m", "minute(s)"
+        value, unit_short, unit_long = seconds // SECONDS_PER_MINUTE, "m", "minute(s)"
     return f"{value}{unit_short}" if short else f"{value} {unit_long}"
