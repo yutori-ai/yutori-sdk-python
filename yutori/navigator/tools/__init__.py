@@ -1,4 +1,4 @@
-"""Bundled browser tool scripts for navigator agents."""
+"""Bundled browser tool scripts for Navigator agents."""
 
 from __future__ import annotations
 

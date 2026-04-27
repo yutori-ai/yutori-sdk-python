@@ -1,11 +1,13 @@
-"""Utilities for building agents with the Yutori navigator and n1.5 APIs.
+"""Utilities for building agents with the Yutori Navigator API.
 
-Provides reusable helpers for common patterns in navigator/n1.5 agent loops:
+Provides reusable helpers for common patterns in Navigator-n1 and
+Navigator-n1.5 agent loops:
+
 - Screenshot preparation: capture and encode screenshots as optimized WebP data URLs
 - Coordinate conversion: map the 1000x1000 tool-call space to viewport pixels
 - Payload management: trim old screenshots to stay within API size limits
 - Loop helpers: create trimmed requests without mutating caller state
-- Key mapping: convert n1.5 lowercase key names to Playwright-compatible names
+- Key mapping: convert Navigator-n1.5 lowercase key names to Playwright-compatible names
 - Model constants: canonical model identifiers and tool set names
 """
 
@@ -13,7 +15,12 @@ from __future__ import annotations
 
 from .content import extract_text_content
 from .context import format_task_with_context, format_user_context
-from .coordinates import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
+from .coordinates import (
+    N1_COORDINATE_SCALE,
+    NAVIGATOR_COORDINATE_SCALE,
+    denormalize_coordinates,
+    normalize_coordinates,
+)
 from .hooks import RunHooksBase
 from .images import (
     aplaywright_screenshot_to_data_url,
@@ -22,7 +29,14 @@ from .images import (
 )
 from .keys import map_key_to_playwright, map_keys_individual
 from .loop import acreate_trimmed, create_trimmed
-from .models import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
+from .models import (
+    N1_5_MODEL,
+    N1_MODEL,
+    NAVIGATOR_N1_5_MODEL,
+    NAVIGATOR_N1_MODEL,
+    TOOL_SET_CORE,
+    TOOL_SET_EXPANDED,
+)
 from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
 from .stop import format_stop_and_summarize
 
@@ -30,6 +44,9 @@ __all__ = [
     "N1_5_MODEL",
     "N1_COORDINATE_SCALE",
     "N1_MODEL",
+    "NAVIGATOR_COORDINATE_SCALE",
+    "NAVIGATOR_N1_5_MODEL",
+    "NAVIGATOR_N1_MODEL",
     "RunHooksBase",
     "TOOL_SET_CORE",
     "TOOL_SET_EXPANDED",

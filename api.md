@@ -7,8 +7,8 @@ A dense reference to everything the Yutori Python SDK and CLI expose. The [READM
 | Import | Purpose |
 |--------|---------|
 | `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `AuthenticationError`, `YutoriSDKError`) |
-| `yutori.navigator` | Agent-loop helpers for the Navigator (n1 / n1.5) chat completions endpoint |
-| `yutori.navigator.tools` | Packaged JavaScript reference implementations for n1.5 expanded browser tools |
+| `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator-n1 / Navigator-n1.5 chat completions) |
+| `yutori.navigator.tools` | Packaged JavaScript reference implementations for the Navigator-n1.5 expanded browser tools |
 
 All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator helpers are optional and do not change the shape of `client.chat.completions.create(...)`.
 
@@ -53,7 +53,7 @@ YutoriClient(
 
 | Attribute | Class | Purpose |
 |-----------|-------|---------|
-| `client.chat` | `ChatNamespace` | Navigator (n1 / n1.5) chat completions |
+| `client.chat` | `ChatNamespace` | Navigator API (Navigator-n1 / Navigator-n1.5) chat completions |
 | `client.browsing` | `BrowsingNamespace` | One-time browser automation |
 | `client.research` | `ResearchNamespace` | One-time deep web research |
 | `client.scouts` | `ScoutsNamespace` | Continuous monitoring scouts |
@@ -90,16 +90,24 @@ The response also includes `n1_rate_limits` and `activity.n1_calls` as deprecate
 Importable from `yutori.navigator`. Prefer these over hard-coded strings so upgrades land automatically.
 
 ```python
-from yutori.navigator import N1_MODEL, N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
+from yutori.navigator import (
+    NAVIGATOR_N1_MODEL,
+    NAVIGATOR_N1_5_MODEL,
+    NAVIGATOR_COORDINATE_SCALE,
+    TOOL_SET_CORE,
+    TOOL_SET_EXPANDED,
+)
 ```
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `N1_MODEL` | `"n1-latest"` | Alias for the latest stable n1 model. |
-| `N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable n1.5 model (current default). |
-| `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default n1.5 tool set — 18 coordinate-based browser tools. |
+| `NAVIGATOR_N1_MODEL` | `"n1-latest"` | Alias for the latest stable Navigator-n1 model. |
+| `NAVIGATOR_N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable Navigator-n1.5 model (current default). |
+| `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator-n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
-| `N1_COORDINATE_SCALE` | `1000` | The normalized action space is `N1_COORDINATE_SCALE × N1_COORDINATE_SCALE`. |
+| `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
+
+`N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
 
 For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.yutori.com/reference/n1](https://docs.yutori.com/reference/n1) and [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5).
 
@@ -107,7 +115,7 @@ For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.y
 
 ### `client.chat` — Navigator API
 
-OpenAI-compatible pixels-to-actions chat completions. Works with both n1 and n1.5 models.
+OpenAI-compatible pixels-to-actions chat completions. Works with both Navigator-n1 and Navigator-n1.5 models.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
@@ -116,10 +124,10 @@ OpenAI-compatible pixels-to-actions chat completions. Works with both n1 and n1.
 #### `chat.completions.create`
 
 ```python
-from yutori.navigator import N1_5_MODEL
+from yutori.navigator import NAVIGATOR_N1_5_MODEL, TOOL_SET_EXPANDED
 
 response = client.chat.completions.create(
-    model=N1_5_MODEL,
+    model=NAVIGATOR_N1_5_MODEL,
     messages=[
         {
             "role": "user",
@@ -129,9 +137,9 @@ response = client.chat.completions.create(
             ],
         }
     ],
-    tool_set=TOOL_SET_EXPANDED,           # n1.5 only
-    disable_tools=["hold_key", "drag"],    # n1.5 only
-    json_schema={...},                     # n1.5 only
+    tool_set=TOOL_SET_EXPANDED,           # Navigator-n1.5 only
+    disable_tools=["hold_key", "drag"],    # Navigator-n1.5 only
+    json_schema={...},                     # Navigator-n1.5 only
 )
 
 message = response.choices[0].message
@@ -145,17 +153,17 @@ parsed = getattr(response, "parsed_json", None)
 
 **Parameters:**
 - `messages` (`Iterable[ChatCompletionMessageParam]`): OpenAI-format chat messages. Include screenshots as `image_url` content blocks.
-- `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `N1_MODEL` / `N1_5_MODEL` for clarity.
-- `tool_set` (`str | None`, **n1.5 only**): Which built-in tool set to activate. Use `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Forwarded via `extra_body`.
-- `disable_tools` (`list[str] | None`, **n1.5 only**): Tool names to remove from the active tool set.
-- `json_schema` (`dict | None`, **n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
-- `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges n1.5 params into it.
+- `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `NAVIGATOR_N1_MODEL` / `NAVIGATOR_N1_5_MODEL` for clarity.
+- `tool_set` (`str | None`, **Navigator-n1.5 only**): Which built-in tool set to activate. Use `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Forwarded via `extra_body`.
+- `disable_tools` (`list[str] | None`, **Navigator-n1.5 only**): Tool names to remove from the active tool set.
+- `json_schema` (`dict | None`, **Navigator-n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
+- `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges Navigator-n1.5 params into it.
 
-**Returns:** `openai.types.chat.ChatCompletion`. When `json_schema` is set on n1.5 and parsing succeeds, the API also sets `response.parsed_json`.
+**Returns:** `openai.types.chat.ChatCompletion`. When `json_schema` is set on Navigator-n1.5 and parsing succeeds, the API also sets `response.parsed_json`.
 
-**n1 vs. n1.5 summary** (reference: [docs.yutori.com](https://docs.yutori.com/reference/n1-5)):
+**Navigator-n1 vs. Navigator-n1.5 summary** (reference: [docs.yutori.com](https://docs.yutori.com/reference/n1-5)):
 
-| Feature | n1 | n1.5 |
+| Feature | Navigator-n1 | Navigator-n1.5 |
 |---------|----|----|
 | Tool sets | Fixed | `tool_set` (core / expanded) |
 | Disable tools | — | `disable_tools` supported |
@@ -394,7 +402,7 @@ task = client.browsing.create(
 )
 ```
 
-Structured output for the Navigator API (n1.5 only) is a separate parameter on `client.chat.completions.create(...)`: `json_schema=...` with results on `response.parsed_json`.
+Structured output for the Navigator API (Navigator-n1.5 only) is a separate parameter on `client.chat.completions.create(...)`: `json_schema=...` with results on `response.parsed_json`.
 
 ## `yutori.navigator`
 
@@ -403,14 +411,14 @@ Opt-in helpers for custom agent loops. They do **not** change the shape of `clie
 ```python
 from yutori.navigator import (
     # Models / tool sets
-    N1_MODEL, N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED, N1_COORDINATE_SCALE,
+    NAVIGATOR_N1_MODEL, NAVIGATOR_N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED, NAVIGATOR_COORDINATE_SCALE,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
     # Coordinates
     denormalize_coordinates, normalize_coordinates,
     # Task / prompt formatting
     format_task_with_context, format_user_context, format_stop_and_summarize,
-    # Key mapping (n1.5)
+    # Key mapping (Navigator-n1.5)
     map_key_to_playwright, map_keys_individual,
     # Payload trimming
     estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit,
@@ -433,7 +441,7 @@ Default quality is WebP q=90 (or q=30 for PNG sources).
 
 ### Coordinate helpers
 
-The Navigator emits tool-call coordinates in a normalized `N1_COORDINATE_SCALE × N1_COORDINATE_SCALE` (1000×1000) space.
+The Navigator emits tool-call coordinates in a normalized `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE` (1000×1000) space.
 
 | Helper | Signature | Description |
 |--------|-----------|-------------|
@@ -450,9 +458,9 @@ Raises `ValueError` on bad input (non-finite values, wrong length, non-positive 
 | `format_task_with_context` | `(task: str, *, user_timezone=..., user_location=...) -> str` | `f"{task}\n\n{format_user_context(...)}"`. |
 | `format_stop_and_summarize` | `(task: str) -> str` | Prompt that asks the model to stop iterating and produce a summary — for use when hitting max steps or an error. |
 
-### Key mapping (n1.5)
+### Key mapping (Navigator-n1.5)
 
-n1.5 returns lowercase key names (`ctrl+c`, `enter`, `down`) which must be converted for Playwright.
+Navigator-n1.5 returns lowercase key names (`ctrl+c`, `enter`, `down`) which must be converted for Playwright.
 
 | Helper | Signature | Description |
 |--------|-----------|-------------|
@@ -477,8 +485,8 @@ Thin wrappers around `chat.completions.create(...)` that trim the request copy b
 
 | Helper | Signature | Description |
 |--------|-----------|-------------|
-| `create_trimmed` | `(completions, messages, *, model=N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Sync. Expects `completions` to quack like `ChatCompletions`. |
-| `acreate_trimmed` | `(completions, messages, *, model=N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Async. |
+| `create_trimmed` | `(completions, messages, *, model=NAVIGATOR_N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Sync. Expects `completions` to quack like `ChatCompletions`. |
+| `acreate_trimmed` | `(completions, messages, *, model=NAVIGATOR_N1_5_MODEL, max_bytes=9_500_000, keep_recent=6, **kwargs) -> ChatCompletion` | Async. |
 
 Additionally, `yutori.navigator.loop.update_trimmed_history(messages, request_messages=None, *, max_bytes=..., keep_recent=...)` is available for long-lived loops that keep a complete replayable history separate from the trimmed request copy. It returns `(request_messages, size_bytes, removed)`.
 
@@ -491,7 +499,7 @@ Additionally, `yutori.navigator.loop.update_trimmed_history(messages, request_me
 
 ### `yutori.navigator.tools`
 
-Packaged JavaScript reference implementations for n1.5's expanded browser tool set. The scripts are shipped as `.js` files inside the wheel (`yutori.navigator.tools.js`).
+Packaged JavaScript reference implementations for the Navigator-n1.5 expanded browser tool set. The scripts are shipped as `.js` files inside the wheel (`yutori.navigator.tools.js`).
 
 ```python
 from yutori.navigator.tools import (

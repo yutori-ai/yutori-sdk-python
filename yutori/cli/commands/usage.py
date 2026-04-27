@@ -59,7 +59,7 @@ def usage(
             rate_fields.append(("Resets at", rate_limits.get("reset_at", "N/A")))
             print_aligned_fields(console, rate_fields, min_label_width=_RATE_LIMIT_LABEL_WIDTH)
 
-        # Navigator rate limits (falls back to the deprecated n1_rate_limits key on older servers)
+        # Navigator API rate limits (falls back to the deprecated ``n1_rate_limits`` key on older servers)
         navigator_limits = data.get("navigator_rate_limits") or data.get("n1_rate_limits") or {}
         if navigator_limits:
             console.print("\n  [bold]Navigator API Rate Limits[/bold]")

@@ -11,7 +11,7 @@ from .._http import apply_chat_extra_body
 
 
 class AsyncChatCompletions:
-    """OpenAI-compatible chat completions for n1 API (async)."""
+    """OpenAI-compatible chat completions for the Navigator API (async)."""
 
     def __init__(self, openai_client: AsyncOpenAI) -> None:
         self._client = openai_client
@@ -26,17 +26,17 @@ class AsyncChatCompletions:
         json_schema: dict | None = None,
         **kwargs: Any,
     ) -> ChatCompletion:
-        """Create a chat completion using the n1 API.
+        """Create a chat completion using the Navigator API.
 
         Args:
             messages: List of messages following OpenAI Chat format.
-            model: Model to use (default: "n1.5-latest").
-            tool_set: (n1.5 only) Built-in tool set to use, e.g.
+            model: Model to use (default: ``"n1.5-latest"`` — Navigator-n1.5).
+            tool_set: (Navigator-n1.5 only) Built-in tool set to use, e.g.
                 ``"browser_tools_core-20260403"`` or
                 ``"browser_tools_expanded-20260403"``.
-            disable_tools: (n1.5 only) List of tool names to remove from the
-                selected tool set.
-            json_schema: (n1.5 only) JSON Schema for structured output.
+            disable_tools: (Navigator-n1.5 only) List of tool names to remove
+                from the selected tool set.
+            json_schema: (Navigator-n1.5 only) JSON Schema for structured output.
                 When provided, the model returns a ``parsed_json`` field
                 on the response.
             **kwargs: Additional parameters (e.g., temperature).
@@ -55,7 +55,7 @@ class AsyncChatCompletions:
 
 
 class AsyncChatNamespace:
-    """Async namespace for n1 API operations (pixels-to-actions LLM)."""
+    """Async namespace for Navigator API operations (pixels-to-actions LLM)."""
 
     def __init__(self, base_url: str, api_key: str, timeout: float) -> None:
         self._openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)

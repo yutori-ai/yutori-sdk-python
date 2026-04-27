@@ -2,11 +2,16 @@
 
 import pytest
 
-from yutori.navigator import N1_COORDINATE_SCALE, denormalize_coordinates, normalize_coordinates
+from yutori.navigator import (
+    N1_COORDINATE_SCALE,
+    NAVIGATOR_COORDINATE_SCALE,
+    denormalize_coordinates,
+    normalize_coordinates,
+)
 
 
 class TestDenormalizeCoordinates:
-    def test_scales_n1_coordinates_to_viewport_pixels(self):
+    def test_scales_navigator_coordinates_to_viewport_pixels(self):
         assert denormalize_coordinates([500, 250], width=1280, height=800) == (640, 200)
 
     def test_origin_returns_zero(self):
@@ -32,7 +37,7 @@ class TestDenormalizeCoordinates:
 
 
 class TestNormalizeCoordinates:
-    def test_scales_viewport_pixels_to_n1_coordinates(self):
+    def test_scales_viewport_pixels_to_navigator_coordinates(self):
         assert normalize_coordinates([640, 200], width=1280, height=800) == (500, 250)
 
     def test_origin_returns_zero(self):
@@ -40,9 +45,11 @@ class TestNormalizeCoordinates:
 
     def test_clamps_out_of_bounds_values_by_default(self):
         assert normalize_coordinates([1400, 900], width=1280, height=800) == (
-            N1_COORDINATE_SCALE,
-            N1_COORDINATE_SCALE,
+            NAVIGATOR_COORDINATE_SCALE,
+            NAVIGATOR_COORDINATE_SCALE,
         )
+        # Legacy alias is kept for backward compatibility.
+        assert N1_COORDINATE_SCALE is NAVIGATOR_COORDINATE_SCALE
         assert normalize_coordinates([-1, -5], width=1280, height=800) == (0, 0)
 
     def test_can_return_unclamped_coordinates(self):

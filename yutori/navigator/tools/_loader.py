@@ -1,4 +1,4 @@
-"""Load bundled JS tool scripts for navigator helpers."""
+"""Load bundled JS tool scripts for Navigator helpers."""
 
 from __future__ import annotations
 

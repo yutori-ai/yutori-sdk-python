@@ -1,4 +1,4 @@
-"""Content normalization helpers for Yutori navigator loops."""
+"""Content normalization helpers for Yutori Navigator loops."""
 
 from __future__ import annotations
 

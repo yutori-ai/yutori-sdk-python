@@ -1,4 +1,4 @@
-"""Payload management utilities for navigator agent loops.
+"""Payload management utilities for Navigator agent loops.
 
 When using the API in an agentic loop, the message history grows with each
 step because every tool response includes a new screenshot. These utilities

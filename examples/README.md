@@ -19,7 +19,7 @@ The examples rely on the SDK's normal credential resolution. They do not expose 
 
 ## navigator_n1.py
 
-A complete browsing agent using the n1 API. Launches a local Playwright browser, captures screenshots through `yutori.navigator.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.navigator.denormalize_coordinates(...)`, sends them to n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
+A complete browsing agent using the Navigator API with the Navigator-n1 model. Launches a local Playwright browser, captures screenshots through `yutori.navigator.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.navigator.denormalize_coordinates(...)`, sends them to Navigator-n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
 
 ```bash
 uv run python examples/navigator_n1.py --task "List the team member names" --start-url "https://www.yutori.com"
@@ -33,7 +33,7 @@ Options:
 
 ## navigator_n1_5.py
 
-A navigator agent using the n1.5 API. Demonstrates selectable tool sets (`TOOL_SET_CORE`, `TOOL_SET_EXPANDED`), optional structured JSON output via `--json-schema`, a redesigned action space with lowercase key names, and the packaged JS helpers from `yutori.navigator.tools` for expanded browser tools.
+A Navigator agent using the Navigator-n1.5 model. Demonstrates selectable tool sets (`TOOL_SET_CORE`, `TOOL_SET_EXPANDED`), optional structured JSON output via `--json-schema`, a redesigned action space with lowercase key names, and the packaged JS helpers from `yutori.navigator.tools` for expanded browser tools.
 
 ```bash
 uv run python examples/navigator_n1_5.py --task "List the team member names" --start-url "https://www.yutori.com"
@@ -52,7 +52,7 @@ Options:
 
 ## navigator_n1_custom_tools.py
 
-Extends the basic agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the n1 API.
+Extends the basic Navigator-n1 agent with a custom tool for extracting content and links from the page. Demonstrates how to define custom tools and pass them to the Navigator API.
 
 ```bash
 uv run python examples/navigator_n1_custom_tools.py \

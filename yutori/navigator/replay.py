@@ -1,4 +1,4 @@
-"""Optional trajectory logging and replay helpers for navigator browser loops.
+"""Optional trajectory logging and replay helpers for Navigator browser loops.
 
 These helpers are only for local debugging and inspection. Agent runs do not
 depend on them, and callers can ignore this module entirely if they do not want
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .content import extract_text_content
-from .coordinates import N1_COORDINATE_SCALE
+from .coordinates import NAVIGATOR_COORDINATE_SCALE
 
 _ACTION_COLOR_CLASS = {
     "left_click": "click",
@@ -85,7 +85,7 @@ def make_run_id(*, prefix: str = "run", label: str | None = None) -> str:
 
 
 class TrajectoryRecorder:
-    """Persist optional local replay artifacts for a navigator run.
+    """Persist optional local replay artifacts for a Navigator run.
 
     This recorder is intentionally separate from the agent loop itself. If you
     do not want replay files, skip constructing it and the rest of your loop can
@@ -171,8 +171,8 @@ class TrajectoryRecorder:
         result: object | None = None,
         step_payloads: list[dict[str, Any]] | None = None,
         *,
-        coord_space_width: int = N1_COORDINATE_SCALE,
-        coord_space_height: int = N1_COORDINATE_SCALE,
+        coord_space_width: int = NAVIGATOR_COORDINATE_SCALE,
+        coord_space_height: int = NAVIGATOR_COORDINATE_SCALE,
     ) -> None:
         """Render the optional static HTML replay viewer for one run."""
 
@@ -193,8 +193,8 @@ def generate_visualization_html(
     messages: list[dict],
     result: object | None = None,
     step_payloads: list[dict[str, Any]] | None = None,
-    coord_space_width: int = N1_COORDINATE_SCALE,
-    coord_space_height: int = N1_COORDINATE_SCALE,
+    coord_space_width: int = NAVIGATOR_COORDINATE_SCALE,
+    coord_space_height: int = NAVIGATOR_COORDINATE_SCALE,
 ) -> str:
     """Generate a static HTML viewer for an optional message replay."""
 
