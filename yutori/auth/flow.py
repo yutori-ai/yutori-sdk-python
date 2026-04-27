@@ -130,6 +130,16 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(f"<html><body>{body}</body></html>".encode())
 
 
+def _bearer_headers(jwt: str) -> dict[str, str]:
+    """Authorization header dict for Clerk-JWT-authenticated calls.
+
+    Centralized so the bearer-scheme literal lives in exactly one place
+    across the auth flow (token exchange does not use this — it sends the
+    code via form data, not a header).
+    """
+    return {"Authorization": f"Bearer {jwt}"}
+
+
 def exchange_code_for_token(code: str, code_verifier: str) -> str:
     """Exchange authorization code for JWT via Clerk token endpoint."""
     with httpx.Client(timeout=30.0) as client:
@@ -159,7 +169,7 @@ def generate_api_key(jwt: str, key_name: str | None = None) -> str:
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             build_auth_api_url("/client/generate_key"),
-            headers={"Authorization": f"Bearer {jwt}"},
+            headers=_bearer_headers(jwt),
             json=payload,
         )
         response.raise_for_status()
@@ -182,7 +192,7 @@ def check_registration_status(jwt: str) -> bool | None:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(
                 build_auth_api_url("/client/registration-status"),
-                headers={"Authorization": f"Bearer {jwt}"},
+                headers=_bearer_headers(jwt),
             )
             if response.status_code == 200:
                 body = response.json()
@@ -207,7 +217,7 @@ def register_user(jwt: str, signup_source: str = "cli") -> None:
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             build_auth_api_url("/client/register-api"),
-            headers={"Authorization": f"Bearer {jwt}"},
+            headers=_bearer_headers(jwt),
             json={"signup_source": signup_source},
         )
         response.raise_for_status()
