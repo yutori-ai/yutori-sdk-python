@@ -8,6 +8,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from yutori.cli.commands import (
+    INTERVAL_PRESETS,
     format_interval,
     get_authenticated_client,
     print_optional_field,
@@ -88,10 +89,10 @@ def create(
     if not query:
         query = typer.prompt("What would you like to monitor?")
 
-    interval_map = {"hourly": 3600, "daily": 86400, "weekly": 604800}
-    output_interval = interval_map.get(interval.lower())
+    output_interval = INTERVAL_PRESETS.get(interval.lower())
     if output_interval is None:
-        console.print(f"[red]Invalid interval '{escape(interval)}'. Choose from: hourly, daily, weekly[/red]")
+        choices = ", ".join(INTERVAL_PRESETS)
+        console.print(f"[red]Invalid interval '{escape(interval)}'. Choose from: {choices}[/red]")
         raise typer.Exit(1)
 
     with get_authenticated_client() as client:
