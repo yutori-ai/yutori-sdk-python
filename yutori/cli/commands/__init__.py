@@ -13,6 +13,7 @@ from yutori.auth.credentials import resolve_api_key
 __all__ = [
     "format_interval",
     "get_authenticated_client",
+    "print_optional_field",
     "print_rejection_reason",
     "print_task_get_header",
     "print_task_result_output",
@@ -39,6 +40,26 @@ def print_rejection_reason(console: Console, result: dict[str, Any]) -> None:
     reason = result.get("rejection_reason")
     if reason:
         console.print(f"  Rejection Reason: {escape(str(reason))}")
+
+
+def print_optional_field(
+    console: Console,
+    data: dict[str, Any],
+    key: str,
+    label: str,
+    *,
+    escape_value: bool = False,
+) -> None:
+    """Print ``  {label}: {data[key]}`` only when ``data[key]`` is truthy.
+
+    Set ``escape_value=True`` for user-supplied strings that may contain
+    Rich markup (e.g. ``[red]``) so they render literally.
+    """
+    value = data.get(key)
+    if not value:
+        return
+    rendered = escape(str(value)) if escape_value else value
+    console.print(f"  {label}: {rendered}")
 
 
 def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
