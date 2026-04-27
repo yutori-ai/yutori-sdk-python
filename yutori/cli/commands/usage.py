@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from yutori.cli.commands import get_authenticated_client
+from yutori.cli.commands import get_authenticated_client, print_aligned_fields
 
 app = typer.Typer(help="View usage statistics")
 console = Console()
+
+# Width of the longest rate-limit label ("Requests today"). Used as
+# ``min_label_width`` so blocks that conditionally drop rows (e.g. when
+# only "Resets at:" prints) still align to the same column.
+_RATE_LIMIT_LABEL_WIDTH = len("Requests today")
 
 
 @app.callback(invoke_without_command=True)
@@ -40,21 +47,33 @@ def usage(
         rate_limits = data.get("rate_limits", {})
         if rate_limits:
             console.print(f"\n  [bold]API Rate Limits[/bold] ({rate_limits.get('status', 'unknown')})")
+            rate_fields: list[tuple[str, Any]] = []
             if rate_limits.get("status") == "available":
-                console.print(f"    Requests today: {rate_limits.get('requests_today', 'N/A')}")
-                console.print(f"    Daily limit:    {rate_limits.get('daily_limit', 'N/A')}")
-                console.print(f"    Remaining:      {rate_limits.get('remaining_requests', 'N/A')}")
-            console.print(f"    Resets at:      {rate_limits.get('reset_at', 'N/A')}")
+                rate_fields.extend(
+                    [
+                        ("Requests today", rate_limits.get("requests_today", "N/A")),
+                        ("Daily limit", rate_limits.get("daily_limit", "N/A")),
+                        ("Remaining", rate_limits.get("remaining_requests", "N/A")),
+                    ]
+                )
+            rate_fields.append(("Resets at", rate_limits.get("reset_at", "N/A")))
+            print_aligned_fields(console, rate_fields, min_label_width=_RATE_LIMIT_LABEL_WIDTH)
 
         # Navigator rate limits (falls back to the deprecated n1_rate_limits key on older servers)
         navigator_limits = data.get("navigator_rate_limits") or data.get("n1_rate_limits") or {}
         if navigator_limits:
             console.print("\n  [bold]Navigator API Rate Limits[/bold]")
-            console.print(f"    Requests today: {navigator_limits.get('requests_today', 'N/A')}")
-            console.print(f"    Daily limit:    {navigator_limits.get('daily_limit', 'N/A')}")
-            console.print(f"    Remaining:      {navigator_limits.get('remaining_requests', 'N/A')}")
-            console.print(f"    Per-second:     {navigator_limits.get('per_second_limit', 'N/A')}")
-            console.print(f"    Resets at:      {navigator_limits.get('reset_at', 'N/A')}")
+            print_aligned_fields(
+                console,
+                [
+                    ("Requests today", navigator_limits.get("requests_today", "N/A")),
+                    ("Daily limit", navigator_limits.get("daily_limit", "N/A")),
+                    ("Remaining", navigator_limits.get("remaining_requests", "N/A")),
+                    ("Per-second", navigator_limits.get("per_second_limit", "N/A")),
+                    ("Resets at", navigator_limits.get("reset_at", "N/A")),
+                ],
+                min_label_width=_RATE_LIMIT_LABEL_WIDTH,
+            )
 
         # Activity counts
         activity = data.get("activity", {})
