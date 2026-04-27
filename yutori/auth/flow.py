@@ -153,17 +153,28 @@ def _build_key_name(source: str = "yutori-cli") -> str:
     return f"{date_prefix}-{source}"
 
 
+def _post_auth_api(jwt: str, path: str, json_payload: dict[str, Any] | None) -> httpx.Response:
+    """POST to a Yutori auth API endpoint with Bearer auth, raising on non-2xx.
+
+    Centralizes the timeout=30 / Bearer header / raise_for_status combination
+    used by both generate_api_key and register_user so the two call sites
+    cannot drift out of sync.
+    """
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(
+            build_auth_api_url(path),
+            headers={"Authorization": f"Bearer {jwt}"},
+            json=json_payload,
+        )
+        response.raise_for_status()
+        return response
+
+
 def generate_api_key(jwt: str, key_name: str | None = None) -> str:
     """Generate a Yutori API key using a Clerk JWT."""
     payload = {"name": key_name} if key_name else None
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(
-            build_auth_api_url("/client/generate_key"),
-            headers={"Authorization": f"Bearer {jwt}"},
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()["key"]
+    response = _post_auth_api(jwt, "/client/generate_key", payload)
+    return response.json()["key"]
 
 
 def check_registration_status(jwt: str) -> bool | None:
@@ -204,13 +215,7 @@ def register_user(jwt: str, signup_source: str = "cli") -> None:
     Raises ``httpx.HTTPStatusError`` on non-2xx — the outer login flow turns
     that into a user-facing `Authentication failed (<status>): ...` message.
     """
-    with httpx.Client(timeout=30.0) as client:
-        response = client.post(
-            build_auth_api_url("/client/register-api"),
-            headers={"Authorization": f"Bearer {jwt}"},
-            json={"signup_source": signup_source},
-        )
-        response.raise_for_status()
+    _post_auth_api(jwt, "/client/register-api", {"signup_source": signup_source})
 
 
 def run_login_flow(
