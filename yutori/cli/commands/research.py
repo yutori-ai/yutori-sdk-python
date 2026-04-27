@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
-from rich.markup import escape
 
 from yutori.cli.commands import (
     get_authenticated_client,
+    print_optional_field,
     print_task_get_header,
     print_task_result_output,
     print_task_submission_result,
@@ -46,9 +46,7 @@ def get(
 
         print_task_get_header(console, "Research", task_id, result)
 
-        if result.get("query"):
-            console.print(f"  Query: {escape(result['query'])}")
-        if result.get("created_at"):
-            console.print(f"  Created: {result['created_at']}")
+        print_optional_field(console, result, "query", "Query", escape_value=True)
+        print_optional_field(console, result, "created_at", "Created")
 
         print_task_result_output(console, result)

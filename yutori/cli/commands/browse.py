@@ -7,6 +7,7 @@ from rich.console import Console
 
 from yutori.cli.commands import (
     get_authenticated_client,
+    print_optional_field,
     print_task_get_header,
     print_task_result_output,
     print_task_submission_result,
@@ -49,11 +50,8 @@ def get(
 
         print_task_get_header(console, "Browsing", task_id, result)
 
-        if result.get("start_url"):
-            console.print(f"  Start URL: {result['start_url']}")
-        if result.get("agent"):
-            console.print(f"  Agent: {result['agent']}")
-        if result.get("created_at"):
-            console.print(f"  Created: {result['created_at']}")
+        print_optional_field(console, result, "start_url", "Start URL")
+        print_optional_field(console, result, "agent", "Agent")
+        print_optional_field(console, result, "created_at", "Created")
 
         print_task_result_output(console, result)

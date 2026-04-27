@@ -7,7 +7,12 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from yutori.cli.commands import format_interval, get_authenticated_client, print_rejection_reason
+from yutori.cli.commands import (
+    format_interval,
+    get_authenticated_client,
+    print_optional_field,
+    print_rejection_reason,
+)
 
 app = typer.Typer(help="Manage scouts")
 console = Console()
@@ -68,12 +73,9 @@ def get(
         interval_str = format_interval(scout.get("output_interval") or 0)
         console.print(f"  Interval: {interval_str}")
 
-        if scout.get("user_timezone"):
-            console.print(f"  Timezone: {scout['user_timezone']}")
-        if scout.get("created_at"):
-            console.print(f"  Created: {scout['created_at']}")
-        if scout.get("next_run_at"):
-            console.print(f"  Next Run: {scout['next_run_at']}")
+        print_optional_field(console, scout, "user_timezone", "Timezone")
+        print_optional_field(console, scout, "created_at", "Created")
+        print_optional_field(console, scout, "next_run_at", "Next Run")
 
 
 @app.command()
