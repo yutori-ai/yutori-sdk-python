@@ -1,4 +1,4 @@
-"""Helpers for loading bundled static assets used by navigator utilities."""
+"""Helpers for loading bundled static assets used by Navigator utilities."""
 
 from __future__ import annotations
 

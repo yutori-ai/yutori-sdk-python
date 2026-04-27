@@ -1,4 +1,4 @@
-"""Screenshot preparation helpers for navigator image inputs."""
+"""Screenshot preparation helpers for Navigator image inputs."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def screenshot_to_data_url(
     source_format: str | None = None,
     webp_quality: int | None = None,
 ) -> str:
-    """Convert screenshot bytes into a WebP data URL optimized for navigator."""
+    """Convert screenshot bytes into a WebP data URL optimized for Navigator."""
 
     with Image.open(io.BytesIO(image_bytes)) as img:
         detected_format = (source_format or img.format or "").upper()
@@ -66,7 +66,7 @@ def playwright_screenshot_to_data_url(
     resize_to: tuple[int, int] = DEFAULT_SCREENSHOT_SIZE,
     webp_quality: int | None = None,
 ) -> str:
-    """Capture and convert a sync Playwright-style screenshot for navigator."""
+    """Capture and convert a sync Playwright-style screenshot for Navigator."""
 
     screenshot_bytes = page.screenshot(
         type=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
@@ -86,7 +86,7 @@ async def aplaywright_screenshot_to_data_url(
     resize_to: tuple[int, int] = DEFAULT_SCREENSHOT_SIZE,
     webp_quality: int | None = None,
 ) -> str:
-    """Capture and convert an async Playwright-style screenshot for navigator."""
+    """Capture and convert an async Playwright-style screenshot for Navigator."""
 
     screenshot_bytes = await page.screenshot(
         type=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,

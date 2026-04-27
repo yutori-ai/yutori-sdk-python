@@ -1,14 +1,28 @@
-"""Tests for navigator model constants and tool set identifiers."""
+"""Tests for Navigator model constants and tool set identifiers."""
 
-from yutori.navigator import N1_5_MODEL, N1_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED
+from yutori.navigator import (
+    N1_5_MODEL,
+    N1_MODEL,
+    NAVIGATOR_N1_5_MODEL,
+    NAVIGATOR_N1_MODEL,
+    TOOL_SET_CORE,
+    TOOL_SET_EXPANDED,
+)
 
 
 class TestModelConstants:
-    def test_n1_model_identifier(self):
-        assert N1_MODEL == "n1-latest"
+    def test_navigator_n1_model_identifier(self):
+        assert NAVIGATOR_N1_MODEL == "n1-latest"
 
-    def test_n1_5_model_identifier(self):
-        assert N1_5_MODEL == "n1.5-latest"
+    def test_navigator_n1_5_model_identifier(self):
+        assert NAVIGATOR_N1_5_MODEL == "n1.5-latest"
+
+    def test_legacy_aliases_match_canonical(self):
+        # ``N1_MODEL`` / ``N1_5_MODEL`` are kept as deprecated aliases of the
+        # canonical ``NAVIGATOR_*`` names. Asserting identity (``is``) catches
+        # accidental drift if anyone re-defines either constant independently.
+        assert N1_MODEL is NAVIGATOR_N1_MODEL
+        assert N1_5_MODEL is NAVIGATOR_N1_5_MODEL
 
 
 class TestToolSetConstants:

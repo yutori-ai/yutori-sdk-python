@@ -1,4 +1,4 @@
-"""Higher-level helpers for screenshot-heavy navigator agent loops."""
+"""Higher-level helpers for screenshot-heavy Navigator agent loops."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Iterable, Protocol
 
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
-from .models import N1_5_MODEL
+from .models import NAVIGATOR_N1_5_MODEL
 from .payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
@@ -77,7 +77,7 @@ def create_trimmed(
     completions: SupportsSyncChatCompletionsCreate,
     messages: list[dict[str, Any]],
     *,
-    model: str = N1_5_MODEL,
+    model: str = NAVIGATOR_N1_5_MODEL,
     max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
     keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
     **kwargs: Any,
@@ -96,7 +96,7 @@ async def acreate_trimmed(
     completions: SupportsAsyncChatCompletionsCreate,
     messages: list[dict[str, Any]],
     *,
-    model: str = N1_5_MODEL,
+    model: str = NAVIGATOR_N1_5_MODEL,
     max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
     keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
     **kwargs: Any,

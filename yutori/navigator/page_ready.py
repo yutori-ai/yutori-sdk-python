@@ -1,4 +1,4 @@
-"""Page readiness helpers for Playwright-style navigator agent loops."""
+"""Page readiness helpers for Playwright-style Navigator agent loops."""
 
 from __future__ import annotations
 

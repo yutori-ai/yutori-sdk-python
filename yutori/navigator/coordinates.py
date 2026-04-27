@@ -1,11 +1,14 @@
-"""Coordinate helpers for the 1000x1000 action space."""
+"""Coordinate helpers for the Navigator 1000x1000 action space."""
 
 from __future__ import annotations
 
 import math
 from typing import Sequence
 
-N1_COORDINATE_SCALE = 1000
+NAVIGATOR_COORDINATE_SCALE = 1000
+
+# Back-compat alias. Prefer ``NAVIGATOR_COORDINATE_SCALE``.
+N1_COORDINATE_SCALE = NAVIGATOR_COORDINATE_SCALE
 
 
 def denormalize_coordinates(
@@ -13,7 +16,7 @@ def denormalize_coordinates(
     width: int,
     height: int,
     *,
-    scale: int = N1_COORDINATE_SCALE,
+    scale: int = NAVIGATOR_COORDINATE_SCALE,
     clamp: bool = True,
 ) -> tuple[int, int]:
     """Convert normalized coordinates into viewport pixels.
@@ -42,7 +45,7 @@ def normalize_coordinates(
     width: int,
     height: int,
     *,
-    scale: int = N1_COORDINATE_SCALE,
+    scale: int = NAVIGATOR_COORDINATE_SCALE,
     clamp: bool = True,
 ) -> tuple[int, int]:
     """Convert viewport pixels into normalized coordinates.

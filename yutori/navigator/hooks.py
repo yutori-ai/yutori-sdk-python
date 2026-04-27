@@ -1,4 +1,4 @@
-"""Agents-inspired lifecycle hooks for chat-completions-based navigator loops."""
+"""Agents-inspired lifecycle hooks for chat-completions-based Navigator loops."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from openai.types.chat import ChatCompletionMessageParam
 
 
 class RunHooksBase:
-    """Agents-inspired lifecycle hooks for chat-completions-based navigator loops.
+    """Agents-inspired lifecycle hooks for chat-completions-based Navigator loops.
 
     This is intentionally not a drop-in replacement for the OpenAI Agents SDK
     RunHooksBase. It mirrors the lifecycle phases, not the exact signatures.

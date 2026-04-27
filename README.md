@@ -77,17 +77,17 @@ Resolution order: explicit `api_key` > `YUTORI_API_KEY` env var > `~/.yutori/con
 The Yutori API provides four main capabilities:
 
 
-| API           | Description                                | SDK Namespace     |
-| ------------- | ------------------------------------------ | ----------------- |
-| **Navigator** | Computer-use model for navigating websites | `client.chat`     |
-| **Browsing**  | One-time browser automation tasks          | `client.browsing` |
-| **Research**  | Deep web research using 100+ tools         | `client.research` |
-| **Scouting**  | Continuous web monitoring on a schedule    | `client.scouts`   |
+| API           | Description                                                    | SDK Namespace     |
+| ------------- | -------------------------------------------------------------- | ----------------- |
+| **Navigator** | Computer-use model family (Navigator-n1, Navigator-n1.5)       | `client.chat`     |
+| **Browsing**  | One-time browser automation tasks                              | `client.browsing` |
+| **Research**  | Deep web research using 100+ tools                             | `client.research` |
+| **Scouting**  | Continuous web monitoring on a schedule                        | `client.scouts`   |
 
 
 ## Navigator API
 
-The Navigator API provides a computer-use model for navigating websites. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
+The Navigator API hosts Yutori's family of computer-use models for navigating websites. The current public versions are **Navigator-n1** (model id `n1-latest`) and **Navigator-n1.5** (model id `n1.5-latest`). Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -124,7 +124,7 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll usually run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it emits `stop`. Complete agent loops live in [examples/](examples/).
 
-The SDK defaults to `n1.5-latest`. `n1-latest` is still supported for callers that want the older model. n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See [docs](https://docs.yutori.com/reference/n1-5) for model IDs, parameters, and the full action space.
+The SDK defaults to Navigator-n1.5 (`n1.5-latest`). Navigator-n1 (`n1-latest`) is still supported for callers that want the older model. Navigator-n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator-n1.5 reference](https://docs.yutori.com/reference/n1-5) and [Navigator-n1 reference](https://docs.yutori.com/reference/n1) for model IDs, parameters, and the full action space.
 
 ### Agent-loop helpers
 
@@ -133,13 +133,13 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 
 | Helper                                                      | Purpose                                                                                                                        |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `aplaywright_screenshot_to_data_url(page)`                  | Capture a Playwright screenshot as a Navigator-optimized WebP data URL.                                                        |
-| `denormalize_coordinates(coords, width, height)`            | Map the model's 1000×1000 coordinate space to viewport pixels.                                                                 |
-| `format_task_with_context(task, ...)`                       | Append location, timezone, and current date to a task message.                                                                 |
-| `format_stop_and_summarize(task)`                           | Ask the model to summarize when hitting max steps or an error.                                                                 |
-| `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                       |
-| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert n1.5's lowercase key names to Playwright format.                                                                       |
-| `yutori.navigator.tools`                                    | Packaged JS reference implementations for n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
+| `aplaywright_screenshot_to_data_url(page)`                  | Capture a Playwright screenshot as a Navigator-optimized WebP data URL.                                                                  |
+| `denormalize_coordinates(coords, width, height)`            | Map the Navigator 1000×1000 coordinate space to viewport pixels.                                                                         |
+| `format_task_with_context(task, ...)`                       | Append location, timezone, and current date to a task message.                                                                           |
+| `format_stop_and_summarize(task)`                           | Ask the model to summarize when hitting max steps or an error.                                                                           |
+| `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                                 |
+| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator-n1.5's lowercase key names to Playwright format.                                                                       |
+| `yutori.navigator.tools`                                    | Packaged JS reference implementations for the Navigator-n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 
 
 Full helper reference: [api.md](api.md).
@@ -292,7 +292,7 @@ Run `yutori --help` or `yutori <command> --help` for full options.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples, including Navigator agent loops for both n1 and n1.5.
+See [examples/](examples/) for complete working examples, including Navigator agent loops for both Navigator-n1 and Navigator-n1.5.
 
 ## Contributing
 

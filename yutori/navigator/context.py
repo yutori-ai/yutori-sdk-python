@@ -1,4 +1,4 @@
-"""User context formatting for navigator task messages.
+"""User context formatting for Navigator task messages.
 
 Appends location, timezone, and current date/time information to a task
 string, giving the model awareness of the user's environment.

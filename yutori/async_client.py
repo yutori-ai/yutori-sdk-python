@@ -34,7 +34,7 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         - client.scouts: Scout management (continuous monitoring)
         - client.browsing: Browser automation tasks
         - client.research: Deep web research tasks
-        - client.chat: n1 API (pixels-to-actions LLM)
+        - client.chat: Navigator API (pixels-to-actions LLM)
     """
 
     def __init__(
@@ -79,8 +79,8 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
             ``rate_limits``, ``navigator_rate_limits``, and ``activity``
             counts. The response also includes ``n1_rate_limits`` and
             ``activity.n1_calls`` as deprecated aliases of
-            ``navigator_rate_limits`` / ``navigator_calls`` for one
-            release; prefer the ``navigator_*`` names.
+            ``navigator_rate_limits`` / ``navigator_calls`` and will be
+            removed in a future release; prefer the ``navigator_*`` names.
         """
         return await self._request("get", "/usage", params=build_query_params(period=period))
 
