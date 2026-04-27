@@ -13,6 +13,7 @@ from yutori.auth.credentials import resolve_api_key
 __all__ = [
     "format_interval",
     "get_authenticated_client",
+    "print_aligned_fields",
     "print_optional_field",
     "print_rejection_reason",
     "print_task_get_header",
@@ -60,6 +61,28 @@ def print_optional_field(
         return
     rendered = escape(str(value)) if escape_value else value
     console.print(f"  {label}: {rendered}")
+
+
+def print_aligned_fields(
+    console: Console,
+    fields: list[tuple[str, Any]],
+    *,
+    indent: int = 4,
+    min_label_width: int = 0,
+) -> None:
+    """Print ``{indent}{label}: {value}`` rows with labels padded to a common width.
+
+    The column width is the longer of ``min_label_width`` and the longest label
+    in ``fields``. Use ``min_label_width`` when only a subset of a logical block
+    is rendered (e.g. one row out of several) but you still want it to line up
+    with the full block elsewhere.
+    """
+    if not fields:
+        return
+    label_width = max(min_label_width, *(len(label) for label, _ in fields))
+    indent_str = " " * indent
+    for label, value in fields:
+        console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{value}")
 
 
 def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
