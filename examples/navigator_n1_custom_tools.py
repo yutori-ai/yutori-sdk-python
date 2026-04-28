@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-A web browsing agent using Yutori's Navigator API (Navigator-n1, OpenAI API
+A web browsing agent using Yutori's Navigator API (Navigator n1, OpenAI API
 compatible) with custom tools.
 
 This script takes a user query, launches a local Playwright browser session,
@@ -496,10 +496,10 @@ async def main():
 
     default_config = Config()
     parser = argparse.ArgumentParser(
-        description="Example of using the Yutori Navigator API (Navigator-n1) to perform a web browsing task"
+        description="Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task"
     )
     add_task_arguments(parser, default_config)
-    add_model_arguments(parser, default_config, api_label="Yutori Navigator-n1")
+    add_model_arguments(parser, default_config, api_label="Yutori Navigator n1")
     add_agent_arguments(parser, default_config)
     add_browser_arguments(parser, default_config)
     add_replay_arguments(parser, default_config)

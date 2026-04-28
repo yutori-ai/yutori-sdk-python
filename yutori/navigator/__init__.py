@@ -1,13 +1,13 @@
 """Utilities for building agents with the Yutori Navigator API.
 
-Provides reusable helpers for common patterns in Navigator-n1 and
-Navigator-n1.5 agent loops:
+Provides reusable helpers for common patterns in Navigator n1 and
+Navigator n1.5 agent loops:
 
 - Screenshot preparation: capture and encode screenshots as optimized WebP data URLs
 - Coordinate conversion: map the 1000x1000 tool-call space to viewport pixels
 - Payload management: trim old screenshots to stay within API size limits
 - Loop helpers: create trimmed requests without mutating caller state
-- Key mapping: convert Navigator-n1.5 lowercase key names to Playwright-compatible names
+- Key mapping: convert Navigator n1.5 lowercase key names to Playwright-compatible names
 - Model constants: canonical model identifiers and tool set names
 """
 

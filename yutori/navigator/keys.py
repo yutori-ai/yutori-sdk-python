@@ -1,9 +1,9 @@
-"""Key name mapping for the Navigator-n1.5 lowercase key format.
+"""Key name mapping for the Navigator n1.5 lowercase key format.
 
-Navigator-n1.5 returns lowercase key names (e.g. ``ctrl+c``, ``enter``, ``left``)
+Navigator n1.5 returns lowercase key names (e.g. ``ctrl+c``, ``enter``, ``left``)
 while Playwright expects Playwright-style names (e.g. ``Control+c``,
 ``Enter``, ``ArrowLeft``).  Use :func:`map_key_to_playwright` to convert
-a full Navigator-n1.5 key expression to a Playwright-compatible string.
+a full Navigator n1.5 key expression to a Playwright-compatible string.
 
 Only the Playwright ``key`` name is needed here (not ``code`` / ``keyCode``).
 """
@@ -139,9 +139,9 @@ def _split_into_combos(key_expr: str) -> list[list[str]]:
 
 
 def map_key_to_playwright(key_expr: str) -> list[str]:
-    """Convert a Navigator-n1.5 key expression to a list of Playwright key-press strings.
+    """Convert a Navigator n1.5 key expression to a list of Playwright key-press strings.
 
-    Navigator-n1.5 uses ``+`` for simultaneous combos and spaces for sequential
+    Navigator n1.5 uses ``+`` for simultaneous combos and spaces for sequential
     presses.  For example:
 
     * ``"ctrl+c"``         → ``["Control+c"]``
@@ -158,7 +158,7 @@ def map_key_to_playwright(key_expr: str) -> list[str]:
 
 
 def map_keys_individual(key_expr: str) -> list[str]:
-    """Convert a Navigator-n1.5 key expression to a flat list of individual Playwright keys.
+    """Convert a Navigator n1.5 key expression to a flat list of individual Playwright keys.
 
     Unlike :func:`map_key_to_playwright`, this never joins keys with ``+``.
     Each token is mapped individually, making the result safe for
