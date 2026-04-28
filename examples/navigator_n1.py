@@ -46,7 +46,7 @@ from _common import (
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import (
-    N1_MODEL,
+    NAVIGATOR_N1_MODEL,
     aplaywright_screenshot_to_data_url,
     denormalize_coordinates,
 )
@@ -61,7 +61,7 @@ class Config(BaseModel):
     start_url: str = "https://www.yutori.com"
     # model
     base_url: str = DEFAULT_BASE_URL
-    model: str = N1_MODEL
+    model: str = NAVIGATOR_N1_MODEL
     temperature: float = 0.3
     # agent
     max_steps: int = 100
@@ -81,7 +81,7 @@ class Agent:
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
-        model: str = N1_MODEL,
+        model: str = NAVIGATOR_N1_MODEL,
         temperature: float = 0.3,
         max_steps: int = 100,
         viewport_width: int = 1280,
