@@ -60,6 +60,26 @@ def screenshot_to_data_url(
     return f"data:image/webp;base64,{encoded}"
 
 
+_PLAYWRIGHT_SCREENSHOT_KWARGS = {
+    "type": DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
+    "quality": DEFAULT_PLAYWRIGHT_SCREENSHOT_QUALITY,
+}
+
+
+def _playwright_bytes_to_data_url(
+    screenshot_bytes: bytes,
+    *,
+    resize_to: tuple[int, int],
+    webp_quality: int | None,
+) -> str:
+    return screenshot_to_data_url(
+        screenshot_bytes,
+        resize_to=resize_to,
+        source_format=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
+        webp_quality=webp_quality,
+    )
+
+
 def playwright_screenshot_to_data_url(
     page: SupportsSyncScreenshot,
     *,
@@ -68,14 +88,9 @@ def playwright_screenshot_to_data_url(
 ) -> str:
     """Capture and convert a sync Playwright-style screenshot for Navigator."""
 
-    screenshot_bytes = page.screenshot(
-        type=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
-        quality=DEFAULT_PLAYWRIGHT_SCREENSHOT_QUALITY,
-    )
-    return screenshot_to_data_url(
-        screenshot_bytes,
+    return _playwright_bytes_to_data_url(
+        page.screenshot(**_PLAYWRIGHT_SCREENSHOT_KWARGS),
         resize_to=resize_to,
-        source_format=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
         webp_quality=webp_quality,
     )
 
@@ -88,13 +103,8 @@ async def aplaywright_screenshot_to_data_url(
 ) -> str:
     """Capture and convert an async Playwright-style screenshot for Navigator."""
 
-    screenshot_bytes = await page.screenshot(
-        type=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
-        quality=DEFAULT_PLAYWRIGHT_SCREENSHOT_QUALITY,
-    )
-    return screenshot_to_data_url(
-        screenshot_bytes,
+    return _playwright_bytes_to_data_url(
+        await page.screenshot(**_PLAYWRIGHT_SCREENSHOT_KWARGS),
         resize_to=resize_to,
-        source_format=DEFAULT_PLAYWRIGHT_SCREENSHOT_TYPE,
         webp_quality=webp_quality,
     )
