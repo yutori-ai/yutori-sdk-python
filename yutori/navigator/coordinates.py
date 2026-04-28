@@ -26,10 +26,7 @@ def denormalize_coordinates(
     indices are always valid for a viewport of the given size.
     """
 
-    x, y = _coerce_coordinates(coordinates)
-    _validate_dimension("width", width)
-    _validate_dimension("height", height)
-    _validate_scale(scale)
+    x, y = _coerce_and_validate(coordinates, width, height, scale)
 
     raw_x = round(x / scale * width)
     raw_y = round(y / scale * height)
@@ -55,10 +52,7 @@ def normalize_coordinates(
     normalized action space.
     """
 
-    x, y = _coerce_coordinates(coordinates)
-    _validate_dimension("width", width)
-    _validate_dimension("height", height)
-    _validate_scale(scale)
+    x, y = _coerce_and_validate(coordinates, width, height, scale)
 
     raw_x = round(x / width * scale)
     raw_y = round(y / height * scale)
@@ -67,6 +61,20 @@ def normalize_coordinates(
         return raw_x, raw_y
 
     return _clamp(raw_x, 0, scale), _clamp(raw_y, 0, scale)
+
+
+def _coerce_and_validate(
+    coordinates: Sequence[int | float],
+    width: int,
+    height: int,
+    scale: int,
+) -> tuple[float, float]:
+    """Coerce *coordinates* and validate viewport dimensions and scale."""
+    x, y = _coerce_coordinates(coordinates)
+    _validate_dimension("width", width)
+    _validate_dimension("height", height)
+    _validate_scale(scale)
+    return x, y
 
 
 def _coerce_coordinates(coordinates: Sequence[int | float]) -> tuple[float, float]:
