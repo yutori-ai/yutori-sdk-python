@@ -63,7 +63,7 @@ from _common import (
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import (
-    N1_5_MODEL,
+    NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
     aplaywright_screenshot_to_data_url,
@@ -98,7 +98,7 @@ class Config(BaseModel):
     start_url: str = "https://www.yutori.com"
     # model
     base_url: str = DEFAULT_BASE_URL
-    model: str = N1_5_MODEL
+    model: str = NAVIGATOR_N1_5_MODEL
     temperature: float = 0.3
     tool_set: str = TOOL_SET_CORE
     disable_tools: list[str] = Field(default_factory=list)
@@ -124,7 +124,7 @@ class Agent:
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
-        model: str = N1_5_MODEL,
+        model: str = NAVIGATOR_N1_5_MODEL,
         temperature: float = 0.3,
         tool_set: str = TOOL_SET_CORE,
         disable_tools: list[str] | None = None,
