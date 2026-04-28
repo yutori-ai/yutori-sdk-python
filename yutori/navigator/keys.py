@@ -127,6 +127,17 @@ def _map_single_key(key: str) -> str:
     return _KEY_MAP.get(key.lower().strip(), key)
 
 
+def _split_into_combos(key_expr: str) -> list[list[str]]:
+    """Split *key_expr* into one token list per sequential press.
+
+    Spaces separate sequential presses; ``+`` separates simultaneous tokens
+    within a press. Empty space-separated parts are dropped, but empty
+    ``+``-separated tokens are preserved so callers can decide whether to
+    keep or filter them.
+    """
+    return [part.split("+") for part in key_expr.strip().split(" ") if part]
+
+
 def map_key_to_playwright(key_expr: str) -> list[str]:
     """Convert a Navigator-n1.5 key expression to a list of Playwright key-press strings.
 
@@ -143,15 +154,7 @@ def map_key_to_playwright(key_expr: str) -> list[str]:
     understands combos.  For ``keyboard.down()``/``keyboard.up()``
     (which only accept single keys), use :func:`map_keys_individual`.
     """
-    parts = key_expr.strip().split(" ")
-    result: list[str] = []
-    for part in parts:
-        if not part:
-            continue
-        tokens = part.split("+")
-        mapped = "+".join(_map_single_key(t) for t in tokens)
-        result.append(mapped)
-    return result
+    return ["+".join(_map_single_key(t) for t in tokens) for tokens in _split_into_combos(key_expr)]
 
 
 def map_keys_individual(key_expr: str) -> list[str]:
@@ -165,11 +168,4 @@ def map_keys_individual(key_expr: str) -> list[str]:
     * ``"down down enter"``  → ``["ArrowDown", "ArrowDown", "Enter"]``
     * ``"ctrl+plus"``        → ``["Control", "+"]``
     """
-    keys: list[str] = []
-    for part in key_expr.strip().split(" "):
-        if not part:
-            continue
-        for token in part.split("+"):
-            if token:
-                keys.append(_map_single_key(token))
-    return keys
+    return [_map_single_key(token) for tokens in _split_into_combos(key_expr) for token in tokens if token]
