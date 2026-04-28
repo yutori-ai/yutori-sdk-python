@@ -30,13 +30,13 @@ class AsyncChatCompletions:
 
         Args:
             messages: List of messages following OpenAI Chat format.
-            model: Model to use (default: ``"n1.5-latest"`` — Navigator-n1.5).
-            tool_set: (Navigator-n1.5 only) Built-in tool set to use, e.g.
+            model: Model to use (default: ``"n1.5-latest"`` — Navigator n1.5).
+            tool_set: (Navigator n1.5 only) Built-in tool set to use, e.g.
                 ``"browser_tools_core-20260403"`` or
                 ``"browser_tools_expanded-20260403"``.
-            disable_tools: (Navigator-n1.5 only) List of tool names to remove
+            disable_tools: (Navigator n1.5 only) List of tool names to remove
                 from the selected tool set.
-            json_schema: (Navigator-n1.5 only) JSON Schema for structured output.
+            json_schema: (Navigator n1.5 only) JSON Schema for structured output.
                 When provided, the model returns a ``parsed_json`` field
                 on the response.
             **kwargs: Additional parameters (e.g., temperature).

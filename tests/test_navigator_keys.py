@@ -1,4 +1,4 @@
-"""Tests for Navigator-n1.5 key mapping helpers."""
+"""Tests for Navigator n1.5 key mapping helpers."""
 
 import pytest
 
@@ -6,7 +6,7 @@ from yutori.navigator.keys import map_key_to_playwright, map_keys_individual
 
 
 class TestMapKeyToPlaywright:
-    """map_key_to_playwright converts Navigator-n1.5 key expressions to Playwright press() strings."""
+    """map_key_to_playwright converts Navigator n1.5 key expressions to Playwright press() strings."""
 
     def test_single_modifier_combo(self):
         assert map_key_to_playwright("ctrl+c") == ["Control+c"]

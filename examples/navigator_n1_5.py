@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 """
-A web browsing agent using Yutori's Navigator API with the Navigator-n1.5 model.
+A web browsing agent using Yutori's Navigator API with the Navigator n1.5 model.
 
-Navigator-n1.5 introduces a new action space with renamed tools, selectable
+Navigator n1.5 introduces a new action space with renamed tools, selectable
 tool sets, optional structured JSON output, and lowercase key names.
 
 Replay logging in this example is optional. Here, "replay" means saving the
 agent trajectory to local files so you can inspect screenshots, actions, and
 raw request/response payloads in `visualization.html` after the run.
 
-Key differences from Navigator-n1:
+Key differences from Navigator n1:
 - model: "n1.5-latest" (instead of "n1-latest")
 - tool_set / disable_tools: select which built-in tools the model can use
 - json_schema: request structured output (returned as parsed_json on the response)
@@ -442,7 +442,7 @@ class Agent:
 
     @staticmethod
     def _map_modifier(modifier: str | None) -> str | None:
-        """Map a single Navigator-n1.5 modifier name to a Playwright key name.
+        """Map a single Navigator n1.5 modifier name to a Playwright key name.
 
         The modifier field is always a single key (ctrl, shift, alt, meta,
         command, super) — not a combo. Uses the key map for lookup but
@@ -461,7 +461,7 @@ class Agent:
         return mapped[0].split("+")[0]
 
     # ------------------------------------------------------------------
-    # Action execution — Navigator-n1.5 action space
+    # Action execution — Navigator n1.5 action space
     # ------------------------------------------------------------------
 
     def _url_suffix(self) -> str:
@@ -724,10 +724,10 @@ async def main():
 
     default_config = Config()
     parser = argparse.ArgumentParser(
-        description="Example of using the Yutori Navigator API (Navigator-n1.5) to perform a web browsing task"
+        description="Example of using the Yutori Navigator API (Navigator n1.5) to perform a web browsing task"
     )
     add_task_arguments(parser, default_config)
-    add_model_arguments(parser, default_config, api_label="Yutori Navigator-n1.5")
+    add_model_arguments(parser, default_config, api_label="Yutori Navigator n1.5")
     parser.add_argument(
         "--tool-set", default=default_config.tool_set,
         choices=[TOOL_SET_CORE, TOOL_SET_EXPANDED, "core", "expanded"],
