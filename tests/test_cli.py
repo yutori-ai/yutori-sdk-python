@@ -65,14 +65,14 @@ def test_browse_run_forwards_local_browser_and_auth():
     assert "Rejection Reason" not in result.stdout
 
 
-def test_research_run_forwards_local_browser():
+def test_research_run_basic():
     client = _make_client_mock()
     client.research.create.return_value = {"task_id": "research-123", "status": "queued"}
 
     with patch("yutori.cli.commands.research.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
-            ["research", "run", "latest AI announcements", "--browser", "local", "--timezone", "America/Los_Angeles"],
+            ["research", "run", "latest AI announcements", "--timezone", "America/Los_Angeles"],
         )
 
     assert result.exit_code == 0
@@ -80,7 +80,6 @@ def test_research_run_forwards_local_browser():
         query="latest AI announcements",
         user_timezone="America/Los_Angeles",
         user_location=None,
-        browser="local",
     )
     client.close.assert_called_once()
     assert "Research task submitted" in result.stdout
