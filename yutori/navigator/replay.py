@@ -687,6 +687,14 @@ def _clip_image_url(value: str, *, max_len: int = 96) -> str:
     return value[:max_len] + "...[clipped]"
 
 
+def _safe_json_dumps(payload: Any, *, fallback: Any = None) -> str:
+    """Serialize ``payload`` to JSON, falling back to ``str(fallback)`` on TypeError."""
+    try:
+        return json.dumps(payload, indent=2, ensure_ascii=False, default=_json_default)
+    except TypeError:
+        return str(payload if fallback is None else fallback)
+
+
 def _stringify_content(content: Any) -> str | None:
     text = extract_text_content(content)
     if text:
@@ -696,10 +704,7 @@ def _stringify_content(content: Any) -> str | None:
     if isinstance(content, str):
         stripped = content.strip()
         return stripped or None
-    try:
-        return json.dumps(content, ensure_ascii=False, indent=2, default=_json_default)
-    except TypeError:
-        return str(content)
+    return _safe_json_dumps(content)
 
 
 def _dump_result_json(result: object | None) -> str | None:
@@ -711,17 +716,11 @@ def _dump_result_json(result: object | None) -> str | None:
         payload = result
     else:
         payload = result
-    try:
-        return json.dumps(payload, indent=2, ensure_ascii=False, default=_json_default)
-    except TypeError:
-        return str(result)
+    return _safe_json_dumps(payload, fallback=result)
 
 
 def _dump_json(payload: Any) -> str | None:
-    try:
-        return json.dumps(payload, indent=2, ensure_ascii=False, default=_json_default)
-    except TypeError:
-        return str(payload)
+    return _safe_json_dumps(payload)
 
 
 def _json_default(obj: Any) -> Any:
