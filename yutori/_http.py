@@ -40,29 +40,21 @@ def build_query_params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-def build_payload(**fields: Any) -> dict[str, Any]:
-    """Build a JSON request payload, filtering out None values.
-
-    Required fields (always non-None) and optional fields can be passed
-    together — any field whose value is ``None`` is omitted.
-    """
-    return {k: v for k, v in fields.items() if v is not None}
-
-
 def build_payload_with_schema(
     *,
     output_schema: object | None = None,
     **fields: Any,
 ) -> dict[str, Any]:
-    """Like :func:`build_payload`, but resolve ``output_schema`` to a JSON dict first.
+    """Build a JSON payload, resolving ``output_schema`` and filtering ``None`` values.
 
     Centralizes the ``output_schema=resolve_output_schema(...)`` step used by
     every scout / research / browsing payload builder so namespace methods do
-    not need to import :func:`resolve_output_schema` directly.
+    not need to import :func:`resolve_output_schema` directly. Any field whose
+    value is ``None`` after resolution is omitted from the returned dict.
     """
     if output_schema is not None:
         fields["output_schema"] = resolve_output_schema(output_schema)
-    return build_payload(**fields)
+    return {k: v for k, v in fields.items() if v is not None}
 
 
 _SCOUT_STATUS_ENDPOINTS = {
