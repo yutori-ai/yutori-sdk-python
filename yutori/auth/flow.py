@@ -153,6 +153,16 @@ def _build_key_name(source: str = "yutori-cli") -> str:
     return f"{date_prefix}-{source}"
 
 
+def _bearer_headers(jwt: str) -> dict[str, str]:
+    """Authorization header dict for Clerk-JWT-authenticated calls.
+
+    Centralized so the bearer-scheme literal lives in exactly one place
+    across the auth flow (token exchange does not use this — it sends the
+    code via form data, not a header).
+    """
+    return {"Authorization": f"Bearer {jwt}"}
+
+
 def _post_auth_api(jwt: str, path: str, json_payload: dict[str, Any] | None) -> httpx.Response:
     """POST to a Yutori auth API endpoint with Bearer auth, raising on non-2xx.
 
@@ -163,7 +173,7 @@ def _post_auth_api(jwt: str, path: str, json_payload: dict[str, Any] | None) -> 
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             build_auth_api_url(path),
-            headers={"Authorization": f"Bearer {jwt}"},
+            headers=_bearer_headers(jwt),
             json=json_payload,
         )
         response.raise_for_status()
@@ -193,7 +203,7 @@ def check_registration_status(jwt: str) -> bool | None:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(
                 build_auth_api_url("/client/registration-status"),
-                headers={"Authorization": f"Bearer {jwt}"},
+                headers=_bearer_headers(jwt),
             )
             if response.status_code == 200:
                 body = response.json()
