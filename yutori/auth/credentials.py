@@ -84,6 +84,21 @@ def _is_real_key(key: str | None) -> bool:
     return bool(key and key.strip() and key.strip() not in _PLACEHOLDER_KEYS)
 
 
+def get_stored_api_key() -> str | None:
+    """Return the stored API key from the config file, or ``None``.
+
+    Returns ``None`` when the config file is absent, unreadable, malformed,
+    or holds a placeholder value such as ``"YOUR_API_KEY"``.
+    """
+    config = load_config()
+    if not config:
+        return None
+    stored = config.get("api_key")
+    if isinstance(stored, str) and _is_real_key(stored):
+        return stored
+    return None
+
+
 def _resolve_api_key_with_source(api_key: str | None = None) -> tuple[str, str] | None:
     """Resolve an API key using the standard precedence chain and report its source.
 
@@ -102,11 +117,9 @@ def _resolve_api_key_with_source(api_key: str | None = None) -> tuple[str, str] 
     if _is_real_key(env_key):
         return env_key, "env_var"
 
-    config = load_config()
-    if config:
-        stored_key = config.get("api_key")
-        if isinstance(stored_key, str) and _is_real_key(stored_key):
-            return stored_key, "config_file"
+    stored_key = get_stored_api_key()
+    if stored_key is not None:
+        return stored_key, "config_file"
 
     return None
 
