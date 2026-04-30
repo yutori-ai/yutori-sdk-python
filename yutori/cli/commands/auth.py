@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from yutori.auth.credentials import _is_real_key, clear_config, load_config
+from yutori.auth.credentials import _is_real_key, clear_config, get_stored_api_key, load_config
 from yutori.auth.flow import get_auth_status, run_login_flow
 
 app = typer.Typer(help="Manage authentication")
@@ -35,9 +35,7 @@ def login() -> None:
         console.print("Unset it first if you want to use browser login.")
         raise typer.Exit(1)
 
-    config = load_config()
-    existing_key = config.get("api_key") if config else None
-    if isinstance(existing_key, str) and _is_real_key(existing_key):
+    if get_stored_api_key() is not None:
         console.print("[yellow]You are already authenticated.[/yellow]")
         console.print("Run [bold]yutori auth logout[/bold] first to re-authenticate.")
         raise typer.Exit(1)
