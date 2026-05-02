@@ -707,14 +707,24 @@ def _stringify_content(content: Any) -> str | None:
     return _safe_json_dumps(content)
 
 
+def _try_model_dump(obj: Any) -> tuple[bool, Any]:
+    """Return ``(True, obj.model_dump(...))`` if ``obj`` is Pydantic-style, else ``(False, None)``.
+
+    Centralises the ``mode="json", exclude_none=True`` kwargs so the two call
+    sites below cannot drift out of sync. The boolean explicitly distinguishes
+    "no ``model_dump`` method" from "``model_dump`` returned ``None``" so
+    callers can preserve the latter as a real payload.
+    """
+    if hasattr(obj, "model_dump"):
+        return True, obj.model_dump(mode="json", exclude_none=True)
+    return False, None
+
+
 def _dump_result_json(result: object | None) -> str | None:
     if result is None:
         return None
-    if hasattr(result, "model_dump"):
-        payload = result.model_dump(mode="json", exclude_none=True)
-    elif isinstance(result, dict):
-        payload = result
-    else:
+    handled, payload = _try_model_dump(result)
+    if not handled:
         payload = result
     return _safe_json_dumps(payload, fallback=result)
 
@@ -724,8 +734,9 @@ def _dump_json(payload: Any) -> str | None:
 
 
 def _json_default(obj: Any) -> Any:
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json", exclude_none=True)
+    handled, payload = _try_model_dump(obj)
+    if handled:
+        return payload
     if hasattr(obj, "__dict__"):
         return obj.__dict__
     return str(obj)
