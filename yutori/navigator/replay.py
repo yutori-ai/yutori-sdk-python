@@ -707,14 +707,22 @@ def _stringify_content(content: Any) -> str | None:
     return _safe_json_dumps(content)
 
 
+def _model_dump_or_none(obj: Any) -> Any | None:
+    """Return the JSON form of ``obj`` if it exposes Pydantic-style ``model_dump``, else ``None``.
+
+    Centralises the ``mode="json", exclude_none=True`` kwargs so the two call
+    sites below cannot drift out of sync as the dump contract evolves.
+    """
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json", exclude_none=True)
+    return None
+
+
 def _dump_result_json(result: object | None) -> str | None:
     if result is None:
         return None
-    if hasattr(result, "model_dump"):
-        payload = result.model_dump(mode="json", exclude_none=True)
-    elif isinstance(result, dict):
-        payload = result
-    else:
+    payload = _model_dump_or_none(result)
+    if payload is None:
         payload = result
     return _safe_json_dumps(payload, fallback=result)
 
@@ -724,8 +732,9 @@ def _dump_json(payload: Any) -> str | None:
 
 
 def _json_default(obj: Any) -> Any:
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json", exclude_none=True)
+    payload = _model_dump_or_none(obj)
+    if payload is not None:
+        return payload
     if hasattr(obj, "__dict__"):
         return obj.__dict__
     return str(obj)
