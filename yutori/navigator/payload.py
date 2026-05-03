@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, Callable
 
 DEFAULT_MAX_REQUEST_BYTES = 9_500_000
 DEFAULT_KEEP_RECENT_SCREENSHOTS = 6
@@ -62,6 +62,33 @@ def _strip_one_image(message: dict[str, Any]) -> bool:
     return True
 
 
+def _strip_until_fits(
+    messages: list[dict[str, Any]],
+    image_indices: list[int],
+    *,
+    skip: Callable[[int], bool],
+    max_bytes: int,
+    starting_size: int,
+) -> tuple[int, int]:
+    """Strip images in place until *messages* fit within *max_bytes*.
+
+    Iterates ``image_indices`` and calls :func:`_strip_one_image` for each
+    index where ``skip(idx)`` is False, stopping as soon as the payload is
+    within budget. Returns the updated ``(size_bytes, images_removed)``.
+    """
+    size_bytes = starting_size
+    removed = 0
+    for idx in image_indices:
+        if size_bytes <= max_bytes:
+            break
+        if skip(idx):
+            continue
+        if _strip_one_image(messages[idx]):
+            removed += 1
+            size_bytes = estimate_messages_size_bytes(messages)
+    return size_bytes, removed
+
+
 def trim_images_to_fit(
     messages: list[dict[str, Any]],
     *,
@@ -92,28 +119,27 @@ def trim_images_to_fit(
 
     keep_recent = max(1, keep_recent)
     protected = set(image_indices[-keep_recent:])
-    removed = 0
 
     # Phase 1: remove old images outside the protected window
-    for idx in image_indices:
-        if size_bytes <= max_bytes:
-            break
-        if idx in protected:
-            continue
-        if _strip_one_image(messages[idx]):
-            removed += 1
-            size_bytes = estimate_messages_size_bytes(messages)
+    size_bytes, removed = _strip_until_fits(
+        messages,
+        image_indices,
+        skip=lambda idx: idx in protected,
+        max_bytes=max_bytes,
+        starting_size=size_bytes,
+    )
 
     # Phase 2: if still over limit, remove from protected set (except the latest)
     if size_bytes > max_bytes:
-        for idx in image_indices:
-            if size_bytes <= max_bytes:
-                break
-            if idx == image_indices[-1]:
-                continue
-            if _strip_one_image(messages[idx]):
-                removed += 1
-                size_bytes = estimate_messages_size_bytes(messages)
+        last_idx = image_indices[-1]
+        size_bytes, extra_removed = _strip_until_fits(
+            messages,
+            image_indices,
+            skip=lambda idx: idx == last_idx,
+            max_bytes=max_bytes,
+            starting_size=size_bytes,
+        )
+        removed += extra_removed
 
     return size_bytes, removed
 
