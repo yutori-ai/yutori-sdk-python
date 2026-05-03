@@ -526,6 +526,20 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
     return StepResult("Auth", "failed", inconsistent_detail), False
 
 
+_SUMMARY_MAX_LEN = 180
+
+
+def _truncate_summary(text: str) -> str:
+    """Cap *text* at ``_SUMMARY_MAX_LEN`` chars, appending ``...`` when truncated.
+
+    The trailing ellipsis is included in the budget, so the returned string
+    never exceeds ``_SUMMARY_MAX_LEN`` characters.
+    """
+    if len(text) <= _SUMMARY_MAX_LEN:
+        return text
+    return f"{text[: _SUMMARY_MAX_LEN - 3]}..."
+
+
 def _summarize_cli_output(output: str) -> str:
     rejection_reason = parse_cli_field(output, "Rejection Reason")
     if rejection_reason:
@@ -536,13 +550,12 @@ def _summarize_cli_output(output: str) -> str:
         if line.strip() == "Result:":
             result_lines = [candidate.strip() for candidate in lines[index + 1 :] if candidate.strip()]
             if result_lines:
-                text = " ".join(result_lines)
-                return text if len(text) <= 180 else f"{text[:177]}..."
+                return _truncate_summary(" ".join(result_lines))
 
     compact = " ".join(line.strip() for line in lines if line.strip())
     if not compact:
         return "(no output)"
-    return compact if len(compact) <= 180 else f"{compact[:177]}..."
+    return _truncate_summary(compact)
 
 
 def run_verification(
