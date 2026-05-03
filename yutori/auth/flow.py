@@ -307,17 +307,13 @@ def run_login_flow(
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
-        detail = ""
-        try:
-            detail = f": {e.response.text}"
-        except Exception:
-            pass
+        detail = f": {e.response.text}" if e.response.text else ""
         return LoginResult(
             success=False,
             error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
             auth_url=auth_url,
         )
-    except Exception as e:
+    except (httpx.HTTPError, KeyError, OSError) as e:
         return LoginResult(success=False, error=str(e), auth_url=auth_url)
 
 
