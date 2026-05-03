@@ -8,6 +8,7 @@ to persist replay artifacts.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 from datetime import datetime
@@ -742,12 +743,7 @@ def _slugify(value: str) -> str:
 
 
 def _escape_html(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return html.escape(text, quote=True)
 
 
 _STYLES = """
