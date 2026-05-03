@@ -307,13 +307,21 @@ def run_login_flow(
         save_config(api_key)
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
-        detail = f": {e.response.text}" if e.response.text else ""
+        # `e.response.text` decodes with strict error handling and can raise
+        # UnicodeDecodeError on malformed bytes. Decode bytes directly with
+        # errors="replace" so a corrupt response body still surfaces as an
+        # error detail rather than crashing the login flow.
+        body_text = e.response.content.decode("utf-8", errors="replace")
+        detail = f": {body_text}" if body_text else ""
         return LoginResult(
             success=False,
             error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
             auth_url=auth_url,
         )
-    except (httpx.HTTPError, KeyError, OSError) as e:
+    # ValueError covers json.JSONDecodeError (response.json() on a 2xx
+    # response with a non-JSON body) — same rationale as the ValueError
+    # catch in check_registration_status above.
+    except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
         return LoginResult(success=False, error=str(e), auth_url=auth_url)
 
 
