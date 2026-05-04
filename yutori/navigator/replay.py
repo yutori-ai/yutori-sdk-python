@@ -545,7 +545,7 @@ def _render_step(step: dict[str, Any]) -> str:
 
 
 def _render_json_panel(title: str, payload: Any) -> str:
-    json_text = _dump_json(payload) or "{}"
+    json_text = _safe_json_dumps(payload) or "{}"
     return (
         "<div class=\"panel nested\">"
         f"<h3>{_escape_html(title)}</h3>"
@@ -723,10 +723,6 @@ def _dump_result_json(result: object | None) -> str | None:
     if not handled:
         payload = result
     return _safe_json_dumps(payload, fallback=result)
-
-
-def _dump_json(payload: Any) -> str | None:
-    return _safe_json_dumps(payload)
 
 
 def _json_default(obj: Any) -> Any:
