@@ -19,6 +19,7 @@ __all__ = [
     "format_interval",
     "get_authenticated_client",
     "print_aligned_fields",
+    "print_creation_result",
     "print_optional_field",
     "print_rejection_reason",
     "print_task_get_header",
@@ -101,17 +102,41 @@ def print_aligned_fields(
         console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{value}")
 
 
-def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
-    """Print a task creation response without implying success on failed creates."""
+def print_creation_result(
+    console: Console,
+    result: dict[str, Any],
+    *,
+    success_message: str,
+    failure_message: str,
+    fields: list[tuple[str, Any]] | None = None,
+) -> None:
+    """Print a creation response: colored header, optional fields, status, rejection reason.
+
+    The header is red on ``status == "failed"`` and green otherwise so failed
+    creates do not display a misleading success banner. Each ``(label, value)``
+    in ``fields`` is rendered as ``  label: value`` between the header and the
+    ``Status`` line, mirroring the existing per-command output ordering.
+    """
     status = result.get("status", "N/A")
     if status == "failed":
-        console.print(f"\n[red]{task_type} task failed to start.[/red]")
+        console.print(f"\n[red]{failure_message}[/red]")
     else:
-        console.print(f"\n[green]{task_type} task submitted.[/green]")
-
-    console.print(f"  Task ID: {result.get('task_id', 'N/A')}")
+        console.print(f"\n[green]{success_message}[/green]")
+    for label, value in fields or []:
+        console.print(f"  {label}: {value}")
     console.print(f"  Status: {status}")
     print_rejection_reason(console, result)
+
+
+def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
+    """Print a task creation response without implying success on failed creates."""
+    print_creation_result(
+        console,
+        result,
+        success_message=f"{task_type} task submitted.",
+        failure_message=f"{task_type} task failed to start.",
+        fields=[("Task ID", result.get("task_id", "N/A"))],
+    )
 
 
 def print_task_get_header(console: Console, task_type: str, task_id: str, result: dict[str, Any]) -> None:

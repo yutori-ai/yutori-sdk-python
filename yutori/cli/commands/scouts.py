@@ -11,6 +11,7 @@ from yutori.cli.commands import (
     INTERVAL_PRESETS,
     format_interval,
     get_authenticated_client,
+    print_creation_result,
     print_optional_field,
     print_rejection_reason,
 )
@@ -102,15 +103,16 @@ def create(
             user_timezone=timezone,
         )
 
-        status = result.get("status", "N/A")
-        if status == "failed":
-            console.print("\n[red]Scout creation failed.[/red]")
-        else:
-            console.print("\n[green]Scout created successfully![/green]")
-        console.print(f"  ID: {result.get('id', 'N/A')}")
-        console.print(f"  Query: {escape(result.get('query', query))}")
-        console.print(f"  Status: {status}")
-        print_rejection_reason(console, result)
+        print_creation_result(
+            console,
+            result,
+            success_message="Scout created successfully!",
+            failure_message="Scout creation failed.",
+            fields=[
+                ("ID", result.get("id", "N/A")),
+                ("Query", escape(result.get("query", query))),
+            ],
+        )
 
 
 @app.command()
