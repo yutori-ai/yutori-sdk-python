@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import platform
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def format_user_context(
@@ -28,11 +28,11 @@ def format_user_context(
     """
     try:
         tz = ZoneInfo(user_timezone)
-    except Exception:
+    except (ZoneInfoNotFoundError, ValueError):
         try:
             tz = ZoneInfo("America/Los_Angeles")
             user_timezone = str(tz)
-        except Exception:
+        except ZoneInfoNotFoundError:
             # No IANA timezone data available (e.g. Windows without tzdata).
             tz = timezone.utc
             user_timezone = "UTC"
