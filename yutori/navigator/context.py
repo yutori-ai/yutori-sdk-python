@@ -28,11 +28,16 @@ def format_user_context(
     """
     try:
         tz = ZoneInfo(user_timezone)
-    except (ZoneInfoNotFoundError, ValueError):
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        # ZoneInfoNotFoundError: unknown key or no tzdata.
+        # ValueError: path-traversal segments (e.g. "../foo").
+        # OSError: on Python <3.13, IANA *directory* keys like "America" or
+        # "US" raise IsADirectoryError (a subclass of OSError) instead of
+        # ZoneInfoNotFoundError (CPython issue #85702, fixed in 3.13).
         try:
             tz = ZoneInfo("America/Los_Angeles")
             user_timezone = str(tz)
-        except ZoneInfoNotFoundError:
+        except (ZoneInfoNotFoundError, OSError):
             # No IANA timezone data available (e.g. Windows without tzdata).
             tz = timezone.utc
             user_timezone = "UTC"
