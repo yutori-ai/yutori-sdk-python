@@ -19,6 +19,37 @@ console = Console()
 _RATE_LIMIT_LABEL_WIDTH = len("Requests today")
 
 
+def _print_rate_limits(
+    console: Console,
+    title: str,
+    limits: dict[str, Any],
+    *,
+    show_per_second: bool = False,
+    gate_on_status_available: bool = False,
+) -> None:
+    """Print a rate-limit block as aligned fields.
+
+    The Requests-today / Daily-limit / Remaining (and optional Per-second)
+    rows are suppressed when ``gate_on_status_available`` is set and the
+    server reports a non-``"available"`` status. ``Resets at`` always prints
+    so the block is never empty.
+    """
+    console.print(title)
+    fields: list[tuple[str, Any]] = []
+    if not gate_on_status_available or limits.get("status") == "available":
+        fields.extend(
+            [
+                ("Requests today", limits.get("requests_today", "N/A")),
+                ("Daily limit", limits.get("daily_limit", "N/A")),
+                ("Remaining", limits.get("remaining_requests", "N/A")),
+            ]
+        )
+        if show_per_second:
+            fields.append(("Per-second", limits.get("per_second_limit", "N/A")))
+    fields.append(("Resets at", limits.get("reset_at", "N/A")))
+    print_aligned_fields(console, fields, min_label_width=_RATE_LIMIT_LABEL_WIDTH)
+
+
 @app.callback(invoke_without_command=True)
 def usage(
     ctx: typer.Context,
@@ -46,33 +77,21 @@ def usage(
         # Rate limits
         rate_limits = data.get("rate_limits", {})
         if rate_limits:
-            console.print(f"\n  [bold]API Rate Limits[/bold] ({rate_limits.get('status', 'unknown')})")
-            rate_fields: list[tuple[str, Any]] = []
-            if rate_limits.get("status") == "available":
-                rate_fields.extend(
-                    [
-                        ("Requests today", rate_limits.get("requests_today", "N/A")),
-                        ("Daily limit", rate_limits.get("daily_limit", "N/A")),
-                        ("Remaining", rate_limits.get("remaining_requests", "N/A")),
-                    ]
-                )
-            rate_fields.append(("Resets at", rate_limits.get("reset_at", "N/A")))
-            print_aligned_fields(console, rate_fields, min_label_width=_RATE_LIMIT_LABEL_WIDTH)
+            _print_rate_limits(
+                console,
+                f"\n  [bold]API Rate Limits[/bold] ({rate_limits.get('status', 'unknown')})",
+                rate_limits,
+                gate_on_status_available=True,
+            )
 
         # Navigator API rate limits (falls back to the deprecated ``n1_rate_limits`` key on older servers)
         navigator_limits = data.get("navigator_rate_limits") or data.get("n1_rate_limits") or {}
         if navigator_limits:
-            console.print("\n  [bold]Navigator API Rate Limits[/bold]")
-            print_aligned_fields(
+            _print_rate_limits(
                 console,
-                [
-                    ("Requests today", navigator_limits.get("requests_today", "N/A")),
-                    ("Daily limit", navigator_limits.get("daily_limit", "N/A")),
-                    ("Remaining", navigator_limits.get("remaining_requests", "N/A")),
-                    ("Per-second", navigator_limits.get("per_second_limit", "N/A")),
-                    ("Resets at", navigator_limits.get("reset_at", "N/A")),
-                ],
-                min_label_width=_RATE_LIMIT_LABEL_WIDTH,
+                "\n  [bold]Navigator API Rate Limits[/bold]",
+                navigator_limits,
+                show_per_second=True,
             )
 
         # Activity counts
