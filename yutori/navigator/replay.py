@@ -446,6 +446,13 @@ def _parse_tool_calls(message: dict) -> list[dict[str, Any]]:
     return actions
 
 
+def _to_percent_xy(
+    coord: Any, coord_space_width: int, coord_space_height: int
+) -> tuple[float, float]:
+    """Convert an ``(x, y)`` pair from Navigator coordinate space to viewport %."""
+    return coord[0] / coord_space_width * 100, coord[1] / coord_space_height * 100
+
+
 def _get_action_marker_style(
     action: dict[str, Any],
     coord_space_width: int,
@@ -460,26 +467,26 @@ def _get_action_marker_style(
     if "start_coordinates" in action and action_type.lower() in {"drag", "left_click_drag"}:
         start = action["start_coordinates"]
         end = action.get("coordinates", action.get("end_coordinates", action.get("center_coordinates", [0, 0])))
+        start_x, start_y = _to_percent_xy(start, coord_space_width, coord_space_height)
+        end_x, end_y = _to_percent_xy(end, coord_space_width, coord_space_height)
         marker.update(
             {
                 "has_drag": True,
-                "start_x": start[0] / coord_space_width * 100,
-                "start_y": start[1] / coord_space_height * 100,
-                "end_x": end[0] / coord_space_width * 100,
-                "end_y": end[1] / coord_space_height * 100,
+                "start_x": start_x,
+                "start_y": start_y,
+                "end_x": end_x,
+                "end_y": end_y,
             }
         )
         return marker
 
-    if "coordinates" in action:
-        x, y = action["coordinates"]
-        marker.update({"has_point": True, "x": x / coord_space_width * 100, "y": y / coord_space_height * 100})
-        return marker
-
-    if "center_coordinates" in action:
-        x, y = action["center_coordinates"]
-        marker.update({"has_point": True, "x": x / coord_space_width * 100, "y": y / coord_space_height * 100})
-        return marker
+    # `coordinates` and `center_coordinates` carry the same single-point semantics here;
+    # only the field name differs across action schemas.
+    for point_key in ("coordinates", "center_coordinates"):
+        if point_key in action:
+            x, y = _to_percent_xy(action[point_key], coord_space_width, coord_space_height)
+            marker.update({"has_point": True, "x": x, "y": y})
+            return marker
 
     marker["has_point"] = False
     marker["has_ref_only"] = "ref" in action
