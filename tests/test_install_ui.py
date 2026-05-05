@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-import pytest
-
 from yutori.auth.types import LoginResult
 from yutori.cli.commands.install_ui import (
+    MCP_SERVER_INSTALL_COMMAND,
+    MCP_SKILLS_INSTALL_COMMAND,
+    VERIFICATION_MAX_STEPS,
+    VERIFICATION_TASK,
+    VERIFICATION_TASK_DASHBOARD_BASE_URL,
+    VERIFICATION_URL,
     CLIInstallState,
     SDKInstallPlan,
     StepResult,
@@ -18,14 +23,14 @@ from yutori.cli.commands.install_ui import (
     inspect_cli_install,
     looks_like_auth_failure,
     maybe_authenticate,
+    maybe_install_mcp_server,
+    maybe_install_mcp_skills,
     maybe_install_sdk,
     maybe_repair_path,
+    resolve_npx_path,
     resolve_uv_path,
+    run_interactive_command,
     run_verification,
-    VERIFICATION_MAX_STEPS,
-    VERIFICATION_TASK,
-    VERIFICATION_TASK_DASHBOARD_BASE_URL,
-    VERIFICATION_URL,
 )
 from yutori.cli.main import app
 
@@ -142,6 +147,14 @@ def test_resolve_uv_path_rejects_non_executable_env_var(monkeypatch):
     assert resolved == "/opt/uv"
 
 
+def test_resolve_npx_path_uses_path_lookup():
+    with patch("yutori.cli.commands.install_ui.shutil.which", return_value="/usr/local/bin/npx") as mock_which:
+        resolved = resolve_npx_path({"PATH": "/usr/local/bin"})
+
+    assert resolved == "/usr/local/bin/npx"
+    mock_which.assert_called_once_with("npx", path="/usr/local/bin")
+
+
 def test_install_ui_noninteractive_skips_optional_steps():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
@@ -157,12 +170,18 @@ def test_install_ui_noninteractive_skips_optional_steps():
     )
 
     with (
-        patch("yutori.cli.commands.install_ui.inspect_cli_install", return_value=(cli_state, StepResult("CLI", "success", "ok"))),
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
         patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_ui.is_interactive_terminal", return_value=False),
         patch(
             "yutori.cli.commands.install_ui.maybe_authenticate",
-            return_value=(StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."), False),
+            return_value=(
+                StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."),
+                False,
+            ),
         ),
     ):
         result = runner.invoke(app, ["__install_ui"])
@@ -171,6 +190,12 @@ def test_install_ui_noninteractive_skips_optional_steps():
     assert "Non-interactive terminal detected." in result.stdout
     assert "Skipped SDK install because no interactive" in result.stdout
     assert "Skipped auth because no interactive" in result.stdout
+    # Two MCP rows render. In this fixture auth was skipped (no interactive
+    # terminal), so MCP/skills hit the not-authenticated gate before the
+    # non-interactive gate inside the helpers themselves.
+    assert "MCP server" in result.stdout
+    assert "MCP skills" in result.stdout
+    assert "Authenticate first" in result.stdout
     assert "Verification requires a valid API key." in result.stdout
     # Each step should render in the summary table, including PATH (it was
     # already on PATH for this fixture).
@@ -195,7 +220,10 @@ def test_install_ui_exits_nonzero_when_cli_verification_fails():
         patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
             "yutori.cli.commands.install_ui.maybe_authenticate",
-            return_value=(StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."), False),
+            return_value=(
+                StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."),
+                False,
+            ),
         ),
     ):
         result = runner.invoke(app, ["__install_ui"])
@@ -219,11 +247,17 @@ def test_install_ui_marks_auth_failure_when_verification_rejects_credentials():
     )
 
     with (
-        patch("yutori.cli.commands.install_ui.inspect_cli_install", return_value=(cli_state, StepResult("CLI", "success", "ok"))),
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
         patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_ui.is_interactive_terminal", return_value=False),
         patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
-        patch("yutori.cli.commands.install_ui.maybe_authenticate", return_value=(StepResult("Auth", "success", "ok"), True)),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_authenticate",
+            return_value=(StepResult("Auth", "success", "ok"), True),
+        ),
         patch(
             "yutori.cli.commands.install_ui.run_verification",
             return_value=(StepResult("Verification", "failed", "Authentication failed during verification."), True),
@@ -371,11 +405,17 @@ def test_install_ui_skips_header_when_bootstrap_already_rendered():
     sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
 
     with (
-        patch("yutori.cli.commands.install_ui.inspect_cli_install", return_value=(cli_state, StepResult("CLI", "success", "ok"))),
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
         patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch("yutori.cli.commands.install_ui.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
-        patch("yutori.cli.commands.install_ui.maybe_authenticate", return_value=(StepResult("Auth", "skipped", "skip"), False)),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_authenticate",
+            return_value=(StepResult("Auth", "skipped", "skip"), False),
+        ),
     ):
         result = runner.invoke(app, ["__install_ui"], env={"YUTORI_INSTALLER_BOOTSTRAP_SHOWN": "1"})
 
@@ -399,10 +439,16 @@ def test_install_ui_exits_zero_when_verification_fails_for_non_auth_reason():
     sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
 
     with (
-        patch("yutori.cli.commands.install_ui.inspect_cli_install", return_value=(cli_state, StepResult("CLI", "success", "ok"))),
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
         patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
-        patch("yutori.cli.commands.install_ui.maybe_authenticate", return_value=(StepResult("Auth", "success", "ok"), True)),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_authenticate",
+            return_value=(StepResult("Auth", "success", "ok"), True),
+        ),
         patch(
             "yutori.cli.commands.install_ui.run_verification",
             return_value=(StepResult("Verification", "failed", "yutori.com unreachable"), False),
@@ -597,6 +643,259 @@ def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive(
     )
     result = maybe_install_sdk(Console(), plan, interactive=False)
     assert result.status == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# MCP setup branches
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_install_mcp_server_noninteractive_skips():
+    result = maybe_install_mcp_server(Console(), interactive=False)
+
+    assert result.status == "skipped"
+    assert "no interactive terminal" in result.detail
+    assert "npx add-mcp" in result.detail
+
+
+def test_maybe_install_mcp_server_skips_when_npx_missing():
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value=None),
+        patch("yutori.cli.commands.install_ui.Confirm.ask") as mock_ask,
+        patch("yutori.cli.commands.install_ui.run_interactive_command") as mock_run,
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "skipped"
+    assert "Node.js/npx" in result.detail
+    mock_ask.assert_not_called()
+    mock_run.assert_not_called()
+
+
+def test_maybe_install_mcp_server_runs_add_mcp_on_consent():
+    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=success) as mock_run,
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "success"
+    assert mock_run.call_args.args[0] == ("/usr/local/bin/npx", *MCP_SERVER_INSTALL_COMMAND[1:])
+
+
+def test_maybe_install_mcp_server_failure_includes_retry_hint():
+    # run_interactive_command inherits stdio so stdout/stderr are None in
+    # production. The failure detail should still be useful — a retry hint
+    # with the original (npx-prefixed) command.
+    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "failed"
+    assert "status 1" in result.detail
+    assert "npx add-mcp" in result.detail
+
+
+def test_maybe_install_mcp_server_failure_surfaces_timeout():
+    timed_out = subprocess.CompletedProcess(args=[], returncode=124, stdout=None, stderr=None)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=timed_out),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "failed"
+    assert "Timed out" in result.detail
+    assert "npx add-mcp" in result.detail
+
+
+def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
+    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=success) as mock_run,
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert result.status == "success"
+    assert mock_run.call_args.args[0] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
+
+
+def test_maybe_install_mcp_skills_user_declines():
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=False),
+        patch("yutori.cli.commands.install_ui.run_interactive_command") as mock_run,
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert result.status == "skipped"
+    mock_run.assert_not_called()
+
+
+def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
+    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert result.status == "failed"
+    assert "skills add yutori-ai/yutori-mcp -g" in result.detail
+
+
+def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
+    cancelled = subprocess.CompletedProcess(args=[], returncode=130, stdout=None, stderr=None)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=cancelled),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "skipped"
+    assert "Cancelled by user" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# run_interactive_command exception mapping
+# ---------------------------------------------------------------------------
+
+
+def test_run_interactive_command_maps_timeout_to_124():
+    expired = subprocess.TimeoutExpired(cmd="npx", timeout=1)
+    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=expired):
+        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"), timeout=1)
+
+    assert result.returncode == 124
+    assert result.stdout is None
+    assert result.stderr is None
+
+
+def test_run_interactive_command_maps_missing_binary_to_127():
+    with patch(
+        "yutori.cli.commands.install_ui.subprocess.run",
+        side_effect=FileNotFoundError("no such file: 'npx'"),
+    ):
+        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
+
+    assert result.returncode == 127
+
+
+def test_run_interactive_command_maps_oserror_to_127():
+    # Bare OSError covers ENOEXEC, EMFILE, ENOMEM, etc. — fork/exec failures
+    # that aren't FileNotFoundError or PermissionError. They all collapse to
+    # "could not start the child" from the user's perspective.
+    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=OSError("ENOMEM")):
+        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
+
+    assert result.returncode == 127
+
+
+def test_run_interactive_command_maps_keyboard_interrupt_to_130():
+    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=KeyboardInterrupt()):
+        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
+
+    assert result.returncode == 130
+
+
+# ---------------------------------------------------------------------------
+# install_ui_command: failed MCP/skills must not bump exit_code
+# ---------------------------------------------------------------------------
+
+
+def test_install_ui_failed_mcp_does_not_bump_exit_code():
+    cli_state = CLIInstallState(
+        cli_path=Path("/tmp/yutori"),
+        bin_dir=Path("/tmp"),
+        uv_path="/usr/bin/uv",
+        version="yutori 0.7.0",
+        on_path=True,
+    )
+    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+
+    with (
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
+        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_authenticate",
+            return_value=(StepResult("Auth", "success", "ok"), True),
+        ),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_install_mcp_server",
+            return_value=StepResult("MCP server", "failed", "Command exited with status 1."),
+        ),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_install_mcp_skills",
+            return_value=StepResult("MCP skills", "failed", "Command exited with status 1."),
+        ),
+        patch(
+            "yutori.cli.commands.install_ui.run_verification",
+            return_value=(StepResult("Verification", "success", "ok"), False),
+        ),
+    ):
+        result = runner.invoke(app, ["__install_ui"])
+
+    # MCP/skills are optional; their failure surfaces in the table but
+    # leaves exit_code at 0 since CLI/SDK/auth/verification all succeeded.
+    assert result.exit_code == 0
+    assert "MCP server" in result.stdout
+    assert "MCP skills" in result.stdout
+    assert "FAIL" in result.stdout
+
+
+def test_install_ui_skips_mcp_when_not_authenticated():
+    cli_state = CLIInstallState(
+        cli_path=Path("/tmp/yutori"),
+        bin_dir=Path("/tmp"),
+        uv_path="/usr/bin/uv",
+        version="yutori 0.7.0",
+        on_path=True,
+    )
+    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+
+    with (
+        patch(
+            "yutori.cli.commands.install_ui.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
+        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch(
+            "yutori.cli.commands.install_ui.maybe_authenticate",
+            return_value=(StepResult("Auth", "skipped", "User declined."), False),
+        ),
+        patch("yutori.cli.commands.install_ui.maybe_install_mcp_server") as mock_mcp,
+        patch("yutori.cli.commands.install_ui.maybe_install_mcp_skills") as mock_skills,
+    ):
+        result = runner.invoke(app, ["__install_ui"])
+
+    assert result.exit_code == 0
+    # Neither npx step should be invoked when the user isn't authenticated —
+    # registering a server that needs YUTORI_API_KEY is futile.
+    mock_mcp.assert_not_called()
+    mock_skills.assert_not_called()
+    assert "Authenticate first" in result.stdout
 
 
 # ---------------------------------------------------------------------------

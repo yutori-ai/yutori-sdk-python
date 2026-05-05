@@ -42,6 +42,11 @@ ERROR_RED = "#FF5C5C"
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
 VERIFICATION_MAX_STEPS = 3
+# `add-mcp` takes a single quoted command-string argument. The third tuple
+# element is intentionally one argv token, not two (mirrors the README:
+# `npx add-mcp "uvx yutori-mcp"`).
+MCP_SERVER_INSTALL_COMMAND = ("npx", "add-mcp", "uvx yutori-mcp")
+MCP_SKILLS_INSTALL_COMMAND = ("npx", "skills", "add", "yutori-ai/yutori-mcp", "-g")
 # Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
 # serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
@@ -84,6 +89,10 @@ VERIFICATION_POLL_INTERVAL_SECONDS = 5
 # can resolve large dep graphs; polling calls should be snappy.
 QUICK_CMD_TIMEOUT = 30
 INSTALL_CMD_TIMEOUT = 300
+# `npx add-mcp` can prompt for client selection and download packages from npm
+# on first run — slow links can take a few minutes. Bound the worst case so
+# the installer can't hang indefinitely; users can still Ctrl+C earlier.
+NPX_CMD_TIMEOUT = 600
 
 StepStatus = Literal["success", "skipped", "failed"]
 RegistrationState = Literal["creating_account", "logging_in"]
@@ -188,6 +197,49 @@ def run_command(
         )
 
 
+def run_interactive_command(
+    command: Sequence[str],
+    *,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[None]:
+    """Run an interactive subprocess attached to this terminal.
+
+    Commands like ``npx add-mcp`` prompt the user to pick target clients.
+    Capturing stdout/stderr would hide those prompts and can deadlock the
+    child process, so this intentionally inherits stdin/stdout/stderr —
+    which means the returned ``CompletedProcess`` has ``None`` for both
+    streams. Callers should not rely on stdout/stderr for failure detail.
+
+    Synthetic returncodes:
+      - 124: timed out waiting for the child
+      - 127: could not start the child (missing binary, exec denied, etc.)
+      - 130: user cancelled with Ctrl+C
+    Any other non-zero value is the child's actual exit code.
+    """
+    argv = list(command)
+    try:
+        return subprocess.run(
+            argv,
+            env=dict(env) if env else None,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, returncode=124, stdout=None, stderr=None)
+    except KeyboardInterrupt:
+        # Ctrl+C is forwarded to the child via the shared TTY; once it exits,
+        # the parent's default SIGINT handler raises here. Convert to a
+        # synthetic returncode so callers can render a "Cancelled" row
+        # instead of crashing the installer mid-summary.
+        return subprocess.CompletedProcess(argv, returncode=130, stdout=None, stderr=None)
+    except OSError:
+        # Catches FileNotFoundError, PermissionError, and rarer fork/exec
+        # failures (ENOEXEC, EMFILE, ENOMEM). All map to "could not execute"
+        # from the user's perspective.
+        return subprocess.CompletedProcess(argv, returncode=127, stdout=None, stderr=None)
+
+
 def describe_completed_process(result: subprocess.CompletedProcess[str], *, max_lines: int = 8) -> str:
     lines: list[str] = []
     for stream in (result.stderr, result.stdout):
@@ -205,7 +257,11 @@ def describe_completed_process(result: subprocess.CompletedProcess[str], *, max_
 
 
 def collect_process_output(result: subprocess.CompletedProcess[str]) -> str:
-    parts = [part.strip() for part in (_coerce_output_text(result.stderr), _coerce_output_text(result.stdout)) if part.strip()]
+    parts = [
+        part.strip()
+        for part in (_coerce_output_text(result.stderr), _coerce_output_text(result.stdout))
+        if part.strip()
+    ]
     return "\n".join(parts)
 
 
@@ -241,6 +297,11 @@ def resolve_uv_path(env: Mapping[str, str] | None = None) -> str | None:
             return str(candidate)
 
     return None
+
+
+def resolve_npx_path(env: Mapping[str, str] | None = None) -> str | None:
+    resolved_env = env or os.environ
+    return shutil.which("npx", path=resolved_env.get("PATH"))
 
 
 def python_has_pip(interpreter: str, env: Mapping[str, str] | None = None) -> bool:
@@ -368,7 +429,11 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
 
     if resolved_env.get("VIRTUAL_ENV"):
         venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "bin" / "python"
-        python_path = str(venv_python) if _is_executable(venv_python) else shutil.which("python", path=resolved_env.get("PATH"))
+        python_path = (
+            str(venv_python)
+            if _is_executable(venv_python)
+            else shutil.which("python", path=resolved_env.get("PATH"))
+        )
         return SDKInstallPlan(
             reason=f"Detected active virtual environment at {resolved_env['VIRTUAL_ENV']}.",
             command=((python_path or "python"), "-m", "pip", "install", "yutori"),
@@ -418,7 +483,11 @@ def maybe_repair_path(console: Console, state: CLIInstallState, *, interactive: 
     print_prompt_block(console, "Shell PATH update", detail, command=(state.uv_path, "tool", "update-shell"))
 
     if not interactive:
-        return StepResult("PATH", "skipped", f"{detail} Skipped PATH repair because no interactive terminal is available.")
+        return StepResult(
+            "PATH",
+            "skipped",
+            f"{detail} Skipped PATH repair because no interactive terminal is available.",
+        )
 
     if not ask_confirm(console, "Run uv tool update-shell now?", default=True):
         return StepResult("PATH", "skipped", f"{detail} PATH repair was skipped.")
@@ -430,7 +499,13 @@ def maybe_repair_path(console: Console, state: CLIInstallState, *, interactive: 
     return StepResult("PATH", "success", "Updated shell startup files with uv tool update-shell.")
 
 
-def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bool, cwd: Path | None = None) -> StepResult:
+def maybe_install_sdk(
+    console: Console,
+    plan: SDKInstallPlan,
+    *,
+    interactive: bool,
+    cwd: Path | None = None,
+) -> StepResult:
     print_prompt_block(console, "Python SDK", plan.reason, command=plan.command)
 
     # Skip before gating on availability_error: a non-interactive run can't
@@ -462,6 +537,98 @@ def maybe_install_sdk(console: Console, plan: SDKInstallPlan, *, interactive: bo
         return StepResult("SDK", "failed", describe_completed_process(result))
 
     return StepResult("SDK", "success", f"Installed SDK with {format_command(plan.command)}.")
+
+
+def _manual_retry_hint(command: Sequence[str]) -> str:
+    return f"Run `{format_command(command)}` to retry."
+
+
+def _run_npx_step(
+    console: Console,
+    *,
+    name: str,
+    title: str,
+    description: str,
+    command: Sequence[str],
+    confirm_question: str,
+    success_detail: str,
+    interactive: bool,
+    env: Mapping[str, str] | None,
+) -> StepResult:
+    print_prompt_block(console, title, description, command=command)
+
+    if not interactive:
+        return StepResult(
+            name,
+            "skipped",
+            f"Skipped because no interactive terminal is available. {_manual_retry_hint(command)}",
+        )
+
+    npx_path = resolve_npx_path(env)
+    if not npx_path:
+        return StepResult(
+            name,
+            "skipped",
+            f"Node.js/npx is not on PATH. {_manual_retry_hint(command)}",
+        )
+
+    if not ask_confirm(console, confirm_question, default=True):
+        return StepResult(name, "skipped", f"{title} setup was skipped.")
+
+    result = run_interactive_command((npx_path, *command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
+    if result.returncode == 0:
+        return StepResult(name, "success", success_detail)
+
+    # run_interactive_command inherits stdio, so any stderr from npx has
+    # already scrolled past (or never existed, for the 127/130 branches).
+    # A copy-pasteable retry hint is the only useful detail we can add.
+    if result.returncode == 130:
+        return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(command)}")
+    if result.returncode == 124:
+        reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
+    elif result.returncode == 127:
+        reason = f"Could not execute {command[0]!r}."
+    else:
+        reason = f"Command exited with status {result.returncode}."
+    return StepResult(name, "failed", f"{reason} {_manual_retry_hint(command)}")
+
+
+def maybe_install_mcp_server(
+    console: Console,
+    *,
+    interactive: bool,
+    env: Mapping[str, str] | None = None,
+) -> StepResult:
+    return _run_npx_step(
+        console,
+        name="MCP server",
+        title="Yutori MCP server",
+        description="Configures the Yutori MCP server for supported AI tools with add-mcp.",
+        command=MCP_SERVER_INSTALL_COMMAND,
+        confirm_question="Install the Yutori MCP server for your AI tools?",
+        success_detail="Configured Yutori MCP server. Restart your AI tool to load it.",
+        interactive=interactive,
+        env=env,
+    )
+
+
+def maybe_install_mcp_skills(
+    console: Console,
+    *,
+    interactive: bool,
+    env: Mapping[str, str] | None = None,
+) -> StepResult:
+    return _run_npx_step(
+        console,
+        name="MCP skills",
+        title="Yutori workflow skills",
+        description="Installs slash-command workflow skills globally via the skills CLI.",
+        command=MCP_SKILLS_INSTALL_COMMAND,
+        confirm_question="Install Yutori workflow skills globally?",
+        success_detail="Installed Yutori workflow skills at user scope.",
+        interactive=interactive,
+        env=env,
+    )
 
 
 def format_auth_status(status: AuthStatus) -> str:
@@ -572,7 +739,10 @@ def run_verification(
     0 once the install/auth steps themselves succeeded.
     """
     if not interactive:
-        return StepResult("Verification", "skipped", "Skipped verification because no interactive terminal is available."), False
+        return (
+            StepResult("Verification", "skipped", "Skipped verification because no interactive terminal is available."),
+            False,
+        )
 
     # Use bare `yutori` when the current shell already resolves it to the
     # freshly-installed binary (on_path=True from inspect_cli_install). This
@@ -687,6 +857,20 @@ def install_ui_command() -> None:
     if auth_result.status == "failed":
         exit_code = 1
 
+    # MCP server and skills are optional add-ons that depend on Node.js,
+    # the npm registry, and an interactive picker. A failure here doesn't
+    # bump exit_code — it surfaces in the summary table as FAIL with a
+    # retry hint, but the install itself (CLI/SDK/auth) is still usable.
+    # Skip when auth was declined or failed: the registered MCP server
+    # would fail on first use without credentials, and the user has
+    # already opted out of finishing setup.
+    if not authenticated:
+        mcp_result = StepResult("MCP server", "skipped", "Authenticate first, then re-run the installer.")
+        skills_result = StepResult("MCP skills", "skipped", "Authenticate first, then re-run the installer.")
+    else:
+        mcp_result = maybe_install_mcp_server(console, interactive=interactive)
+        skills_result = maybe_install_mcp_skills(console, interactive=interactive)
+
     if not authenticated:
         verification_result = StepResult("Verification", "skipped", "Verification requires a valid API key.")
     elif cli_state is None:
@@ -702,7 +886,7 @@ def install_ui_command() -> None:
     results: list[StepResult] = [cli_result]
     if path_result is not None:
         results.append(path_result)
-    results.extend([sdk_result, auth_result, verification_result])
+    results.extend([sdk_result, auth_result, mcp_result, skills_result, verification_result])
     summarize_results(console, results)
 
     raise typer.Exit(exit_code)

@@ -15,7 +15,7 @@ On macOS or Linux, the recommended setup is the one-line installer:
 curl -fsSL https://yutori.com/install.sh | bash
 ```
 
-This installs the global `yutori` CLI with `uv tool install`, then — in an interactive terminal — prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, and run a verification browsing task. In a non-interactive session (CI, pipe) the auth and verification prompts are skipped with guidance on how to finish setup.
+This installs the global `yutori` CLI with `uv tool install`, then — in an interactive terminal — prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, configure the Yutori MCP server, install workflow skills, and run a verification browsing task. In a non-interactive session (CI, pipe) the auth, MCP, skills, and verification prompts are skipped with guidance on how to finish setup.
 
 Python 3.9+ is required for the SDK.
 
