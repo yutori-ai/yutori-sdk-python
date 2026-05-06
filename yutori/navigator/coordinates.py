@@ -71,9 +71,9 @@ def _coerce_and_validate(
 ) -> tuple[float, float]:
     """Coerce *coordinates* and validate viewport dimensions and scale."""
     x, y = _coerce_coordinates(coordinates)
-    _validate_dimension("width", width)
-    _validate_dimension("height", height)
-    _validate_scale(scale)
+    _validate_positive("width", width)
+    _validate_positive("height", height)
+    _validate_positive("scale", scale)
     return x, y
 
 
@@ -88,14 +88,9 @@ def _coerce_coordinates(coordinates: Sequence[int | float]) -> tuple[float, floa
     return x, y
 
 
-def _validate_dimension(name: str, value: int) -> None:
+def _validate_positive(name: str, value: int) -> None:
     if value <= 0:
         raise ValueError(f"{name} must be positive, got {value}")
-
-
-def _validate_scale(scale: int) -> None:
-    if scale <= 0:
-        raise ValueError(f"scale must be positive, got {scale}")
 
 
 def _clamp(value: int, lower: int, upper: int) -> int:
