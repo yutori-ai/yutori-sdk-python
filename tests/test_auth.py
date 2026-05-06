@@ -547,7 +547,14 @@ class TestRunLoginFlow:
 
     @patch("yutori.auth.flow.webbrowser.open")
     @patch("yutori.auth.flow.generate_api_key")
-    @patch("yutori.auth.flow.register_user", side_effect=httpx.HTTPError("backend missing"))
+    @patch(
+        "yutori.auth.flow.register_user",
+        side_effect=httpx.HTTPStatusError(
+            "500 Server Error",
+            request=httpx.Request("POST", "https://example.com/client/register-api"),
+            response=httpx.Response(500, content=b"backend missing"),
+        ),
+    )
     @patch("yutori.auth.flow.check_registration_status", return_value=False)
     @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
     @patch("yutori.auth.flow.save_config")
@@ -586,6 +593,9 @@ class TestRunLoginFlow:
                     result = run_login_flow()
 
         assert result.success is False
+        # register_user raises httpx.HTTPStatusError per its docstring; the
+        # outer flow wraps it as "Authentication failed (<status>): <body>".
+        assert "Authentication failed (500)" in str(result.error)
         assert "backend missing" in str(result.error)
         mock_gen_key.assert_not_called()
 
