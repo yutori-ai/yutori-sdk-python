@@ -580,14 +580,16 @@ def _run_npx_step(
         return StepResult(name, "success", success_detail)
 
     # run_interactive_command inherits stdio, so any stderr from npx has
-    # already scrolled past (or never existed, for the 127/130 branches).
+    # already scrolled past (or never existed, for the 130 branch).
     # A copy-pasteable retry hint is the only useful detail we can add.
+    # We don't special-case 127: resolve_npx_path already verified the
+    # binary exists, so a 127 here is almost always npx's own exit code
+    # (e.g. the package's bin entry resolved to a missing executable),
+    # not the synthetic OSError 127 from run_interactive_command.
     if result.returncode == 130:
         return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(command)}")
     if result.returncode == 124:
         reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
-    elif result.returncode == 127:
-        reason = f"Could not execute {command[0]!r}."
     else:
         reason = f"Command exited with status {result.returncode}."
     return StepResult(name, "failed", f"{reason} {_manual_retry_hint(command)}")

@@ -704,6 +704,26 @@ def test_maybe_install_mcp_server_failure_includes_retry_hint():
     assert "npx add-mcp" in result.detail
 
 
+def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
+    # resolve_npx_path already verified the binary exists, so a 127 reaching
+    # _run_npx_step is almost always npx's own exit code (e.g. package's bin
+    # entry resolved to a missing executable). Don't claim "Could not execute
+    # 'npx'" — that's misleading when npx itself ran fine.
+    failure = subprocess.CompletedProcess(args=[], returncode=127, stdout=None, stderr=None)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=True)
+
+    assert result.status == "failed"
+    assert "status 127" in result.detail
+    assert "Could not execute" not in result.detail
+    assert "npx add-mcp" in result.detail
+
+
 def test_maybe_install_mcp_server_failure_surfaces_timeout():
     timed_out = subprocess.CompletedProcess(args=[], returncode=124, stdout=None, stderr=None)
 
