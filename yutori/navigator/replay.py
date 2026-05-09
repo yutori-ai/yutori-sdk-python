@@ -233,24 +233,10 @@ def generate_visualization_html(
     html.extend(["</header>", "<main>"])
 
     if system_prompt:
-        html.extend(
-            [
-                "<details class=\"panel\">",
-                "<summary>System Prompt</summary>",
-                f"<pre>{_escape_html(system_prompt)}</pre>",
-                "</details>",
-            ]
-        )
+        html.extend(_render_text_details_panel("System Prompt", system_prompt))
 
     if user_query:
-        html.extend(
-            [
-                "<details class=\"panel\" open>",
-                "<summary>User Prompt</summary>",
-                f"<pre>{_escape_html(user_query)}</pre>",
-                "</details>",
-            ]
-        )
+        html.extend(_render_text_details_panel("User Prompt", user_query, open=True))
 
     if not steps:
         html.append("<section class=\"panel empty\">No assistant steps were recorded.</section>")
@@ -259,14 +245,7 @@ def generate_visualization_html(
         html.append(_render_step(step))
 
     if result_json:
-        html.extend(
-            [
-                "<details class=\"panel\">",
-                "<summary>Result Artifact</summary>",
-                f"<pre>{_escape_html(result_json)}</pre>",
-                "</details>",
-            ]
-        )
+        html.extend(_render_text_details_panel("Result Artifact", result_json))
 
     html.extend(
         [
@@ -559,6 +538,22 @@ def _render_json_panel(title: str, payload: Any) -> str:
         f"<pre class=\"json-block\">{_escape_html(json_text)}</pre>"
         "</div>"
     )
+
+
+def _render_text_details_panel(title: str, content: str, *, open: bool = False) -> list[str]:
+    """Build the collapsible ``<details class="panel">`` block used by ``generate_visualization_html``
+    for the System Prompt, User Prompt, and Result Artifact sections.
+
+    Returned as a 4-line list to match the existing ``html.extend([...])`` call style
+    so the on-disk visualization HTML keeps its line layout exactly.
+    """
+    open_attr = " open" if open else ""
+    return [
+        f"<details class=\"panel\"{open_attr}>",
+        f"<summary>{_escape_html(title)}</summary>",
+        f"<pre>{_escape_html(content)}</pre>",
+        "</details>",
+    ]
 
 
 def _render_markers(step_num: int, markers: list[dict[str, Any]]) -> str:
