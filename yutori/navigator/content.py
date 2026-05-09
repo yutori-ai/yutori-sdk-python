@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 
+def _block_attr(block: Any, key: str, default: Any = None) -> Any:
+    """Read ``key`` from a block whether it is a dict or an attribute-style object."""
+    if isinstance(block, dict):
+        return block.get(key, default)
+    return getattr(block, key, default)
+
+
 def extract_text_content(content: Any) -> str | None:
     """Extract normalized text from chat-completions style content blocks."""
 
@@ -15,12 +22,8 @@ def extract_text_content(content: Any) -> str | None:
     if isinstance(content, list):
         parts: list[str] = []
         for block in content:
-            if isinstance(block, dict):
-                if block.get("type") == "text":
-                    text = block.get("text", "")
-                    parts.append(text if isinstance(text, str) else str(text))
-            elif getattr(block, "type", None) == "text":
-                text = getattr(block, "text", "")
+            if _block_attr(block, "type") == "text":
+                text = _block_attr(block, "text", "")
                 parts.append(text if isinstance(text, str) else str(text))
         normalized = "\n".join(part for part in parts if part).strip()
         return normalized or None
