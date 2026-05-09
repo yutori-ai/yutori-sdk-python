@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import warnings as _warnings
+from ._compat import warn_renamed
 
-_warnings.warn("yutori.n1.hooks has been renamed to yutori.navigator.hooks.", DeprecationWarning, stacklevel=2)
+warn_renamed(__name__)
 
-from yutori.navigator.hooks import *  # noqa: F401,F403
+from yutori.navigator.hooks import *  # noqa: E402,F401,F403

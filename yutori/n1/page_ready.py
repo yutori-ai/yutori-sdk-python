@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import warnings as _warnings
+from ._compat import warn_renamed
 
-_warnings.warn(
-    "yutori.n1.page_ready has been renamed to yutori.navigator.page_ready.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+warn_renamed(__name__)
 
-from yutori.navigator.page_ready import *  # noqa: F401,F403
+from yutori.navigator.page_ready import *  # noqa: E402,F401,F403
