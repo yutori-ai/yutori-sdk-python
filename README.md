@@ -71,6 +71,20 @@ Resolution order: explicit `api_key` > `YUTORI_API_KEY` env var > `~/.yutori/con
 
 </details>
 
+<details>
+<summary>Configure MCP server and skills manually</summary>
+
+The installer sets these up automatically when Node.js is available. To do it manually:
+
+```bash
+npx add-mcp uvx yutori-mcp
+npx skills add yutori-ai/yutori-mcp -g
+```
+
+The first command registers the Yutori MCP server with your editor. The second installs workflow skills for Claude Code and compatible agents.
+
+</details>
+
 
 ## API Overview
 
