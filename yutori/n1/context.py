@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import warnings as _warnings
+from ._compat import warn_renamed
 
-_warnings.warn("yutori.n1.context has been renamed to yutori.navigator.context.", DeprecationWarning, stacklevel=2)
+warn_renamed(__name__)
 
-from yutori.navigator.context import *  # noqa: F401,F403
+from yutori.navigator.context import *  # noqa: E402,F401,F403
