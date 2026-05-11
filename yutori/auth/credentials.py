@@ -65,9 +65,11 @@ def save_config(api_key: str) -> None:
             f.write(content)
         os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, config_path)
-    except BaseException:
+    finally:
+        # On success os.replace moved the temp file, so missing_ok handles
+        # both the success path and any mid-write failure (including
+        # KeyboardInterrupt).
         tmp_path.unlink(missing_ok=True)
-        raise
 
 
 def clear_config() -> None:
