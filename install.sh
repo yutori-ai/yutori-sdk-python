@@ -11,7 +11,7 @@ YUTORI_RESET=$'\033[0m'
 # Installer version, injected at build time from pyproject.toml by
 # scripts/build_install.sh. Surfaced in the header so users can tell at a
 # glance which release they fetched (useful for bug reports).
-YUTORI_INSTALLER_VERSION="0.7.5"
+YUTORI_INSTALLER_VERSION="0.7.6"
 
 # Read the banner into a variable via `read -d ''` rather than `$(cat <<EOF)`.
 # Bash 3.2 (macOS /bin/bash) has a known parser bug where a heredoc nested
