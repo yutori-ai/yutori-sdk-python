@@ -106,7 +106,7 @@ def test_detect_sdk_install_plan_defaults_to_user_install(tmp_path: Path, monkey
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/usr/bin/python3", "-m", "pip", "install", "--user", "yutori")
-    assert plan.default is False
+    assert plan.default is True
     assert "requirements.txt" in plan.reason
 
 
