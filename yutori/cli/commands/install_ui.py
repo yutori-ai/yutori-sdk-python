@@ -457,7 +457,7 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
     return SDKInstallPlan(
         reason=reason,
         command=((interpreter or "python3"), "-m", "pip", "install", "--user", "yutori"),
-        default=False,
+        default=True,
         availability_error=(
             None if available else "A Python interpreter with pip is required for a user-site SDK install."
         ),
@@ -605,7 +605,7 @@ def maybe_install_mcp_server(
         console,
         name="MCP server",
         title="Yutori MCP server",
-        description="Configures the Yutori MCP server for supported AI tools with add-mcp.",
+        description="Installs Yutori MCP tools with add-mcp.",
         command=MCP_SERVER_INSTALL_COMMAND,
         confirm_question="Install the Yutori MCP server for your AI tools?",
         success_detail="Configured Yutori MCP server. Restart your AI tool to load it.",
