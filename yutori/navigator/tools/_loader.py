@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
-from importlib.resources import files
+from .._assets import _load_js_resource
 
 
-@lru_cache(maxsize=None)
 def load_tool_script(name: str) -> str:
-    return files(__package__).joinpath("js", name).read_text(encoding="utf-8").strip()
+    return _load_js_resource(__package__, name)
