@@ -7,6 +7,8 @@ import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
 
+from ._usage_fixtures import make_mock_usage_response
+
 
 class TestYutoriClientInit:
     def test_init_with_api_key(self):
@@ -44,49 +46,8 @@ class TestYutoriClientInit:
 
 
 class TestYutoriClientGetUsage:
-    # Mirrors the current server dual-emit: both navigator_* and n1_* keys
-    # are present with equal values. See yutori.codex PR #8174.
-    _NAVIGATOR_LIMITS = {
-        "requests_today": 50,
-        "daily_limit": 50000,
-        "remaining_requests": 49950,
-        "reset_at": "2026-03-04T00:00:00+00:00",
-        "per_second_limit": 20,
-    }
-    USAGE_RESPONSE = {
-        "num_active_scouts": 2,
-        "active_scout_ids": ["id-1", "id-2"],
-        "rate_limits": {
-            "requests_today": 100,
-            "daily_limit": 10000,
-            "remaining_requests": 9900,
-            "reset_at": "2026-03-04T00:00:00+00:00",
-            "status": "available",
-        },
-        "navigator_rate_limits": _NAVIGATOR_LIMITS,
-        "n1_rate_limits": _NAVIGATOR_LIMITS,
-        "activity": {
-            "period": "24h",
-            "scout_runs": 10,
-            "browsing_tasks": 3,
-            "research_tasks": 2,
-            "navigator_calls": 50,
-            "n1_calls": 50,
-        },
-    }
-
-    def _mock_usage_response(self, period: str = "24h"):
-        import json
-
-        data = {**self.USAGE_RESPONSE, "activity": {**self.USAGE_RESPONSE["activity"], "period": period}}
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = json.dumps(data).encode()
-        mock_response.json.return_value = data
-        return mock_response
-
     def test_get_usage_success(self):
-        with patch.object(httpx.Client, "get", return_value=self._mock_usage_response()):
+        with patch.object(httpx.Client, "get", return_value=make_mock_usage_response()):
             client = YutoriClient(api_key="yt-test")
             result = client.get_usage()
             assert result["num_active_scouts"] == 2
@@ -95,7 +56,7 @@ class TestYutoriClientGetUsage:
             client.close()
 
     def test_get_usage_with_period(self):
-        with patch.object(httpx.Client, "get", return_value=self._mock_usage_response("7d")) as mock_get:
+        with patch.object(httpx.Client, "get", return_value=make_mock_usage_response("7d")) as mock_get:
             client = YutoriClient(api_key="yt-test")
             result = client.get_usage(period="7d")
             assert result["activity"]["period"] == "7d"
@@ -105,7 +66,7 @@ class TestYutoriClientGetUsage:
             client.close()
 
     def test_get_usage_no_period_sends_no_params(self):
-        with patch.object(httpx.Client, "get", return_value=self._mock_usage_response()) as mock_get:
+        with patch.object(httpx.Client, "get", return_value=make_mock_usage_response()) as mock_get:
             client = YutoriClient(api_key="yt-test")
             client.get_usage()
             call_kwargs = mock_get.call_args[1]
