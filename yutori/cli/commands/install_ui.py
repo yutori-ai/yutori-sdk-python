@@ -94,6 +94,15 @@ INSTALL_CMD_TIMEOUT = 300
 # the installer can't hang indefinitely; users can still Ctrl+C earlier.
 NPX_CMD_TIMEOUT = 600
 
+# Synthetic subprocess return codes used when the child never produced one of
+# its own (timeout, exec failure, user cancel). Mirrored from the well-known
+# POSIX shell conventions so downstream tooling that inspects `returncode`
+# sees familiar values. Callers branch on these directly — see
+# `run_command`, `run_interactive_command`, and `_run_npx_step`.
+RETURNCODE_TIMEOUT = 124  # POSIX `timeout` exit code
+RETURNCODE_EXEC_FAILED = 127  # POSIX "command not found"
+RETURNCODE_CANCELLED = 130  # POSIX SIGINT (128 + 2)
+
 StepStatus = Literal["success", "skipped", "failed"]
 RegistrationState = Literal["creating_account", "logging_in"]
 
@@ -184,14 +193,14 @@ def run_command(
         partial_stderr = _coerce_output_text(exc.stderr)
         return subprocess.CompletedProcess(
             argv,
-            returncode=124,
+            returncode=RETURNCODE_TIMEOUT,
             stdout=partial_stdout,
             stderr=f"{partial_stderr}\nTimed out after {timeout}s waiting for {format_command(argv)}.",
         )
     except (FileNotFoundError, PermissionError) as exc:
         return subprocess.CompletedProcess(
             argv,
-            returncode=127,
+            returncode=RETURNCODE_EXEC_FAILED,
             stdout="",
             stderr=f"Could not execute {argv[0]!r}: {exc}",
         )
@@ -211,10 +220,10 @@ def run_interactive_command(
     which means the returned ``CompletedProcess`` has ``None`` for both
     streams. Callers should not rely on stdout/stderr for failure detail.
 
-    Synthetic returncodes:
-      - 124: timed out waiting for the child
-      - 127: could not start the child (missing binary, exec denied, etc.)
-      - 130: user cancelled with Ctrl+C
+    Synthetic returncodes (see module-level ``RETURNCODE_*`` constants):
+      - ``RETURNCODE_TIMEOUT`` (124): timed out waiting for the child
+      - ``RETURNCODE_EXEC_FAILED`` (127): could not start the child (missing binary, exec denied, etc.)
+      - ``RETURNCODE_CANCELLED`` (130): user cancelled with Ctrl+C
     Any other non-zero value is the child's actual exit code.
     """
     argv = list(command)
@@ -226,18 +235,18 @@ def run_interactive_command(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, returncode=124, stdout=None, stderr=None)
+        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_TIMEOUT, stdout=None, stderr=None)
     except KeyboardInterrupt:
         # Ctrl+C is forwarded to the child via the shared TTY; once it exits,
         # the parent's default SIGINT handler raises here. Convert to a
         # synthetic returncode so callers can render a "Cancelled" row
         # instead of crashing the installer mid-summary.
-        return subprocess.CompletedProcess(argv, returncode=130, stdout=None, stderr=None)
+        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_CANCELLED, stdout=None, stderr=None)
     except OSError:
         # Catches FileNotFoundError, PermissionError, and rarer fork/exec
         # failures (ENOEXEC, EMFILE, ENOMEM). All map to "could not execute"
         # from the user's perspective.
-        return subprocess.CompletedProcess(argv, returncode=127, stdout=None, stderr=None)
+        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_EXEC_FAILED, stdout=None, stderr=None)
 
 
 def describe_completed_process(result: subprocess.CompletedProcess[str], *, max_lines: int = 8) -> str:
@@ -586,9 +595,9 @@ def _run_npx_step(
     # binary exists, so a 127 here is almost always npx's own exit code
     # (e.g. the package's bin entry resolved to a missing executable),
     # not the synthetic OSError 127 from run_interactive_command.
-    if result.returncode == 130:
+    if result.returncode == RETURNCODE_CANCELLED:
         return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(command)}")
-    if result.returncode == 124:
+    if result.returncode == RETURNCODE_TIMEOUT:
         reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
     else:
         reason = f"Command exited with status {result.returncode}."
