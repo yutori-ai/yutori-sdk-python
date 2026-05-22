@@ -72,11 +72,38 @@ If both succeed, proceed to **Demonstrate** below. If MCP tools have already loa
 
 ## Demonstrate
 
-After setup, demonstrate the installed workflow in the current coding agent:
+After auth and verify succeed, run the three demos yourself via the `yutori` CLI in your Bash tool — **no coding-agent restart needed**. (After restart, the MCP tools `run_research_task`, `run_browsing_task`, `create_scout` and the `/yutori-*` skills also become available; use either path.)
 
-1. Scout: use the `yutori-scout` skill or `create_scout` MCP tool to draft a high-quality monitoring query. Ask for confirmation before creating a recurring scout.
-2. Research: use the `yutori-research` skill or `run_research_task` MCP tool for a small one-time research question. Tell the user research tasks are asynchronous and usually take several minutes.
-3. Browsing: use the `yutori-browse` skill or `run_browsing_task` MCP tool for a simple public-page task, such as extracting the headline from `https://www.yutori.com`. Ask for confirmation before running tasks that may spend credits.
+The task APIs are async: `run` starts the task and returns a `task_id`; you then poll `get TASK_ID` until `status` is `succeeded` or `failed`. Examples below mirror the canonical queries at <https://docs.yutori.com/reference/> so demo and docs stay aligned.
+
+### Research (3–10 min)
+
+```bash
+yutori research run "What are the latest developments in quantum computing from the past week? Include company announcements, research papers, and product releases."
+# returns task_id; poll until done
+yutori research get <task_id>
+```
+
+Show the user the returned summary once `status: succeeded`.
+
+### Browsing (30–120 sec)
+
+```bash
+yutori browse run "Give me a list of all employees (names and titles) of Yutori." "https://yutori.com"
+yutori browse get <task_id>
+```
+
+Confirm with the user before running additional browsing tasks — each one spends credits.
+
+### Scout — draft only, **do not auto-create**
+
+Scouts are *recurring* and spend credits on every scheduled run. Show the user the query you would use and ask for explicit confirmation before running:
+
+```bash
+yutori scouts create -q "Tell me about the latest news, product updates, press releases, social media announcements, investments into, or other relevant information about Yutori"
+```
+
+If they decline, skip the Scout demo and end with a recap of Research + Browsing.
 
 For SDK/API integration details, use:
 
