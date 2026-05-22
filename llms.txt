@@ -33,7 +33,11 @@ Drive setup yourself. The user's only action is clicking **Allow** in a browser 
     yutori auth login
     ```
 
-    Opens a Yutori sign-in tab in the user's default browser, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for up to 5 minutes waiting for the user — if it times out, rerun. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."* If the command prints `Could not launch a browser` with a URL, relay that URL to the user.
+    **Always run this yourself first**, even on a headless host. The command calls `webbrowser.open(auth_url)`, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for up to 5 minutes waiting for the user — if it times out, rerun.
+
+    Two cases:
+    - **Desktop / browser available**: the sign-in tab opens automatically. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."*
+    - **Headless host / no browser**: the command prints `Could not launch a browser` followed by an `auth_url`. **Relay that URL to the user** — they paste it into a browser on their own machine, click Allow, and the OAuth callback still completes through your Bash process. Don't skip running `yutori auth login` just because the host might be headless; try it and react to what it prints.
 
 3. Ask the user to restart this coding agent so the MCP tools and skills load.
 
@@ -57,14 +61,14 @@ If `npx` isn't available, native CLIs work for some clients:
 
 ## Verify
 
-Run:
+**You run these yourself** once the user confirms `yutori auth login` completed:
 
 ```bash
-yutori auth status
-yutori usage
+yutori auth status     # confirms the API key is saved and valid
+yutori usage           # shows the user their daily quota and active scouts
 ```
 
-If MCP tools are available in the current agent, call `list_api_usage` as an additional verification.
+If both succeed, proceed to **Demonstrate** below. If MCP tools have already loaded in your session (i.e. the coding agent was restarted), `list_api_usage` is an equivalent MCP check.
 
 ## Demonstrate
 
