@@ -717,6 +717,21 @@ def maybe_install_mcp_skills(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
+    # Symmetric stdout-redirect guard with maybe_install_mcp_server: if
+    # stdin is still a TTY but stdout is redirected (user did
+    # `curl | bash > install.log`), keep install behavior consistent and
+    # skip skills too, even though they only write to a yutori-owned
+    # `~/.agents/skills/` dir and are lower-risk than MCP config writes.
+    # The cost (one rerun without redirection) is small; the win is a
+    # status table without one step done and the other skipped by half-
+    # baked heuristics.
+    if not interactive and sys.stdin.isatty():
+        return StepResult(
+            "MCP skills",
+            "skipped",
+            "Stdout is redirected but stdin is a TTY. Rerun without redirecting stdout to install skills.",
+        )
+
     return _run_npx_step(
         console,
         name="MCP skills",

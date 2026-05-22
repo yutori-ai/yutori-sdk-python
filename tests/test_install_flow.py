@@ -1078,6 +1078,9 @@ def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[
 
 
 def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
+    # Explicit stdin patch keeps us out of the redirected-stdout guard
+    # regardless of how the test runner exposes stdin (pytest defaults to
+    # captured stdin -> isatty=False, but be explicit).
     captured: dict[str, tuple[str, ...]] = {}
 
     def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
@@ -1085,6 +1088,7 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
         return _ok_completed_process(tuple(command))
 
     with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
         patch("yutori.cli.commands.install_flow.run_interactive_command") as fake_interactive,
@@ -1098,10 +1102,30 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
 
 
+def test_maybe_install_mcp_skills_noninteractive_refuses_when_only_stdout_redirected():
+    # Symmetric guard with maybe_install_mcp_server: when stdin is still a
+    # TTY but stdout is redirected, skip skills install too so the install
+    # status table doesn't end up half-baked (one step done, one skipped
+    # by inconsistent heuristics). Cost is a single rerun for the user;
+    # win is internal consistency.
+    with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_flow.run_command") as fake_run,
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=False)
+
+    fake_run.assert_not_called()
+    assert result.status == "skipped"
+    assert "Stdout is redirected" in result.detail
+
+
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
-    # Without YUTORI_INSTALL_CLIENT, install to a small set of popular
-    # coding agents -- not `--all` (which writes configs for ~14 clients
-    # including ones the user never installed).
+    # Without YUTORI_INSTALL_CLIENT, in true automation (both streams
+    # non-TTY) install for the small popular default set -- not `--all`
+    # (which writes configs for ~14 clients including ones the user
+    # never installed). Explicit stdin patch guarantees we hit the
+    # automation branch on any test host, not the redirected-stdout guard.
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     captured: dict[str, tuple[str, ...]] = {}
 
@@ -1110,6 +1134,7 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(
         return _ok_completed_process(tuple(command))
 
     with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
@@ -1153,6 +1178,9 @@ def test_maybe_install_mcp_server_noninteractive_refuses_when_only_stdout_redire
 
 
 def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client(monkeypatch):
+    # YUTORI_INSTALL_CLIENT is set -> single-client path, which is
+    # unaffected by the stdin-isatty branch. Patch stdin anyway so the
+    # test is self-documenting about which branch it exercises.
     monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
     captured: dict[str, tuple[str, ...]] = {}
 
@@ -1161,6 +1189,7 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
         return _ok_completed_process(tuple(command))
 
     with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
@@ -1188,6 +1217,10 @@ def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_outpu
     )
 
     with (
+        # stdin=False puts us in the automation branch where run_command
+        # actually executes; without it we'd hit the redirected-stdout
+        # guard and never reach the failure path under test.
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
     ):
@@ -1200,9 +1233,13 @@ def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_outpu
 
 
 def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypatch):
+    # Force automation branch (stdin=False) so the npx-missing skip is
+    # what's actually exercised, not the redirected-stdout guard which
+    # would skip earlier and shadow the npx check.
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
 
     with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=None),
         patch("yutori.cli.commands.install_flow.run_command") as fake_run,
     ):
