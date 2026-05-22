@@ -587,8 +587,8 @@ Required (installed with `pip install yutori` or `uv add yutori`):
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `httpx` | `>=0.26.0,<0.28.0` | HTTP client for browsing/research/scouting. |
-| `openai` | `>=1.0.0` | Backs `client.chat` (provides `ChatCompletion` types). |
+| `httpx` | `>=0.26.0,<1.0.0` | HTTP client for browsing/research/scouting. |
+| `openai` | `>=1.55.3` | Backs `client.chat` (provides `ChatCompletion` types). |
 | `pillow` | `>=10.0.0` | Screenshot helpers in `yutori.navigator`. |
 | `typer` | `>=0.9.0` | CLI framework. |
 | `rich` | `>=13.0.0` | Terminal output for the CLI. |
