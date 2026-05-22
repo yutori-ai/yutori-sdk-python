@@ -559,49 +559,78 @@ def _run_npx_step(
     title: str,
     description: str,
     command: Sequence[str],
+    noninteractive_command: Sequence[str] | None,
     confirm_question: str,
     success_detail: str,
     interactive: bool,
     env: Mapping[str, str] | None,
 ) -> StepResult:
-    print_prompt_block(console, title, description, command=command)
-
-    if not interactive:
+    # In interactive mode we display and run `command` (may prompt the user).
+    # In non-interactive mode we display and run `noninteractive_command` if
+    # provided, otherwise skip. The "displayed" form should match what we
+    # actually invoke so the manual-retry hint is copy-pasteable.
+    if interactive:
+        display_command: Sequence[str] = command
+    elif noninteractive_command is not None:
+        display_command = noninteractive_command
+    else:
+        print_prompt_block(console, title, description, command=command)
         return StepResult(
             name,
             "skipped",
             f"Skipped because no interactive terminal is available. {_manual_retry_hint(command)}",
         )
 
+    print_prompt_block(console, title, description, command=display_command)
+
     npx_path = resolve_npx_path(env)
     if not npx_path:
         return StepResult(
             name,
             "skipped",
-            f"Node.js/npx is not on PATH. {_manual_retry_hint(command)}",
+            f"Node.js/npx is not on PATH. {_manual_retry_hint(display_command)}",
         )
 
-    if not ask_confirm(console, confirm_question, default=True):
-        return StepResult(name, "skipped", f"{title} setup was skipped.")
+    if interactive:
+        if not ask_confirm(console, confirm_question, default=True):
+            return StepResult(name, "skipped", f"{title} setup was skipped.")
+        # run_interactive_command inherits stdio so npx prompts and the user's
+        # responses flow through the real TTY.
+        result = run_interactive_command((npx_path, *display_command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
+    else:
+        # No TTY available, so the non-interactive variant must run without
+        # prompts. Capture output via run_command so any failure surfaces in
+        # the status detail rather than scrolling past in inherited stdio.
+        result = run_command((npx_path, *display_command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
 
-    result = run_interactive_command((npx_path, *command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
     if result.returncode == 0:
         return StepResult(name, "success", success_detail)
 
-    # run_interactive_command inherits stdio, so any stderr from npx has
-    # already scrolled past (or never existed, for the 130 branch).
-    # A copy-pasteable retry hint is the only useful detail we can add.
     # We don't special-case 127: resolve_npx_path already verified the
     # binary exists, so a 127 here is almost always npx's own exit code
     # (e.g. the package's bin entry resolved to a missing executable),
     # not the synthetic OSError 127 from run_interactive_command.
     if result.returncode == RETURNCODE_CANCELLED:
-        return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(command)}")
+        return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(display_command)}")
     if result.returncode == RETURNCODE_TIMEOUT:
         reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
     else:
         reason = f"Command exited with status {result.returncode}."
-    return StepResult(name, "failed", f"{reason} {_manual_retry_hint(command)}")
+    return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
+
+
+def _mcp_server_noninteractive_command() -> tuple[str, ...]:
+    # `npx add-mcp` defaults to prompting the user to pick which coding-agent
+    # client(s) to register the server in. With no TTY that prompt would hang,
+    # so we pass `-y` plus an explicit client selection. Callers can set
+    # YUTORI_INSTALL_CLIENT (e.g. "claude-code", "codex") to scope the install
+    # to one client; otherwise we register for every detected client so the
+    # non-interactive install matches the "everything" interactive default.
+    base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
+    client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+    if client:
+        return (*base, "-a", client, "uvx yutori-mcp")
+    return (*base, "--all", "uvx yutori-mcp")
 
 
 def maybe_install_mcp_server(
@@ -616,6 +645,7 @@ def maybe_install_mcp_server(
         title="Yutori MCP server",
         description="Installs Yutori MCP tools with add-mcp.",
         command=MCP_SERVER_INSTALL_COMMAND,
+        noninteractive_command=_mcp_server_noninteractive_command(),
         confirm_question="Install the Yutori MCP server for your AI tools?",
         success_detail="Configured Yutori MCP server. Restart your AI tool to load it.",
         interactive=interactive,
@@ -635,6 +665,10 @@ def maybe_install_mcp_skills(
         title="Yutori workflow skills",
         description="Installs slash-command workflow skills globally via the skills CLI.",
         command=MCP_SKILLS_INSTALL_COMMAND,
+        # `npx skills add ... -g` doesn't prompt, so the same argv works in
+        # both modes -- only the wrapper's confirm prompt and stdio-handling
+        # differ between interactive and non-interactive paths.
+        noninteractive_command=MCP_SKILLS_INSTALL_COMMAND,
         confirm_question="Install Yutori workflow skills globally?",
         success_detail="Installed Yutori workflow skills at user scope.",
         interactive=interactive,

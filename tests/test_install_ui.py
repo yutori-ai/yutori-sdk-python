@@ -650,14 +650,6 @@ def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive(
 # ---------------------------------------------------------------------------
 
 
-def test_maybe_install_mcp_server_noninteractive_skips():
-    result = maybe_install_mcp_server(Console(), interactive=False)
-
-    assert result.status == "skipped"
-    assert "no interactive terminal" in result.detail
-    assert "npx add-mcp" in result.detail
-
-
 def test_maybe_install_mcp_server_skips_when_npx_missing():
     with (
         patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value=None),
@@ -1004,3 +996,95 @@ def test_looks_like_auth_failure_detects_auth_signals(output: str) -> None:
 )
 def test_looks_like_auth_failure_ignores_non_auth_errors(output: str) -> None:
     assert looks_like_auth_failure(output) is False
+
+
+# --- non-interactive MCP / skills install ------------------------------------
+#
+# In non-interactive mode the installer used to skip these steps with a
+# manual-retry hint. After the npx-flag fix it now invokes the non-interactive
+# variants directly: `add-mcp -y -g -n yutori --all` for MCP and the unchanged
+# `skills add ... -g` for skills. These tests pin down both the flag set and
+# the channel (run_command, not run_interactive_command).
+
+
+def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
+
+
+def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
+        captured["argv"] = tuple(command)
+        return _ok_completed_process(tuple(command))
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_ui.run_interactive_command") as fake_interactive,
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=False)
+
+    assert result.status == "success"
+    fake_interactive.assert_not_called()
+    # Same argv as MCP_SKILLS_INSTALL_COMMAND, just with npx resolved to its
+    # absolute path -- `skills add ... -g` is already non-interactive.
+    assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
+
+
+def test_maybe_install_mcp_server_noninteractive_defaults_to_all_clients(monkeypatch):
+    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
+        captured["argv"] = tuple(command)
+        return _ok_completed_process(tuple(command))
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=False)
+
+    assert result.status == "success"
+    assert captured["argv"] == (
+        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori", "--all", "uvx yutori-mcp",
+    )
+
+
+def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client(monkeypatch):
+    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
+        captured["argv"] = tuple(command)
+        return _ok_completed_process(tuple(command))
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=False)
+
+    assert result.status == "success"
+    assert captured["argv"] == (
+        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori", "-a", "codex", "uvx yutori-mcp",
+    )
+
+
+def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypatch):
+    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
+
+    with (
+        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value=None),
+        patch("yutori.cli.commands.install_ui.run_command") as fake_run,
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=False)
+
+    fake_run.assert_not_called()
+    assert result.status == "skipped"
+    assert "Node.js/npx" in result.detail
+    # Manual-retry hint should match the non-interactive command we would have
+    # run, not the interactive one -- so the user can copy-paste it directly.
+    assert "--all" in result.detail
+    assert "yutori" in result.detail
