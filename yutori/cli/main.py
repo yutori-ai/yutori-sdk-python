@@ -57,6 +57,12 @@ def version() -> None:
 
 
 app.command("__install_flow", hidden=True)(install_flow_command)
+# Backward-compat alias for cached install.sh artifacts that still invoke
+# the old subcommand name. install.sh upgrades yutori via `uv tool install
+# --force --upgrade` before invoking the subcommand, so a stale cached
+# install.sh paired with a freshly upgraded CLI would fail without this.
+# Safe to remove one SDK release after the rename has propagated.
+app.command("__install_ui", hidden=True)(install_flow_command)
 
 
 if __name__ == "__main__":

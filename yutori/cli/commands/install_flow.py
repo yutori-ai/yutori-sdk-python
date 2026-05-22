@@ -53,6 +53,13 @@ VERIFICATION_MAX_STEPS = 3
 # `npx add-mcp "uvx yutori-mcp"`).
 MCP_SERVER_INSTALL_COMMAND = ("npx", "add-mcp", "uvx yutori-mcp")
 MCP_SKILLS_INSTALL_COMMAND = ("npx", "skills", "add", "yutori-ai/yutori-mcp", "-g")
+# Default set of clients to register MCP for when YUTORI_INSTALL_CLIENT is
+# unset in non-TTY installs. Covers the most-used coding agents without
+# spraying config files for every one of the ~14 supported clients
+# (`add-mcp --all` writes a config for each, including ones the user
+# never installed). Set YUTORI_INSTALL_CLIENT=<slug> to override with a
+# single target; see `npx add-mcp list-agents` for the full slug list.
+DEFAULT_NONINTERACTIVE_MCP_CLIENTS = ("claude-code", "codex", "cursor", "gemini-cli")
 # Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
 # serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
@@ -632,35 +639,51 @@ def _run_npx_step(
     return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
 
 
-def _mcp_server_noninteractive_command() -> tuple[str, ...]:
-    # `npx add-mcp` defaults to prompting the user to pick which coding-agent
-    # client(s) to register the server in. With no TTY that prompt would hang,
-    # so we pass `-y` plus an explicit client selection. Callers can set
-    # YUTORI_INSTALL_CLIENT (e.g. "claude-code", "codex") to scope the install
-    # to one client; otherwise we register for every detected client so the
-    # non-interactive install matches the "everything" interactive default.
-    base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
-    client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
-    if client:
-        return (*base, "-a", client, "uvx yutori-mcp")
-    return (*base, "--all", "uvx yutori-mcp")
-
-
 def maybe_install_mcp_server(
     console: Console,
     *,
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
+    # In non-TTY mode `npx add-mcp` needs explicit `-a` flags -- without them
+    # the "which client(s) to configure?" prompt would hang. Honor
+    # YUTORI_INSTALL_CLIENT when set (single target), otherwise register for
+    # the small DEFAULT_NONINTERACTIVE_MCP_CLIENTS set so common
+    # coding-agent users (Claude Code, Codex, Cursor, Gemini CLI) get
+    # a working setup out of the box without `--all`'s ~14-file spray.
+    noninteractive_command: Sequence[str] | None = None
+    success_detail = "Configured Yutori MCP server. Restart your AI tool to load it."
+
+    if not interactive:
+        client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+        base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
+        if client:
+            noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
+        else:
+            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
+            agent_flags = tuple(
+                flag
+                for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
+                for flag in ("-a", slug)
+            )
+            noninteractive_command = (*base, *agent_flags, "uvx yutori-mcp")
+            default_list = ", ".join(DEFAULT_NONINTERACTIVE_MCP_CLIENTS)
+            success_detail = (
+                f"Registered Yutori MCP for the default client set ({default_list}). "
+                f"Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client, "
+                f'or run `npx add-mcp -y -g -n yutori -a <slug> "uvx yutori-mcp"` for others '
+                f"(see `npx add-mcp list-agents`)."
+            )
+
     return _run_npx_step(
         console,
         name="MCP server",
         title="Yutori MCP server",
         description="Installs Yutori MCP tools with add-mcp.",
         command=MCP_SERVER_INSTALL_COMMAND,
-        noninteractive_command=_mcp_server_noninteractive_command(),
+        noninteractive_command=noninteractive_command,
         confirm_question="Install the Yutori MCP server for your AI tools?",
-        success_detail="Configured Yutori MCP server. Restart your AI tool to load it.",
+        success_detail=success_detail,
         interactive=interactive,
         env=env,
     )

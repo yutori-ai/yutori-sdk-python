@@ -41,6 +41,54 @@ def test_hidden_install_flow_not_in_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "__install_flow" not in result.stdout
+    # Backward-compat alias is also hidden.
+    assert "__install_ui" not in result.stdout
+
+
+def test_hidden_install_ui_alias_dispatches_to_install_flow_command():
+    # install.sh artifacts cached before the rename still invoke
+    # `yutori __install_ui`, and install.sh upgrades the CLI before
+    # invoking the subcommand. Without this alias, a stale cached
+    # install.sh paired with a freshly-upgraded CLI would fail. Pin
+    # the alias so a future cleanup doesn't silently break those flows.
+    cli_state = CLIInstallState(
+        cli_path=Path("/tmp/yutori"),
+        bin_dir=Path("/tmp"),
+        uv_path="/usr/bin/uv",
+        version="yutori 0.7.0",
+        on_path=True,
+    )
+    with (
+        patch(
+            "yutori.cli.commands.install_flow.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
+        patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
+        patch(
+            "yutori.cli.commands.install_flow.detect_sdk_install_plan",
+            return_value=SDKInstallPlan(reason="r", command=("uv", "add", "yutori"), default=True),
+        ),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_authenticate",
+            return_value=(StepResult("Auth", "skipped", "no tty"), False),
+        ),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
+            return_value=StepResult("MCP server", "success", "ok"),
+        ),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
+            return_value=StepResult("MCP skills", "success", "ok"),
+        ),
+    ):
+        ui_result = runner.invoke(app, ["__install_ui"])
+        flow_result = runner.invoke(app, ["__install_flow"])
+
+    assert ui_result.exit_code == flow_result.exit_code == 0
+    # Both subcommands render the same status table.
+    for label in ("CLI", "MCP server", "MCP skills"):
+        assert label in ui_result.stdout
+        assert label in flow_result.stdout
 
 
 def test_detect_sdk_install_plan_prefers_pyproject(tmp_path: Path, monkeypatch):
@@ -1050,7 +1098,10 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
 
 
-def test_maybe_install_mcp_server_noninteractive_defaults_to_all_clients(monkeypatch):
+def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
+    # Without YUTORI_INSTALL_CLIENT, install to a small set of popular
+    # coding agents -- not `--all` (which writes configs for ~14 clients
+    # including ones the user never installed).
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     captured: dict[str, tuple[str, ...]] = {}
 
@@ -1066,8 +1117,15 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_all_clients(monkeyp
 
     assert result.status == "success"
     assert captured["argv"] == (
-        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori", "--all", "uvx yutori-mcp",
+        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori",
+        "-a", "claude-code", "-a", "codex", "-a", "cursor", "-a", "gemini-cli",
+        "uvx yutori-mcp",
     )
+    # Success detail should name the defaults and tell the user how to scope.
+    assert "claude-code" in result.detail
+    assert "YUTORI_INSTALL_CLIENT" in result.detail
+    # Definitively NOT --all (the previous behavior, which sprayed configs).
+    assert "--all" not in " ".join(captured["argv"])
 
 
 def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client(monkeypatch):
@@ -1130,6 +1188,6 @@ def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypa
     assert result.status == "skipped"
     assert "Node.js/npx" in result.detail
     # Manual-retry hint should match the non-interactive command we would have
-    # run, not the interactive one -- so the user can copy-paste it directly.
-    assert "--all" in result.detail
+    # run -- so the user can copy-paste it directly.
+    assert "claude-code" in result.detail  # one of the default agents
     assert "yutori" in result.detail
