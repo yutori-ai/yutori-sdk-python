@@ -13,37 +13,29 @@ Prioritize the CLI/MCP setup first. Do not ask the user to paste API keys into c
 
 ## Setup
 
-1. Install the Yutori CLI and SDK:
+Tell the user to run this in their own terminal — the installer is interactive (opens a browser for auth, prompts for client selection) and will not work through the agent's Bash shell:
 
-    ```bash
-    curl -fsSL https://yutori.com/install.sh | bash
-    ```
+```bash
+curl -fsSL https://yutori.com/install.sh | bash
+```
 
-    The installer uses `uv tool install yutori`. In an interactive terminal, it can also prompt to authenticate, configure MCP, install skills, and run a verification task.
+This single command runs the entire setup end-to-end:
 
-2. Authenticate:
+- Installs the `yutori` CLI via `uv tool install yutori`
+- Runs `yutori auth login` — opens Yutori Platform in the browser, creates/selects an API key, saves it to `~/.yutori/config.json` (read automatically by the SDK, CLI, and MCP server)
+- Configures the Yutori MCP server in compatible clients via `npx add-mcp "uvx yutori-mcp"`
+- Installs workflow skills via `npx skills add yutori-ai/yutori-mcp -g` — adds `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, and `yutori-api-monitor`
+- Runs a verification browsing task
 
-    ```bash
-    yutori auth login
-    ```
+When it exits, the installer prints a per-step status table (success / skipped / failed). Do **not** re-run the commands above unless a step is marked failed or skipped — re-running succeeded steps wastes time and can prompt the user again. If a step needs retry, run only that fallback:
 
-    This opens Yutori Platform in the browser, creates or selects an API key, and saves it to `~/.yutori/config.json`. The SDK, CLI, and MCP server read this file automatically. If the agent shell cannot open a browser or run an interactive login, ask the user to run this command in their own terminal.
+| Step | Fallback |
+| --- | --- |
+| Authentication | `yutori auth login` |
+| MCP server | `npx add-mcp "uvx yutori-mcp"` |
+| Workflow skills | `npx skills add yutori-ai/yutori-mcp -g` |
 
-3. Install the Yutori MCP server:
-
-    ```bash
-    npx add-mcp "uvx yutori-mcp"
-    ```
-
-    Have the user select the coding clients they want to configure, then restart those clients so the MCP tools load.
-
-4. Install Yutori workflow skills:
-
-    ```bash
-    npx skills add yutori-ai/yutori-mcp -g
-    ```
-
-    This installs global skills for compatible agents, including `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, and `yutori-api-monitor`.
+After the installer finishes, ask the user to restart their coding agent so the MCP tools and skills load.
 
 ## Verify
 
