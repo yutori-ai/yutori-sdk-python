@@ -21,7 +21,7 @@ Drive setup yourself. The user's only action is clicking **Allow** in a browser 
     curl -fsSL https://yutori.com/install.sh | bash
     ```
 
-    In a non-TTY shell this installs only the CLI; the steps below cover what the interactive installer would have done. If your PATH hasn't picked up `~/.local/bin` yet, use `$(uv tool dir --bin)/yutori` or run `eval "$(uv tool update-shell --print)"`.
+    In a non-TTY shell this installs only the CLI; the steps below cover what the interactive installer would have done. If `~/.local/bin` isn't on your PATH yet, invoke `yutori` via `$(uv tool dir --bin)/yutori` or run `export PATH="$(uv tool dir --bin):$PATH"` for the rest of this session.
 
 2. Authenticate (you run this; **user clicks Allow**):
 
@@ -29,7 +29,7 @@ Drive setup yourself. The user's only action is clicking **Allow** in a browser 
     yutori auth login
     ```
 
-    Opens a Yutori sign-in tab in the user's default browser, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for several minutes waiting for the user. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."* If the command prints `Could not launch a browser` with a URL, relay that URL to the user to open manually.
+    Opens a Yutori sign-in tab in the user's default browser, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for up to 5 minutes waiting for the user — if it times out, rerun. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."* If the command prints `Could not launch a browser` with a URL, relay that URL to the user.
 
 3. Register the Yutori MCP server for your client (idempotent):
 
@@ -49,7 +49,7 @@ Drive setup yourself. The user's only action is clicking **Allow** in a browser 
     npx skills add yutori-ai/yutori-mcp -g
     ```
 
-    Adds `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, and `yutori-api-monitor` at user scope.
+    Adds six slash-command skills at user scope: `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, `yutori-api-monitor`, and `yutori-login` (re-prompts the user to authenticate if the API key goes missing).
 
 5. Ask the user to restart this coding agent so the MCP tools and skills load.
 
