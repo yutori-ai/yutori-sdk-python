@@ -651,6 +651,15 @@ def maybe_install_mcp_server(
     # the small DEFAULT_NONINTERACTIVE_MCP_CLIENTS set so common
     # coding-agent users (Claude Code, Codex, Cursor, Gemini CLI) get
     # a working setup out of the box without `--all`'s ~14-file spray.
+    #
+    # Edge case the multi-client default must avoid: when a user runs
+    # `curl ... | bash > install.log`, install.sh reopens stdin from
+    # /dev/tty so prompts could work -- but stdout is a file, so
+    # `is_interactive_terminal()` (which checks `-t 1`) returns False.
+    # Treating that as "automation" would silently register MCP for 4
+    # clients the user never opted into. Detect stdin-still-a-TTY and
+    # skip with a hint; only mass-register when *both* streams are
+    # non-TTY (real automation: CI run or agent shell).
     noninteractive_command: Sequence[str] | None = None
     success_detail = "Configured Yutori MCP server. Restart your AI tool to load it."
 
@@ -659,8 +668,21 @@ def maybe_install_mcp_server(
         base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
         if client:
             noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
+        elif sys.stdin.isatty():
+            # Stdout is redirected but the user is at a real terminal --
+            # we'd be registering MCP for 4 clients without the user
+            # seeing the prompt. Skip with a hint so they opt in
+            # explicitly (env var, or rerun without stdout redirection).
+            return StepResult(
+                "MCP server",
+                "skipped",
+                "Stdout is redirected but stdin is a TTY. Refusing to silently register MCP "
+                "for the default client set; set YUTORI_INSTALL_CLIENT=<slug> (e.g. claude-code, "
+                "codex, cursor) or rerun without redirecting stdout.",
+            )
         else:
-            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
+            # True automation -- neither stdin nor stdout is a TTY. Default
+            # to the small popular set.
             agent_flags = tuple(
                 flag
                 for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
