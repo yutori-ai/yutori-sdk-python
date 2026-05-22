@@ -1,11 +1,17 @@
-"""Hidden ``yutori __install_ui`` subcommand.
+"""Hidden ``yutori __install_flow`` subcommand.
 
 Invoked by ``install.sh`` via the absolute path ``$(uv tool dir --bin)/yutori
-__install_ui`` after ``uv tool install yutori`` completes. The bootstrap
+__install_flow`` after ``uv tool install yutori`` completes. The bootstrap
 reopens ``/dev/tty`` on our stdin so interactive prompts work under
 ``curl | bash``, and exports ``YUTORI_UV_BIN`` so we can locate ``uv`` before
 ``$PATH`` is repaired. Neither contract is load-bearing for direct ``yutori
-__install_ui`` invocations — we fall back to ``PATH`` lookups in that case.
+__install_flow`` invocations — we fall back to ``PATH`` lookups in that case.
+
+Drives both the interactive and non-interactive install paths -- the
+interactive path renders Rich prompts; the non-interactive path runs the
+same steps with scripted defaults (see ``_run_npx_step`` and
+``_mcp_server_noninteractive_command``). Auth, SDK install, PATH repair,
+and verification skip without a TTY; MCP server and skills run unattended.
 
 The module is not part of the public surface; users never call this command.
 """
@@ -327,7 +333,7 @@ def _yutori_version() -> str:
 def render_header(console: Console, *, interactive: bool) -> None:
     mode = "Interactive terminal detected." if interactive else "Non-interactive terminal detected."
     # Only used when bash didn't render its own intro (direct
-    # `yutori __install_ui` invocation). The bash intro reads its version
+    # `yutori __install_flow` invocation). The bash intro reads its version
     # from pyproject.toml at build time; here we read from installed
     # package metadata. In a `curl | bash` flow the two match.
     console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer v{_yutori_version()}[/bold {MINT_HIGHLIGHT}]")
@@ -868,8 +874,8 @@ def run_verification(
     return StepResult("Verification", "failed", f"Verification failed ({status}). View task: {task_url}"), False
 
 
-def install_ui_command() -> None:
-    """Interactive post-install flow.
+def install_flow_command() -> None:
+    """Post-install flow, interactive or non-interactive.
 
     Install-step failures (CLI / PATH / SDK / auth) exit non-zero. A failed
     live-API verification does NOT — the install itself worked.

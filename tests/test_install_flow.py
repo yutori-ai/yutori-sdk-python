@@ -9,7 +9,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from yutori.auth.types import LoginResult
-from yutori.cli.commands.install_ui import (
+from yutori.cli.commands.install_flow import (
     MCP_SERVER_INSTALL_COMMAND,
     MCP_SKILLS_INSTALL_COMMAND,
     VERIFICATION_MAX_STEPS,
@@ -37,17 +37,17 @@ from yutori.cli.main import app
 runner = CliRunner()
 
 
-def test_hidden_install_ui_not_in_help():
+def test_hidden_install_flow_not_in_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "__install_ui" not in result.stdout
+    assert "__install_flow" not in result.stdout
 
 
 def test_detect_sdk_install_plan_prefers_pyproject(tmp_path: Path, monkeypatch):
     (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    with patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value="/usr/bin/uv"):
+    with patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/usr/bin/uv"):
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/usr/bin/uv", "add", "yutori")
@@ -58,7 +58,7 @@ def test_detect_sdk_install_plan_prefers_pyproject(tmp_path: Path, monkeypatch):
 def test_detect_sdk_install_plan_uses_bootstrap_uv_env_var(tmp_path: Path, monkeypatch):
     (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    with patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value="/tmp/uv"):
+    with patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/tmp/uv"):
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/tmp/uv", "add", "yutori")
@@ -72,7 +72,7 @@ def test_detect_sdk_install_plan_uses_active_virtualenv(tmp_path: Path, monkeypa
     def fake_which(command: str, path: str | None = None) -> str | None:
         return "/usr/bin/python" if command == "python" else None
 
-    with patch("yutori.cli.commands.install_ui.shutil.which", side_effect=fake_which):
+    with patch("yutori.cli.commands.install_flow.shutil.which", side_effect=fake_which):
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/usr/bin/python", "-m", "pip", "install", "yutori")
@@ -89,8 +89,8 @@ def test_detect_sdk_install_plan_prefers_virtualenv_python_path(tmp_path: Path, 
     monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / ".venv"))
 
     with (
-        patch("yutori.cli.commands.install_ui.python_has_pip", return_value=True),
-        patch("yutori.cli.commands.install_ui.shutil.which", return_value="/usr/bin/python"),
+        patch("yutori.cli.commands.install_flow.python_has_pip", return_value=True),
+        patch("yutori.cli.commands.install_flow.shutil.which", return_value="/usr/bin/python"),
     ):
         plan = detect_sdk_install_plan()
 
@@ -102,7 +102,7 @@ def test_detect_sdk_install_plan_defaults_to_user_install(tmp_path: Path, monkey
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
 
-    with patch("yutori.cli.commands.install_ui.shutil.which", return_value="/usr/bin/python3"):
+    with patch("yutori.cli.commands.install_flow.shutil.which", return_value="/usr/bin/python3"):
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/usr/bin/python3", "-m", "pip", "install", "--user", "yutori")
@@ -118,8 +118,8 @@ def test_detect_sdk_install_plan_flags_missing_pip(tmp_path: Path, monkeypatch):
         return "/usr/bin/python" if command == "python" else None
 
     with (
-        patch("yutori.cli.commands.install_ui.shutil.which", side_effect=fake_which),
-        patch("yutori.cli.commands.install_ui.python_has_pip", return_value=False),
+        patch("yutori.cli.commands.install_flow.shutil.which", side_effect=fake_which),
+        patch("yutori.cli.commands.install_flow.python_has_pip", return_value=False),
     ):
         plan = detect_sdk_install_plan()
 
@@ -129,7 +129,7 @@ def test_detect_sdk_install_plan_flags_missing_pip(tmp_path: Path, monkeypatch):
 def test_resolve_uv_path_uses_installer_env_var(monkeypatch):
     monkeypatch.setenv("YUTORI_UV_BIN", "/tmp/custom-uv")
 
-    with patch("yutori.cli.commands.install_ui._is_executable", return_value=True):
+    with patch("yutori.cli.commands.install_flow._is_executable", return_value=True):
         resolved = resolve_uv_path()
 
     assert resolved == "/tmp/custom-uv"
@@ -139,8 +139,8 @@ def test_resolve_uv_path_rejects_non_executable_env_var(monkeypatch):
     monkeypatch.setenv("YUTORI_UV_BIN", "/tmp/not-executable-uv")
     # File exists but is not executable — should fall through to other lookups.
     with (
-        patch("yutori.cli.commands.install_ui._is_executable", return_value=False),
-        patch("yutori.cli.commands.install_ui.shutil.which", return_value="/opt/uv"),
+        patch("yutori.cli.commands.install_flow._is_executable", return_value=False),
+        patch("yutori.cli.commands.install_flow.shutil.which", return_value="/opt/uv"),
     ):
         resolved = resolve_uv_path()
 
@@ -148,14 +148,14 @@ def test_resolve_uv_path_rejects_non_executable_env_var(monkeypatch):
 
 
 def test_resolve_npx_path_uses_path_lookup():
-    with patch("yutori.cli.commands.install_ui.shutil.which", return_value="/usr/local/bin/npx") as mock_which:
+    with patch("yutori.cli.commands.install_flow.shutil.which", return_value="/usr/local/bin/npx") as mock_which:
         resolved = resolve_npx_path({"PATH": "/usr/local/bin"})
 
     assert resolved == "/usr/local/bin/npx"
     mock_which.assert_called_once_with("npx", path="/usr/local/bin")
 
 
-def test_install_ui_noninteractive_skips_optional_steps():
+def test_install_flow_noninteractive_skips_optional_steps():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -171,20 +171,20 @@ def test_install_ui_noninteractive_skips_optional_steps():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.is_interactive_terminal", return_value=False),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(
                 StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."),
                 False,
             ),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     assert result.exit_code == 0
     assert "Non-interactive terminal detected." in result.stdout
@@ -203,7 +203,7 @@ def test_install_ui_noninteractive_skips_optional_steps():
     assert "CLI" in result.stdout
 
 
-def test_install_ui_exits_nonzero_when_cli_verification_fails():
+def test_install_flow_exits_nonzero_when_cli_verification_fails():
     sdk_plan = SDKInstallPlan(
         reason="Detected pyproject.toml in the current directory.",
         command=("uv", "add", "yutori"),
@@ -212,27 +212,27 @@ def test_install_ui_exits_nonzero_when_cli_verification_fails():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(None, StepResult("CLI", "failed", "uv is not available")),
         ),
-        patch("yutori.cli.commands.install_ui.is_interactive_terminal", return_value=False),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(
                 StepResult("Auth", "skipped", "Skipped auth because no interactive terminal is available."),
                 False,
             ),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     assert result.exit_code == 1
     assert "uv is not available" in result.stdout
 
 
-def test_install_ui_marks_auth_failure_when_verification_rejects_credentials():
+def test_install_flow_marks_auth_failure_when_verification_rejects_credentials():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -248,22 +248,22 @@ def test_install_ui_marks_auth_failure_when_verification_rejects_credentials():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.is_interactive_terminal", return_value=False),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "success", "ok"), True),
         ),
         patch(
-            "yutori.cli.commands.install_ui.run_verification",
+            "yutori.cli.commands.install_flow.run_verification",
             return_value=(StepResult("Verification", "failed", "Authentication failed during verification."), True),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     assert result.exit_code == 1
     assert "Saved credentials were rejected by the API" in result.stdout
@@ -315,9 +315,9 @@ def test_run_verification_succeeds_via_cli(tmp_path: Path):
     ]
 
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", side_effect=responses) as mock_run,
-        patch("yutori.cli.commands.install_ui.time.sleep", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=responses) as mock_run,
+        patch("yutori.cli.commands.install_flow.time.sleep", return_value=None),
     ):
         result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
@@ -349,8 +349,8 @@ def test_run_verification_uses_absolute_path_when_not_on_path(tmp_path: Path):
         stderr="",
     )
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=response) as mock_run,
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=response) as mock_run,
     ):
         result, auth_failed = run_verification(
             Console(), interactive=True, cli_state=_cli_state(cli_path, on_path=False)
@@ -370,8 +370,8 @@ def test_run_verification_classifies_auth_error_as_auth_failure(tmp_path: Path):
         stderr="AuthenticationError: Invalid or missing API key",
     )
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
     ):
         result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
@@ -384,8 +384,8 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
     cli_path = tmp_path / "yutori"
     failure = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="502: Bad gateway")
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
     ):
         result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
 
@@ -394,7 +394,7 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
     assert "502" in result.detail
 
 
-def test_install_ui_skips_header_when_bootstrap_already_rendered():
+def test_install_flow_skips_header_when_bootstrap_already_rendered():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -406,18 +406,18 @@ def test_install_ui_skips_header_when_bootstrap_already_rendered():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
-        patch("yutori.cli.commands.install_ui.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "skipped", "skip"), False),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"], env={"YUTORI_INSTALLER_BOOTSTRAP_SHOWN": "1"})
+        result = runner.invoke(app, ["__install_flow"], env={"YUTORI_INSTALLER_BOOTSTRAP_SHOWN": "1"})
 
     assert result.exit_code == 0
     assert "> Yutori installer" not in result.stdout
@@ -428,7 +428,7 @@ def test_install_ui_skips_header_when_bootstrap_already_rendered():
 # ---------------------------------------------------------------------------
 
 
-def test_install_ui_exits_zero_when_verification_fails_for_non_auth_reason():
+def test_install_flow_exits_zero_when_verification_fails_for_non_auth_reason():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -440,21 +440,21 @@ def test_install_ui_exits_zero_when_verification_fails_for_non_auth_reason():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "success", "ok"), True),
         ),
         patch(
-            "yutori.cli.commands.install_ui.run_verification",
+            "yutori.cli.commands.install_flow.run_verification",
             return_value=(StepResult("Verification", "failed", "yutori.com unreachable"), False),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     # The install itself worked — CLI/SDK/auth all OK. The verification task
     # failing against the live API is not a bootstrap failure.
@@ -469,10 +469,10 @@ def test_install_ui_exits_zero_when_verification_fails_for_non_auth_reason():
 
 def test_maybe_authenticate_tty_runs_login_flow():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_api_key", return_value=None),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch(
-            "yutori.cli.commands.install_ui.run_login_flow",
+            "yutori.cli.commands.install_flow.run_login_flow",
             return_value=LoginResult(success=True, api_key="yt-new-key"),
         ) as mock_flow,
     ):
@@ -485,9 +485,9 @@ def test_maybe_authenticate_tty_runs_login_flow():
 
 def test_maybe_authenticate_tty_user_declines():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_api_key", return_value=None),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=False),
-        patch("yutori.cli.commands.install_ui.run_login_flow") as mock_flow,
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=False),
+        patch("yutori.cli.commands.install_flow.run_login_flow") as mock_flow,
     ):
         result, authenticated = maybe_authenticate(Console(), interactive=True)
 
@@ -498,10 +498,10 @@ def test_maybe_authenticate_tty_user_declines():
 
 def test_maybe_authenticate_tty_login_failure():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_api_key", return_value=None),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch(
-            "yutori.cli.commands.install_ui.run_login_flow",
+            "yutori.cli.commands.install_flow.run_login_flow",
             return_value=LoginResult(success=False, error="Browser timed out", auth_url="https://example/auth"),
         ),
     ):
@@ -514,8 +514,8 @@ def test_maybe_authenticate_tty_login_failure():
 
 def test_maybe_authenticate_noninteractive_skips_without_calling_flow():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_api_key", return_value=None),
-        patch("yutori.cli.commands.install_ui.run_login_flow") as mock_flow,
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.run_login_flow") as mock_flow,
     ):
         result, authenticated = maybe_authenticate(Console(), interactive=False)
 
@@ -530,7 +530,7 @@ def test_maybe_authenticate_noninteractive_skips_without_calling_flow():
 
 
 def test_inspect_cli_install_fails_when_uv_missing():
-    with patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value=None):
+    with patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value=None):
         state, result = inspect_cli_install()
 
     assert state is None
@@ -541,9 +541,9 @@ def test_inspect_cli_install_fails_when_uv_missing():
 def test_inspect_cli_install_fails_when_bin_dir_missing_cli(tmp_path: Path):
     uv_dir_stdout = f"{tmp_path}\n"
     with (
-        patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value="/usr/bin/uv"),
+        patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/usr/bin/uv"),
         patch(
-            "yutori.cli.commands.install_ui.run_command",
+            "yutori.cli.commands.install_flow.run_command",
             return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=uv_dir_stdout, stderr=""),
         ),
     ):
@@ -566,9 +566,9 @@ def test_inspect_cli_install_success_when_shell_resolves_to_install(tmp_path: Pa
         subprocess.CompletedProcess(args=[], returncode=0, stdout="yutori 0.7.0\n", stderr=""),
     ]
     with (
-        patch("yutori.cli.commands.install_ui.resolve_uv_path", return_value="/usr/bin/uv"),
-        patch("yutori.cli.commands.install_ui.run_command", side_effect=responses),
-        patch("yutori.cli.commands.install_ui.shutil.which", return_value=str(cli_binary)),
+        patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/usr/bin/uv"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=responses),
+        patch("yutori.cli.commands.install_flow.shutil.which", return_value=str(cli_binary)),
     ):
         state, result = inspect_cli_install()
 
@@ -588,8 +588,8 @@ def test_maybe_install_sdk_success_path():
     success = subprocess.CompletedProcess(args=[], returncode=0, stdout="Installed.\n", stderr="")
 
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=success) as mock_run,
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=success) as mock_run,
     ):
         result = maybe_install_sdk(Console(), plan, interactive=True)
 
@@ -603,8 +603,8 @@ def test_maybe_install_sdk_propagates_command_failure():
     failure = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="network down")
 
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
     ):
         result = maybe_install_sdk(Console(), plan, interactive=True)
 
@@ -620,8 +620,8 @@ def test_maybe_install_sdk_respects_availability_error():
         availability_error="`python3 -m pip` is required.",
     )
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask") as mock_ask,
-        patch("yutori.cli.commands.install_ui.run_command") as mock_run,
+        patch("yutori.cli.commands.install_flow.Confirm.ask") as mock_ask,
+        patch("yutori.cli.commands.install_flow.run_command") as mock_run,
     ):
         result = maybe_install_sdk(Console(), plan, interactive=True)
 
@@ -652,9 +652,9 @@ def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive(
 
 def test_maybe_install_mcp_server_skips_when_npx_missing():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value=None),
-        patch("yutori.cli.commands.install_ui.Confirm.ask") as mock_ask,
-        patch("yutori.cli.commands.install_ui.run_interactive_command") as mock_run,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask") as mock_ask,
+        patch("yutori.cli.commands.install_flow.run_interactive_command") as mock_run,
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -668,9 +668,9 @@ def test_maybe_install_mcp_server_runs_add_mcp_on_consent():
     success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=success) as mock_run,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=success) as mock_run,
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -685,9 +685,9 @@ def test_maybe_install_mcp_server_failure_includes_retry_hint():
     failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -704,9 +704,9 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
     failure = subprocess.CompletedProcess(args=[], returncode=127, stdout=None, stderr=None)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -720,9 +720,9 @@ def test_maybe_install_mcp_server_failure_surfaces_timeout():
     timed_out = subprocess.CompletedProcess(args=[], returncode=124, stdout=None, stderr=None)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=timed_out),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=timed_out),
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -735,9 +735,9 @@ def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
     success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=success) as mock_run,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=success) as mock_run,
     ):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
@@ -747,9 +747,9 @@ def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
 
 def test_maybe_install_mcp_skills_user_declines():
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=False),
-        patch("yutori.cli.commands.install_ui.run_interactive_command") as mock_run,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=False),
+        patch("yutori.cli.commands.install_flow.run_interactive_command") as mock_run,
     ):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
@@ -761,9 +761,9 @@ def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
     failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=failure),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
     ):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
@@ -775,9 +775,9 @@ def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
     cancelled = subprocess.CompletedProcess(args=[], returncode=130, stdout=None, stderr=None)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_interactive_command", return_value=cancelled),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=cancelled),
     ):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
@@ -792,7 +792,7 @@ def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
 
 def test_run_interactive_command_maps_timeout_to_124():
     expired = subprocess.TimeoutExpired(cmd="npx", timeout=1)
-    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=expired):
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=expired):
         result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"), timeout=1)
 
     assert result.returncode == 124
@@ -802,7 +802,7 @@ def test_run_interactive_command_maps_timeout_to_124():
 
 def test_run_interactive_command_maps_missing_binary_to_127():
     with patch(
-        "yutori.cli.commands.install_ui.subprocess.run",
+        "yutori.cli.commands.install_flow.subprocess.run",
         side_effect=FileNotFoundError("no such file: 'npx'"),
     ):
         result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
@@ -814,25 +814,25 @@ def test_run_interactive_command_maps_oserror_to_127():
     # Bare OSError covers ENOEXEC, EMFILE, ENOMEM, etc. — fork/exec failures
     # that aren't FileNotFoundError or PermissionError. They all collapse to
     # "could not start the child" from the user's perspective.
-    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=OSError("ENOMEM")):
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=OSError("ENOMEM")):
         result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
 
     assert result.returncode == 127
 
 
 def test_run_interactive_command_maps_keyboard_interrupt_to_130():
-    with patch("yutori.cli.commands.install_ui.subprocess.run", side_effect=KeyboardInterrupt()):
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=KeyboardInterrupt()):
         result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
 
     assert result.returncode == 130
 
 
 # ---------------------------------------------------------------------------
-# install_ui_command: failed MCP/skills must not bump exit_code
+# install_flow_command: failed MCP/skills must not bump exit_code
 # ---------------------------------------------------------------------------
 
 
-def test_install_ui_failed_mcp_does_not_bump_exit_code():
+def test_install_flow_failed_mcp_does_not_bump_exit_code():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -844,29 +844,29 @@ def test_install_ui_failed_mcp_does_not_bump_exit_code():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "success", "ok"), True),
         ),
         patch(
-            "yutori.cli.commands.install_ui.maybe_install_mcp_server",
+            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
             return_value=StepResult("MCP server", "failed", "Command exited with status 1."),
         ),
         patch(
-            "yutori.cli.commands.install_ui.maybe_install_mcp_skills",
+            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
             return_value=StepResult("MCP skills", "failed", "Command exited with status 1."),
         ),
         patch(
-            "yutori.cli.commands.install_ui.run_verification",
+            "yutori.cli.commands.install_flow.run_verification",
             return_value=(StepResult("Verification", "success", "ok"), False),
         ),
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     # MCP/skills are optional; their failure surfaces in the table but
     # leaves exit_code at 0 since CLI/SDK/auth/verification all succeeded.
@@ -876,7 +876,7 @@ def test_install_ui_failed_mcp_does_not_bump_exit_code():
     assert "FAIL" in result.stdout
 
 
-def test_install_ui_skips_mcp_when_not_authenticated():
+def test_install_flow_skips_mcp_when_not_authenticated():
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -888,19 +888,19 @@ def test_install_ui_skips_mcp_when_not_authenticated():
 
     with (
         patch(
-            "yutori.cli.commands.install_ui.inspect_cli_install",
+            "yutori.cli.commands.install_flow.inspect_cli_install",
             return_value=(cli_state, StepResult("CLI", "success", "ok")),
         ),
-        patch("yutori.cli.commands.install_ui.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_ui.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
-            "yutori.cli.commands.install_ui.maybe_authenticate",
+            "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "skipped", "User declined."), False),
         ),
-        patch("yutori.cli.commands.install_ui.maybe_install_mcp_server") as mock_mcp,
-        patch("yutori.cli.commands.install_ui.maybe_install_mcp_skills") as mock_skills,
+        patch("yutori.cli.commands.install_flow.maybe_install_mcp_server") as mock_mcp,
+        patch("yutori.cli.commands.install_flow.maybe_install_mcp_skills") as mock_skills,
     ):
-        result = runner.invoke(app, ["__install_ui"])
+        result = runner.invoke(app, ["__install_flow"])
 
     assert result.exit_code == 0
     # Neither npx step should be invoked when the user isn't authenticated —
@@ -956,8 +956,8 @@ def test_maybe_repair_path_runs_update_shell_on_consent():
     success = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok\n", stderr="")
 
     with (
-        patch("yutori.cli.commands.install_ui.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_ui.run_command", return_value=success) as mock_run,
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=success) as mock_run,
     ):
         result = maybe_repair_path(Console(), state, interactive=True)
 
@@ -1019,9 +1019,9 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
-        patch("yutori.cli.commands.install_ui.run_interactive_command") as fake_interactive,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.run_interactive_command") as fake_interactive,
     ):
         result = maybe_install_mcp_skills(Console(), interactive=False)
 
@@ -1041,8 +1041,8 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_all_clients(monkeyp
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
         result = maybe_install_mcp_server(Console(), interactive=False)
 
@@ -1061,8 +1061,8 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_ui.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
         result = maybe_install_mcp_server(Console(), interactive=False)
 
@@ -1076,8 +1076,8 @@ def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypa
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
 
     with (
-        patch("yutori.cli.commands.install_ui.resolve_npx_path", return_value=None),
-        patch("yutori.cli.commands.install_ui.run_command") as fake_run,
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=None),
+        patch("yutori.cli.commands.install_flow.run_command") as fake_run,
     ):
         result = maybe_install_mcp_server(Console(), interactive=False)
 
