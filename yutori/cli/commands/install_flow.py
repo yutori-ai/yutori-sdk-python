@@ -620,6 +620,13 @@ def _run_npx_step(
         return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(display_command)}")
     if result.returncode == RETURNCODE_TIMEOUT:
         reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
+    elif not interactive:
+        # Non-interactive path used run_command, which captured stdout and
+        # stderr. Surface that captured output -- otherwise the operator
+        # has only the exit code (the interactive path's stderr already
+        # scrolled past on the inherited TTY, so this asymmetry is
+        # specific to the no-TTY branch).
+        reason = describe_completed_process(result)
     else:
         reason = f"Command exited with status {result.returncode}."
     return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
@@ -912,10 +919,16 @@ def install_flow_command() -> None:
     # the npm registry, and an interactive picker. A failure here doesn't
     # bump exit_code — it surfaces in the summary table as FAIL with a
     # retry hint, but the install itself (CLI/SDK/auth) is still usable.
-    # Skip when auth was declined or failed: the registered MCP server
-    # would fail on first use without credentials, and the user has
-    # already opted out of finishing setup.
-    if not authenticated:
+    #
+    # Auth-decline gate: in *interactive* mode, "auth was skipped" means the
+    # user said no — they've opted out of finishing setup, so skipping MCP /
+    # skills matches their intent. In *non-interactive* mode "auth was
+    # skipped" just means "no TTY for the browser callback," and the
+    # caller (CI run, AI coding agent) almost certainly does want MCP /
+    # skills configured. Neither registration step needs an API key at
+    # install time — the MCP server only authenticates when invoked, and
+    # skills are static markdown — so run them unattended.
+    if interactive and not authenticated:
         mcp_result = StepResult("MCP server", "skipped", "Authenticate first, then re-run the installer.")
         skills_result = StepResult("MCP skills", "skipped", "Authenticate first, then re-run the installer.")
     else:

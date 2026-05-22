@@ -155,7 +155,11 @@ def test_resolve_npx_path_uses_path_lookup():
     mock_which.assert_called_once_with("npx", path="/usr/local/bin")
 
 
-def test_install_flow_noninteractive_skips_optional_steps():
+def test_install_flow_noninteractive_runs_mcp_and_skills_even_without_auth():
+    # In non-interactive mode "auth was skipped" means no TTY for the OAuth
+    # callback, not "user declined." MCP / skills should still install --
+    # they don't need an API key at registration time. Auth and verification
+    # are the only steps that genuinely require a key/browser.
     cli_state = CLIInstallState(
         cli_path=Path("/tmp/yutori"),
         bin_dir=Path("/tmp"),
@@ -183,6 +187,15 @@ def test_install_flow_noninteractive_skips_optional_steps():
                 False,
             ),
         ),
+        # Stub the real installs so the test stays hermetic.
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
+            return_value=StepResult("MCP server", "success", "ok"),
+        ) as mock_mcp,
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
+            return_value=StepResult("MCP skills", "success", "ok"),
+        ) as mock_skills,
     ):
         result = runner.invoke(app, ["__install_flow"])
 
@@ -190,17 +203,56 @@ def test_install_flow_noninteractive_skips_optional_steps():
     assert "Non-interactive terminal detected." in result.stdout
     assert "Skipped SDK install because no interactive" in result.stdout
     assert "Skipped auth because no interactive" in result.stdout
-    # Two MCP rows render. In this fixture auth was skipped (no interactive
-    # terminal), so MCP/skills hit the not-authenticated gate before the
-    # non-interactive gate inside the helpers themselves.
+    # Auth-gate should NOT block MCP/skills in non-interactive mode.
+    assert "Authenticate first" not in result.stdout
+    mock_mcp.assert_called_once()
+    mock_skills.assert_called_once()
     assert "MCP server" in result.stdout
     assert "MCP skills" in result.stdout
-    assert "Authenticate first" in result.stdout
     assert "Verification requires a valid API key." in result.stdout
-    # Each step should render in the summary table, including PATH (it was
-    # already on PATH for this fixture).
     assert "PATH" in result.stdout
     assert "CLI" in result.stdout
+
+
+def test_install_flow_interactive_auth_decline_still_skips_mcp_and_skills():
+    # Symmetric guard: when the *user* declines auth in interactive mode,
+    # they've opted out of finishing setup, so MCP/skills should still skip.
+    # The non-interactive carve-out above must not regress this case.
+    cli_state = CLIInstallState(
+        cli_path=Path("/tmp/yutori"),
+        bin_dir=Path("/tmp"),
+        uv_path="/usr/bin/uv",
+        version="yutori 0.7.0",
+        on_path=True,
+    )
+    sdk_plan = SDKInstallPlan(
+        reason="Detected pyproject.toml in the current directory.",
+        command=("uv", "add", "yutori"),
+        default=True,
+    )
+
+    with (
+        patch(
+            "yutori.cli.commands.install_flow.inspect_cli_install",
+            return_value=(cli_state, StepResult("CLI", "success", "ok")),
+        ),
+        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
+        patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=True),
+        patch("yutori.cli.commands.install_flow.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
+        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "User declined SDK install.")),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_authenticate",
+            return_value=(StepResult("Auth", "skipped", "User declined auth."), False),
+        ),
+        patch("yutori.cli.commands.install_flow.maybe_install_mcp_server") as mock_mcp,
+        patch("yutori.cli.commands.install_flow.maybe_install_mcp_skills") as mock_skills,
+    ):
+        result = runner.invoke(app, ["__install_flow"])
+
+    assert result.exit_code == 0
+    mock_mcp.assert_not_called()
+    mock_skills.assert_not_called()
+    assert "Authenticate first" in result.stdout
 
 
 def test_install_flow_exits_nonzero_when_cli_verification_fails():
@@ -876,40 +928,6 @@ def test_install_flow_failed_mcp_does_not_bump_exit_code():
     assert "FAIL" in result.stdout
 
 
-def test_install_flow_skips_mcp_when_not_authenticated():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
-
-    with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
-        patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
-        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
-        patch(
-            "yutori.cli.commands.install_flow.maybe_authenticate",
-            return_value=(StepResult("Auth", "skipped", "User declined."), False),
-        ),
-        patch("yutori.cli.commands.install_flow.maybe_install_mcp_server") as mock_mcp,
-        patch("yutori.cli.commands.install_flow.maybe_install_mcp_skills") as mock_skills,
-    ):
-        result = runner.invoke(app, ["__install_flow"])
-
-    assert result.exit_code == 0
-    # Neither npx step should be invoked when the user isn't authenticated —
-    # registering a server that needs YUTORI_API_KEY is futile.
-    mock_mcp.assert_not_called()
-    mock_skills.assert_not_called()
-    assert "Authenticate first" in result.stdout
-
-
 # ---------------------------------------------------------------------------
 # maybe_repair_path branches
 # ---------------------------------------------------------------------------
@@ -1070,6 +1088,33 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
     assert captured["argv"] == (
         "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori", "-a", "codex", "uvx yutori-mcp",
     )
+
+
+def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_output(monkeypatch):
+    # The non-interactive path uses run_command (captures stdout/stderr).
+    # Failure details must include that captured output -- without a TTY
+    # the operator has no other channel for it; the bare "exit status N"
+    # the interactive path emits is unhelpful when npx printed a real
+    # error message into the captured buffer.
+    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
+
+    failure = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout="",
+        stderr="add-mcp: ENOTFOUND registry.npmjs.org",
+    )
+
+    with (
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
+    ):
+        result = maybe_install_mcp_server(Console(), interactive=False)
+
+    assert result.status == "failed"
+    # The captured stderr from npx must be in the status detail. Without
+    # this, a no-TTY failure leaves the operator guessing at the exit code.
+    assert "ENOTFOUND registry.npmjs.org" in result.detail
 
 
 def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypatch):
