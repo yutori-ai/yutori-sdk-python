@@ -48,7 +48,15 @@ def test_browse_run_forwards_local_browser_and_auth():
     with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
-            ["browse", "run", "log in and continue", "https://example.com/login", "--browser", "local", "--require-auth"],
+            [
+                "browse",
+                "run",
+                "log in and continue",
+                "https://example.com/login",
+                "--browser",
+                "local",
+                "--require-auth",
+            ],
         )
 
     assert result.exit_code == 0

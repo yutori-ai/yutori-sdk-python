@@ -1,7 +1,5 @@
 """Tests for Navigator n1.5 key mapping helpers."""
 
-import pytest
-
 from yutori.navigator.keys import map_key_to_playwright, map_keys_individual
 
 

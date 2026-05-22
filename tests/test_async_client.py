@@ -198,7 +198,9 @@ class TestAsyncBrowsingNamespace:
     async def test_browsing_get_with_rejection_reason(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        mock_response.content = (
+            b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        )
         mock_response.json.return_value = {
             "task_id": "task-123",
             "status": "failed",
@@ -239,7 +241,9 @@ class TestAsyncResearchNamespace:
     async def test_research_get_with_rejection_reason(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        mock_response.content = (
+            b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        )
         mock_response.json.return_value = {
             "task_id": "research-123",
             "status": "failed",

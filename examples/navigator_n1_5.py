@@ -43,13 +43,6 @@ import argparse
 import asyncio
 import json
 
-from loguru import logger
-from openai.types.chat import ChatCompletion
-from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-from playwright.async_api import Browser, Page, async_playwright
-from pydantic import BaseModel, Field
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
 from _common import (
     RETRYABLE_EXCEPTIONS,
     add_agent_arguments,
@@ -60,6 +53,13 @@ from _common import (
     add_task_arguments,
     configure_example_logging,
 )
+from loguru import logger
+from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
+from playwright.async_api import Browser, Page, async_playwright
+from pydantic import BaseModel, Field
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import (
@@ -77,8 +77,8 @@ from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 from yutori.navigator.tools import (
-    EXTRACT_ELEMENTS_SCRIPT,
     EXECUTE_JS_SCRIPT,
+    EXTRACT_ELEMENTS_SCRIPT,
     FIND_SCRIPT,
     GET_ELEMENT_BY_REF_SCRIPT,
     SET_ELEMENT_VALUE_SCRIPT,
