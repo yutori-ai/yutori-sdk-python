@@ -186,9 +186,13 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with output capture and a default timeout.
 
-    Catches ``FileNotFoundError``, ``PermissionError``, and ``TimeoutExpired``
-    to return a synthetic ``CompletedProcess`` — callers already branch on
-    ``returncode`` and ``stderr``, so they don't need to also handle exceptions.
+    Catches ``OSError`` (FileNotFoundError, PermissionError, ENOEXEC,
+    EMFILE, ENOMEM, and rarer fork/exec failures) plus ``TimeoutExpired``
+    to return a synthetic ``CompletedProcess``. Callers already branch on
+    ``returncode`` and ``stderr``, so they don't need to also handle
+    exceptions -- and matching ``run_interactive_command``'s broader catch
+    keeps the non-TTY install path from aborting the install mid-flow on
+    failures the interactive path would have absorbed.
     """
     argv = list(command)
     try:
@@ -210,7 +214,12 @@ def run_command(
             stdout=partial_stdout,
             stderr=f"{partial_stderr}\nTimed out after {timeout}s waiting for {format_command(argv)}.",
         )
-    except (FileNotFoundError, PermissionError) as exc:
+    except OSError as exc:
+        # Covers FileNotFoundError, PermissionError, and rarer fork/exec
+        # failures (ENOEXEC, EMFILE, ENOMEM). Matches
+        # run_interactive_command's catch so the no-TTY MCP/skills path
+        # can't crash the installer with an OSError that the interactive
+        # path would have folded into the status table.
         return subprocess.CompletedProcess(
             argv,
             returncode=RETURNCODE_EXEC_FAILED,
@@ -720,16 +729,22 @@ def maybe_install_mcp_skills(
     # Symmetric stdout-redirect guard with maybe_install_mcp_server: if
     # stdin is still a TTY but stdout is redirected (user did
     # `curl | bash > install.log`), keep install behavior consistent and
-    # skip skills too, even though they only write to a yutori-owned
-    # `~/.agents/skills/` dir and are lower-risk than MCP config writes.
-    # The cost (one rerun without redirection) is small; the win is a
-    # status table without one step done and the other skipped by half-
-    # baked heuristics.
-    if not interactive and sys.stdin.isatty():
+    # skip skills too -- the cost (one rerun without redirection) is
+    # small; the win is a status table without one step done and the
+    # other skipped by half-baked heuristics.
+    #
+    # YUTORI_INSTALL_CLIENT exception: when the user sets the env var,
+    # they're explicitly opting into non-interactive install (the var
+    # only matters to MCP register, but the *intent* applies to the
+    # whole non-TTY flow). Bypassing the guard for skills then keeps
+    # the install consistent with MCP (which also bypasses on env var).
+    explicitly_opted_in = bool(os.environ.get("YUTORI_INSTALL_CLIENT", "").strip())
+    if not interactive and sys.stdin.isatty() and not explicitly_opted_in:
         return StepResult(
             "MCP skills",
             "skipped",
-            "Stdout is redirected but stdin is a TTY. Rerun without redirecting stdout to install skills.",
+            "Stdout is redirected but stdin is a TTY. Set YUTORI_INSTALL_CLIENT to opt in to "
+            "non-interactive install, or rerun without redirecting stdout.",
         )
 
     return _run_npx_step(

@@ -1077,6 +1077,25 @@ def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[
     return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
 
 
+def test_run_command_catches_generic_oserror_not_just_filenotfound():
+    # run_interactive_command catches `OSError` broadly (covers
+    # FileNotFoundError, PermissionError, ENOEXEC, EMFILE, ENOMEM, ...);
+    # run_command must match so the no-TTY MCP/skills path can't crash
+    # the installer with an OSError variant the interactive path would
+    # have absorbed. Pin the parity with a synthetic ENOEXEC.
+    import errno
+
+    from yutori.cli.commands.install_flow import RETURNCODE_EXEC_FAILED, run_command
+
+    enoexec = OSError(errno.ENOEXEC, "Exec format error")
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=enoexec):
+        result = run_command(("/bin/bad-binary",))
+
+    assert result.returncode == RETURNCODE_EXEC_FAILED
+    assert "Could not execute" in result.stderr
+    assert "/bin/bad-binary" in result.stderr
+
+
 def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     # Explicit stdin patch keeps us out of the redirected-stdout guard
     # regardless of how the test runner exposes stdin (pytest defaults to
@@ -1102,12 +1121,12 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
 
 
-def test_maybe_install_mcp_skills_noninteractive_refuses_when_only_stdout_redirected():
+def test_maybe_install_mcp_skills_noninteractive_refuses_when_only_stdout_redirected(monkeypatch):
     # Symmetric guard with maybe_install_mcp_server: when stdin is still a
-    # TTY but stdout is redirected, skip skills install too so the install
-    # status table doesn't end up half-baked (one step done, one skipped
-    # by inconsistent heuristics). Cost is a single rerun for the user;
-    # win is internal consistency.
+    # TTY but stdout is redirected AND no explicit opt-in, skip skills
+    # install too so the install status table doesn't end up half-baked
+    # (one step done, one skipped by inconsistent heuristics).
+    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     with (
         patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
@@ -1118,6 +1137,30 @@ def test_maybe_install_mcp_skills_noninteractive_refuses_when_only_stdout_redire
     fake_run.assert_not_called()
     assert result.status == "skipped"
     assert "Stdout is redirected" in result.detail
+    # Hint should point at both opt-in paths so the user can pick one.
+    assert "YUTORI_INSTALL_CLIENT" in result.detail
+
+
+def test_maybe_install_mcp_skills_noninteractive_proceeds_when_redirect_with_opt_in(monkeypatch):
+    # When the user explicitly opts in via YUTORI_INSTALL_CLIENT, the
+    # redirect guard must bypass for skills too -- otherwise MCP registers
+    # but skills silently skips, and the user has an inconsistent install.
+    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "claude-code")
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
+        captured["argv"] = tuple(command)
+        return _ok_completed_process(tuple(command))
+
+    with (
+        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=False)
+
+    assert result.status == "success"
+    assert captured["argv"][1:] == MCP_SKILLS_INSTALL_COMMAND[1:]
 
 
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
