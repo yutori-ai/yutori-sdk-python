@@ -214,6 +214,17 @@ def run_command(
             stdout=partial_stdout,
             stderr=f"{partial_stderr}\nTimed out after {timeout}s waiting for {format_command(argv)}.",
         )
+    except KeyboardInterrupt:
+        # Mirror run_interactive_command: Ctrl+C during a long npx run
+        # (no-TTY MCP/skills install can take ~minutes on first network
+        # fetch) should yield a "Cancelled" status row instead of
+        # aborting the installer before the summary table prints.
+        return subprocess.CompletedProcess(
+            argv,
+            returncode=RETURNCODE_CANCELLED,
+            stdout="",
+            stderr=f"Cancelled by user while running {argv[0]!r}.",
+        )
     except OSError as exc:
         # Covers FileNotFoundError, PermissionError, and rarer fork/exec
         # failures (ENOEXEC, EMFILE, ENOMEM). Matches

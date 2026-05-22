@@ -1077,6 +1077,21 @@ def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[
     return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
 
 
+def test_run_command_catches_keyboardinterrupt_and_returns_cancelled():
+    # Mirror parity with run_interactive_command. Without this, Ctrl+C
+    # during a long no-TTY npx run aborts the installer before the
+    # status summary prints, leaving the operator with no useful
+    # transcript of what got done.
+    from yutori.cli.commands.install_flow import RETURNCODE_CANCELLED, run_command
+
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=KeyboardInterrupt):
+        result = run_command(("/usr/bin/long-running",))
+
+    assert result.returncode == RETURNCODE_CANCELLED
+    assert "Cancelled" in result.stderr
+    assert "/usr/bin/long-running" in result.stderr
+
+
 def test_run_command_catches_generic_oserror_not_just_filenotfound():
     # run_interactive_command catches `OSError` broadly (covers
     # FileNotFoundError, PermissionError, ENOEXEC, EMFILE, ENOMEM, ...);
