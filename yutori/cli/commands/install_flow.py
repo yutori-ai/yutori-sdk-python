@@ -665,21 +665,19 @@ def maybe_install_mcp_server(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
-    # In non-TTY mode `npx add-mcp` needs explicit `-a` flags -- without them
-    # the "which client(s) to configure?" prompt would hang. Honor
-    # YUTORI_INSTALL_CLIENT when set (single target), otherwise register for
-    # the small DEFAULT_NONINTERACTIVE_MCP_CLIENTS set so common
-    # coding-agent users (Claude Code, Codex, Cursor, Gemini CLI) get
-    # a working setup out of the box without `--all`'s ~14-file spray.
+    # In non-TTY mode `npx add-mcp` needs explicit `-a` flags -- without
+    # them the "which client(s) to configure?" prompt would hang. Honor
+    # YUTORI_INSTALL_CLIENT when set (single target), otherwise register
+    # for the small DEFAULT_NONINTERACTIVE_MCP_CLIENTS set so common
+    # coding-agent users get a working setup out of the box without
+    # `--all`'s ~14-file spray.
     #
-    # Edge case the multi-client default must avoid: when a user runs
-    # `curl ... | bash > install.log`, install.sh reopens stdin from
-    # /dev/tty so prompts could work -- but stdout is a file, so
-    # `is_interactive_terminal()` (which checks `-t 1`) returns False.
-    # Treating that as "automation" would silently register MCP for 4
-    # clients the user never opted into. Detect stdin-still-a-TTY and
-    # skip with a hint; only mass-register when *both* streams are
-    # non-TTY (real automation: CI run or agent shell).
+    # No further TTY second-guessing: an earlier iteration tried to
+    # distinguish "user redirected stdout" from "agent with pty stdin"
+    # via `sys.stdin.isatty()`, but the two cases produce identical
+    # signals and the resulting heuristic blocked legitimate agent
+    # installs. Trust the user/agent's choice to run the installer; if
+    # they wanted single-client install, they'll set the env var.
     noninteractive_command: Sequence[str] | None = None
     success_detail = "Configured Yutori MCP server. Restart your AI tool to load it."
 
@@ -688,21 +686,8 @@ def maybe_install_mcp_server(
         base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
         if client:
             noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
-        elif sys.stdin.isatty():
-            # Stdout is redirected but the user is at a real terminal --
-            # we'd be registering MCP for 4 clients without the user
-            # seeing the prompt. Skip with a hint so they opt in
-            # explicitly (env var, or rerun without stdout redirection).
-            return StepResult(
-                "MCP server",
-                "skipped",
-                "Stdout is redirected but stdin is a TTY. Refusing to silently register MCP "
-                "for the default client set; set YUTORI_INSTALL_CLIENT=<slug> (e.g. claude-code, "
-                "codex, cursor) or rerun without redirecting stdout.",
-            )
         else:
-            # True automation -- neither stdin nor stdout is a TTY. Default
-            # to the small popular set.
+            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
             agent_flags = tuple(
                 flag
                 for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
@@ -737,27 +722,6 @@ def maybe_install_mcp_skills(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
-    # Symmetric stdout-redirect guard with maybe_install_mcp_server: if
-    # stdin is still a TTY but stdout is redirected (user did
-    # `curl | bash > install.log`), keep install behavior consistent and
-    # skip skills too -- the cost (one rerun without redirection) is
-    # small; the win is a status table without one step done and the
-    # other skipped by half-baked heuristics.
-    #
-    # YUTORI_INSTALL_CLIENT exception: when the user sets the env var,
-    # they're explicitly opting into non-interactive install (the var
-    # only matters to MCP register, but the *intent* applies to the
-    # whole non-TTY flow). Bypassing the guard for skills then keeps
-    # the install consistent with MCP (which also bypasses on env var).
-    explicitly_opted_in = bool(os.environ.get("YUTORI_INSTALL_CLIENT", "").strip())
-    if not interactive and sys.stdin.isatty() and not explicitly_opted_in:
-        return StepResult(
-            "MCP skills",
-            "skipped",
-            "Stdout is redirected but stdin is a TTY. Set YUTORI_INSTALL_CLIENT to opt in to "
-            "non-interactive install, or rerun without redirecting stdout.",
-        )
-
     return _run_npx_step(
         console,
         name="MCP skills",

@@ -1136,48 +1136,6 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
 
 
-def test_maybe_install_mcp_skills_noninteractive_refuses_when_only_stdout_redirected(monkeypatch):
-    # Symmetric guard with maybe_install_mcp_server: when stdin is still a
-    # TTY but stdout is redirected AND no explicit opt-in, skip skills
-    # install too so the install status table doesn't end up half-baked
-    # (one step done, one skipped by inconsistent heuristics).
-    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
-    with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_flow.run_command") as fake_run,
-    ):
-        result = maybe_install_mcp_skills(Console(), interactive=False)
-
-    fake_run.assert_not_called()
-    assert result.status == "skipped"
-    assert "Stdout is redirected" in result.detail
-    # Hint should point at both opt-in paths so the user can pick one.
-    assert "YUTORI_INSTALL_CLIENT" in result.detail
-
-
-def test_maybe_install_mcp_skills_noninteractive_proceeds_when_redirect_with_opt_in(monkeypatch):
-    # When the user explicitly opts in via YUTORI_INSTALL_CLIENT, the
-    # redirect guard must bypass for skills too -- otherwise MCP registers
-    # but skills silently skips, and the user has an inconsistent install.
-    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "claude-code")
-    captured: dict[str, tuple[str, ...]] = {}
-
-    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
-        captured["argv"] = tuple(command)
-        return _ok_completed_process(tuple(command))
-
-    with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
-    ):
-        result = maybe_install_mcp_skills(Console(), interactive=False)
-
-    assert result.status == "success"
-    assert captured["argv"][1:] == MCP_SKILLS_INSTALL_COMMAND[1:]
-
-
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
     # Without YUTORI_INSTALL_CLIENT, in true automation (both streams
     # non-TTY) install for the small popular default set -- not `--all`
@@ -1209,30 +1167,6 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(
     assert "YUTORI_INSTALL_CLIENT" in result.detail
     # Definitively NOT --all (the previous behavior, which sprayed configs).
     assert "--all" not in " ".join(captured["argv"])
-
-
-def test_maybe_install_mcp_server_noninteractive_refuses_when_only_stdout_redirected(monkeypatch):
-    # Regression guard: when a user runs `curl ... | bash > install.log`,
-    # install.sh reopens stdin from /dev/tty so sys.stdin.isatty() is True
-    # while sys.stdout.isatty() is False. The old logic treated that as
-    # "automation" and silently registered MCP for 4 default clients --
-    # surprising for someone who just wanted to capture the install log.
-    # Now we detect the redirect and skip with a hint instead.
-    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
-
-    with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=True),
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_flow.run_command") as fake_run,
-    ):
-        result = maybe_install_mcp_server(Console(), interactive=False)
-
-    fake_run.assert_not_called()
-    assert result.status == "skipped"
-    # Hint must name the env var and reference the redirect so the user
-    # can disambiguate from a generic "no TTY" skip.
-    assert "YUTORI_INSTALL_CLIENT" in result.detail
-    assert "Stdout is redirected" in result.detail
 
 
 def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client(monkeypatch):
