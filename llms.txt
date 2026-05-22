@@ -13,29 +13,47 @@ Prioritize the CLI/MCP setup first. Do not ask the user to paste API keys into c
 
 ## Setup
 
-Tell the user to run this in their own terminal — the installer is interactive (opens a browser for auth, prompts for client selection) and will not work through the agent's Bash shell:
+Drive setup yourself. The user's only action is clicking **Allow** in a browser tab that opens during auth.
 
-```bash
-curl -fsSL https://yutori.com/install.sh | bash
-```
+1. Install the CLI (you run this):
 
-This single command runs the entire setup end-to-end:
+    ```bash
+    curl -fsSL https://yutori.com/install.sh | bash
+    ```
 
-- Installs the `yutori` CLI via `uv tool install yutori`
-- Runs `yutori auth login` — opens Yutori Platform in the browser, creates/selects an API key, saves it to `~/.yutori/config.json` (read automatically by the SDK, CLI, and MCP server)
-- Configures the Yutori MCP server in compatible clients via `npx add-mcp "uvx yutori-mcp"`
-- Installs workflow skills via `npx skills add yutori-ai/yutori-mcp -g` — adds `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, and `yutori-api-monitor`
-- Runs a verification browsing task
+    In a non-TTY shell this installs only the CLI; the steps below cover what the interactive installer would have done. If your PATH hasn't picked up `~/.local/bin` yet, use `$(uv tool dir --bin)/yutori` or run `eval "$(uv tool update-shell --print)"`.
 
-When it exits, the installer prints a per-step status table (success / skipped / failed). Do **not** re-run the commands above unless a step is marked failed or skipped — re-running succeeded steps wastes time and can prompt the user again. If a step needs retry, run only that fallback:
+2. Authenticate (you run this; **user clicks Allow**):
 
-| Step | Fallback |
-| --- | --- |
-| Authentication | `yutori auth login` |
-| MCP server | `npx add-mcp "uvx yutori-mcp"` |
-| Workflow skills | `npx skills add yutori-ai/yutori-mcp -g` |
+    ```bash
+    yutori auth login
+    ```
 
-After the installer finishes, ask the user to restart their coding agent so the MCP tools and skills load.
+    Opens a Yutori sign-in tab in the user's default browser, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for several minutes waiting for the user. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."* If the command prints `Could not launch a browser` with a URL, relay that URL to the user to open manually.
+
+3. Register the Yutori MCP server for your client (idempotent):
+
+    ```bash
+    npx add-mcp -y -g -n yutori -a <client> "uvx yutori-mcp"
+    ```
+
+    Substitute `<client>` with your agent's slug. Common values: `claude-code`, `codex`, `cursor`, `vscode`, `claude-desktop`, `gemini-cli`, `zed`, `opencode`. Run `npx add-mcp list-agents` for the full list.
+
+    If `npx` isn't available, native CLIs work for some clients:
+    - Claude Code: `claude mcp add --scope user yutori -- uvx yutori-mcp`
+    - Codex: `codex mcp add yutori -- uvx yutori-mcp`
+
+4. Install workflow skills (idempotent):
+
+    ```bash
+    npx skills add yutori-ai/yutori-mcp -g
+    ```
+
+    Adds `yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, and `yutori-api-monitor` at user scope.
+
+5. Ask the user to restart this coding agent so the MCP tools and skills load.
+
+**Fallback path:** if your Bash tool can't bind `127.0.0.1` (remote dev environment, sandboxed agent) or the user is on a different machine, ask the user to run `curl -fsSL https://yutori.com/install.sh | bash` in their own terminal — the interactive installer handles all five steps.
 
 ## Verify
 
