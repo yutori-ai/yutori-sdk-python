@@ -15,7 +15,7 @@ On macOS or Linux, the recommended setup is the one-line installer:
 curl -fsSL https://yutori.com/install.sh | bash
 ```
 
-This installs the global `yutori` CLI with `uv tool install`, then — in an interactive terminal — prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, configure the Yutori MCP server, install workflow skills, and run a verification browsing task. In a non-interactive session (CI, pipe) the auth, MCP, skills, and verification prompts are skipped with guidance on how to finish setup.
+This installs the global `yutori` CLI with `uv tool install`, then — in an interactive terminal — prompts (with sensible defaults) to add the SDK to your project, run `yutori auth login`, configure the Yutori MCP server, install workflow skills, and run a verification browsing task. In a non-interactive session (CI, pipe, AI coding agent) the SDK install, auth, and verification prompts are skipped (auth needs a browser; verification needs a key); the Yutori MCP server and workflow skills install automatically without prompts. Set `YUTORI_INSTALL_CLIENT=<slug>` (e.g. `claude-code`, `codex`, `cursor`) to scope the MCP install to one coding agent — otherwise it registers for the default set (`claude-code`, `codex`, `cursor`, `gemini-cli`). See `npx add-mcp list-agents` for the full slug list to use with `YUTORI_INSTALL_CLIENT`.
 
 Python 3.9+ is required for the SDK.
 

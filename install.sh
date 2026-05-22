@@ -11,7 +11,7 @@ YUTORI_RESET=$'\033[0m'
 # Installer version, injected at build time from pyproject.toml by
 # scripts/build_install.sh. Surfaced in the header so users can tell at a
 # glance which release they fetched (useful for bug reports).
-YUTORI_INSTALLER_VERSION="0.7.6"
+YUTORI_INSTALLER_VERSION="0.7.7"
 
 # Read the banner into a variable via `read -d ''` rather than `$(cat <<EOF)`.
 # Bash 3.2 (macOS /bin/bash) has a known parser bug where a heredoc nested
@@ -154,7 +154,7 @@ render_bootstrap_intro() {
         printf '| %s\n' "$mode_line"
         printf '| Installing Yutori CLI with uv...\n\n'
     fi
-    # Flag the intro as shown so the Python UI (install_ui.py) suppresses its
+    # Flag the intro as shown so the Python flow (install_flow.py) suppresses its
     # duplicate header. Set here — at the exact site of the render — rather
     # than at handoff time, so a future code path that skips the intro can't
     # accidentally suppress the Python header too.
@@ -1988,9 +1988,9 @@ handoff_to_python_ui() {
     # YUTORI_INSTALLER_BOOTSTRAP_SHOWN is exported by render_bootstrap_intro
     # itself (when the intro actually prints), so no unconditional export here.
     if has_usable_tty; then
-        exec "$yutori_bin" __install_ui </dev/tty
+        exec "$yutori_bin" __install_flow </dev/tty
     fi
-    exec "$yutori_bin" __install_ui
+    exec "$yutori_bin" __install_flow
 }
 
 main() {

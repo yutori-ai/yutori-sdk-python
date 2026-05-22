@@ -1,11 +1,17 @@
-"""Hidden ``yutori __install_ui`` subcommand.
+"""Hidden ``yutori __install_flow`` subcommand.
 
 Invoked by ``install.sh`` via the absolute path ``$(uv tool dir --bin)/yutori
-__install_ui`` after ``uv tool install yutori`` completes. The bootstrap
+__install_flow`` after ``uv tool install yutori`` completes. The bootstrap
 reopens ``/dev/tty`` on our stdin so interactive prompts work under
 ``curl | bash``, and exports ``YUTORI_UV_BIN`` so we can locate ``uv`` before
 ``$PATH`` is repaired. Neither contract is load-bearing for direct ``yutori
-__install_ui`` invocations — we fall back to ``PATH`` lookups in that case.
+__install_flow`` invocations — we fall back to ``PATH`` lookups in that case.
+
+Drives both the interactive and non-interactive install paths -- the
+interactive path renders Rich prompts; the non-interactive path runs the
+same steps with scripted defaults (see ``_run_npx_step`` and
+``_mcp_server_noninteractive_command``). Auth, SDK install, PATH repair,
+and verification skip without a TTY; MCP server and skills run unattended.
 
 The module is not part of the public surface; users never call this command.
 """
@@ -47,6 +53,13 @@ VERIFICATION_MAX_STEPS = 3
 # `npx add-mcp "uvx yutori-mcp"`).
 MCP_SERVER_INSTALL_COMMAND = ("npx", "add-mcp", "uvx yutori-mcp")
 MCP_SKILLS_INSTALL_COMMAND = ("npx", "skills", "add", "yutori-ai/yutori-mcp", "-g")
+# Default set of clients to register MCP for when YUTORI_INSTALL_CLIENT is
+# unset in non-TTY installs. Covers the most-used coding agents without
+# spraying config files for every one of the ~14 supported clients
+# (`add-mcp --all` writes a config for each, including ones the user
+# never installed). Set YUTORI_INSTALL_CLIENT=<slug> to override with a
+# single target; see `npx add-mcp list-agents` for the full slug list.
+DEFAULT_NONINTERACTIVE_MCP_CLIENTS = ("claude-code", "codex", "cursor", "gemini-cli")
 # Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
 # serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
@@ -173,9 +186,13 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with output capture and a default timeout.
 
-    Catches ``FileNotFoundError``, ``PermissionError``, and ``TimeoutExpired``
-    to return a synthetic ``CompletedProcess`` — callers already branch on
-    ``returncode`` and ``stderr``, so they don't need to also handle exceptions.
+    Catches ``OSError`` (FileNotFoundError, PermissionError, ENOEXEC,
+    EMFILE, ENOMEM, and rarer fork/exec failures) plus ``TimeoutExpired``
+    to return a synthetic ``CompletedProcess``. Callers already branch on
+    ``returncode`` and ``stderr``, so they don't need to also handle
+    exceptions -- and matching ``run_interactive_command``'s broader catch
+    keeps the non-TTY install path from aborting the install mid-flow on
+    failures the interactive path would have absorbed.
     """
     argv = list(command)
     try:
@@ -197,7 +214,23 @@ def run_command(
             stdout=partial_stdout,
             stderr=f"{partial_stderr}\nTimed out after {timeout}s waiting for {format_command(argv)}.",
         )
-    except (FileNotFoundError, PermissionError) as exc:
+    except KeyboardInterrupt:
+        # Mirror run_interactive_command: Ctrl+C during a long npx run
+        # (no-TTY MCP/skills install can take ~minutes on first network
+        # fetch) should yield a "Cancelled" status row instead of
+        # aborting the installer before the summary table prints.
+        return subprocess.CompletedProcess(
+            argv,
+            returncode=RETURNCODE_CANCELLED,
+            stdout="",
+            stderr=f"Cancelled by user while running {argv[0]!r}.",
+        )
+    except OSError as exc:
+        # Covers FileNotFoundError, PermissionError, and rarer fork/exec
+        # failures (ENOEXEC, EMFILE, ENOMEM). Matches
+        # run_interactive_command's catch so the no-TTY MCP/skills path
+        # can't crash the installer with an OSError that the interactive
+        # path would have folded into the status table.
         return subprocess.CompletedProcess(
             argv,
             returncode=RETURNCODE_EXEC_FAILED,
@@ -327,7 +360,7 @@ def _yutori_version() -> str:
 def render_header(console: Console, *, interactive: bool) -> None:
     mode = "Interactive terminal detected." if interactive else "Non-interactive terminal detected."
     # Only used when bash didn't render its own intro (direct
-    # `yutori __install_ui` invocation). The bash intro reads its version
+    # `yutori __install_flow` invocation). The bash intro reads its version
     # from pyproject.toml at build time; here we read from installed
     # package metadata. In a `curl | bash` flow the two match.
     console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer v{_yutori_version()}[/bold {MINT_HIGHLIGHT}]")
@@ -559,49 +592,71 @@ def _run_npx_step(
     title: str,
     description: str,
     command: Sequence[str],
+    noninteractive_command: Sequence[str] | None,
     confirm_question: str,
     success_detail: str,
     interactive: bool,
     env: Mapping[str, str] | None,
 ) -> StepResult:
-    print_prompt_block(console, title, description, command=command)
-
-    if not interactive:
+    # In interactive mode we display and run `command` (may prompt the user).
+    # In non-interactive mode we display and run `noninteractive_command` if
+    # provided, otherwise skip. The "displayed" form should match what we
+    # actually invoke so the manual-retry hint is copy-pasteable.
+    if interactive:
+        display_command: Sequence[str] = command
+    elif noninteractive_command is not None:
+        display_command = noninteractive_command
+    else:
+        print_prompt_block(console, title, description, command=command)
         return StepResult(
             name,
             "skipped",
             f"Skipped because no interactive terminal is available. {_manual_retry_hint(command)}",
         )
 
+    print_prompt_block(console, title, description, command=display_command)
+
     npx_path = resolve_npx_path(env)
     if not npx_path:
         return StepResult(
             name,
             "skipped",
-            f"Node.js/npx is not on PATH. {_manual_retry_hint(command)}",
+            f"Node.js/npx is not on PATH. {_manual_retry_hint(display_command)}",
         )
 
-    if not ask_confirm(console, confirm_question, default=True):
-        return StepResult(name, "skipped", f"{title} setup was skipped.")
+    if interactive:
+        if not ask_confirm(console, confirm_question, default=True):
+            return StepResult(name, "skipped", f"{title} setup was skipped.")
+        # run_interactive_command inherits stdio so npx prompts and the user's
+        # responses flow through the real TTY.
+        result = run_interactive_command((npx_path, *display_command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
+    else:
+        # No TTY available, so the non-interactive variant must run without
+        # prompts. Capture output via run_command so any failure surfaces in
+        # the status detail rather than scrolling past in inherited stdio.
+        result = run_command((npx_path, *display_command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
 
-    result = run_interactive_command((npx_path, *command[1:]), env=env, timeout=NPX_CMD_TIMEOUT)
     if result.returncode == 0:
         return StepResult(name, "success", success_detail)
 
-    # run_interactive_command inherits stdio, so any stderr from npx has
-    # already scrolled past (or never existed, for the 130 branch).
-    # A copy-pasteable retry hint is the only useful detail we can add.
     # We don't special-case 127: resolve_npx_path already verified the
     # binary exists, so a 127 here is almost always npx's own exit code
     # (e.g. the package's bin entry resolved to a missing executable),
     # not the synthetic OSError 127 from run_interactive_command.
     if result.returncode == RETURNCODE_CANCELLED:
-        return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(command)}")
+        return StepResult(name, "skipped", f"Cancelled by user. {_manual_retry_hint(display_command)}")
     if result.returncode == RETURNCODE_TIMEOUT:
         reason = f"Timed out after {NPX_CMD_TIMEOUT}s."
+    elif not interactive:
+        # Non-interactive path used run_command, which captured stdout and
+        # stderr. Surface that captured output -- otherwise the operator
+        # has only the exit code (the interactive path's stderr already
+        # scrolled past on the inherited TTY, so this asymmetry is
+        # specific to the no-TTY branch).
+        reason = describe_completed_process(result)
     else:
         reason = f"Command exited with status {result.returncode}."
-    return StepResult(name, "failed", f"{reason} {_manual_retry_hint(command)}")
+    return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
 
 
 def maybe_install_mcp_server(
@@ -610,14 +665,52 @@ def maybe_install_mcp_server(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
+    # In non-TTY mode `npx add-mcp` needs explicit `-a` flags -- without
+    # them the "which client(s) to configure?" prompt would hang. Honor
+    # YUTORI_INSTALL_CLIENT when set (single target), otherwise register
+    # for the small DEFAULT_NONINTERACTIVE_MCP_CLIENTS set so common
+    # coding-agent users get a working setup out of the box without
+    # `--all`'s ~14-file spray.
+    #
+    # No further TTY second-guessing: an earlier iteration tried to
+    # distinguish "user redirected stdout" from "agent with pty stdin"
+    # via `sys.stdin.isatty()`, but the two cases produce identical
+    # signals and the resulting heuristic blocked legitimate agent
+    # installs. Trust the user/agent's choice to run the installer; if
+    # they wanted single-client install, they'll set the env var.
+    noninteractive_command: Sequence[str] | None = None
+    success_detail = "Configured Yutori MCP server. Restart your AI tool to load it."
+
+    if not interactive:
+        client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+        base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
+        if client:
+            noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
+        else:
+            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
+            agent_flags = tuple(
+                flag
+                for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
+                for flag in ("-a", slug)
+            )
+            noninteractive_command = (*base, *agent_flags, "uvx yutori-mcp")
+            default_list = ", ".join(DEFAULT_NONINTERACTIVE_MCP_CLIENTS)
+            success_detail = (
+                f"Registered Yutori MCP for the default client set ({default_list}). "
+                f"Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client, "
+                f'or run `npx add-mcp -y -g -n yutori -a <slug> "uvx yutori-mcp"` for others '
+                f"(see `npx add-mcp list-agents`)."
+            )
+
     return _run_npx_step(
         console,
         name="MCP server",
         title="Yutori MCP server",
         description="Installs Yutori MCP tools with add-mcp.",
         command=MCP_SERVER_INSTALL_COMMAND,
+        noninteractive_command=noninteractive_command,
         confirm_question="Install the Yutori MCP server for your AI tools?",
-        success_detail="Configured Yutori MCP server. Restart your AI tool to load it.",
+        success_detail=success_detail,
         interactive=interactive,
         env=env,
     )
@@ -635,6 +728,10 @@ def maybe_install_mcp_skills(
         title="Yutori workflow skills",
         description="Installs slash-command workflow skills globally via the skills CLI.",
         command=MCP_SKILLS_INSTALL_COMMAND,
+        # `npx skills add ... -g` doesn't prompt, so the same argv works in
+        # both modes -- only the wrapper's confirm prompt and stdio-handling
+        # differ between interactive and non-interactive paths.
+        noninteractive_command=MCP_SKILLS_INSTALL_COMMAND,
         confirm_question="Install Yutori workflow skills globally?",
         success_detail="Installed Yutori workflow skills at user scope.",
         interactive=interactive,
@@ -834,8 +931,8 @@ def run_verification(
     return StepResult("Verification", "failed", f"Verification failed ({status}). View task: {task_url}"), False
 
 
-def install_ui_command() -> None:
-    """Interactive post-install flow.
+def install_flow_command() -> None:
+    """Post-install flow, interactive or non-interactive.
 
     Install-step failures (CLI / PATH / SDK / auth) exit non-zero. A failed
     live-API verification does NOT — the install itself worked.
@@ -872,10 +969,16 @@ def install_ui_command() -> None:
     # the npm registry, and an interactive picker. A failure here doesn't
     # bump exit_code — it surfaces in the summary table as FAIL with a
     # retry hint, but the install itself (CLI/SDK/auth) is still usable.
-    # Skip when auth was declined or failed: the registered MCP server
-    # would fail on first use without credentials, and the user has
-    # already opted out of finishing setup.
-    if not authenticated:
+    #
+    # Auth-decline gate: in *interactive* mode, "auth was skipped" means the
+    # user said no — they've opted out of finishing setup, so skipping MCP /
+    # skills matches their intent. In *non-interactive* mode "auth was
+    # skipped" just means "no TTY for the browser callback," and the
+    # caller (CI run, AI coding agent) almost certainly does want MCP /
+    # skills configured. Neither registration step needs an API key at
+    # install time — the MCP server only authenticates when invoked, and
+    # skills are static markdown — so run them unattended.
+    if interactive and not authenticated:
         mcp_result = StepResult("MCP server", "skipped", "Authenticate first, then re-run the installer.")
         skills_result = StepResult("MCP skills", "skipped", "Authenticate first, then re-run the installer.")
     else:

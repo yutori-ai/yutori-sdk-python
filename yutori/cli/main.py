@@ -11,7 +11,7 @@ except ImportError:
     sys.exit(1)
 
 from .commands import auth, browse, research, scouts, usage
-from .commands.install_ui import install_ui_command
+from .commands.install_flow import install_flow_command
 
 app = typer.Typer(
     name="yutori",
@@ -56,7 +56,13 @@ def version() -> None:
     typer.echo(f"yutori {__version__}")
 
 
-app.command("__install_ui", hidden=True)(install_ui_command)
+app.command("__install_flow", hidden=True)(install_flow_command)
+# Backward-compat alias for cached install.sh artifacts that still invoke
+# the old subcommand name. install.sh upgrades yutori via `uv tool install
+# --force --upgrade` before invoking the subcommand, so a stale cached
+# install.sh paired with a freshly upgraded CLI would fail without this.
+# Safe to remove one SDK release after the rename has propagated.
+app.command("__install_ui", hidden=True)(install_flow_command)
 
 
 if __name__ == "__main__":
