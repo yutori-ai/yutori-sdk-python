@@ -7,6 +7,14 @@ The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) â€
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
+## AI Agent Quickstart
+
+Paste this into Claude Code, Codex, Cursor, Windsurf, or another coding agent:
+
+```text
+Use https://yutori.com/api/llms.txt to set up Yutori for this project: install the CLI, authenticate through Yutori Platform, install the Yutori MCP server and workflow skills, then show me one Scout, Research, and Browsing demo.
+```
+
 ## Install
 
 On macOS or Linux, the recommended setup is the one-line installer:
@@ -77,7 +85,7 @@ Resolution order: explicit `api_key` > `YUTORI_API_KEY` env var > `~/.yutori/con
 The installer sets these up automatically when Node.js is available. To do it manually:
 
 ```bash
-npx add-mcp uvx yutori-mcp
+npx add-mcp "uvx yutori-mcp"
 npx skills add yutori-ai/yutori-mcp -g
 ```
 

@@ -1,0 +1,81 @@
+# Yutori AI Agent Quickstart
+
+You are helping a user set up Yutori from scratch. Yutori provides APIs and agent tools for:
+
+| Capability | Use it for |
+| --- | --- |
+| Scout | Continuous web monitoring on a schedule |
+| Research | One-time deep web research |
+| Browsing | One-time browser automation |
+| Navigator | A computer-use model API for custom browser agents |
+
+Prioritize the CLI/MCP setup first. Do not ask the user to paste API keys into chat.
+
+## Setup
+
+Drive setup yourself. The user's only action is clicking **Allow** in a browser tab that opens during auth.
+
+1. Install the CLI, MCP server, and skills in one shot (you run this):
+
+    ```bash
+    YUTORI_INSTALL_CLIENT=<client> curl -fsSL https://yutori.com/install.sh | bash
+    ```
+
+    Substitute `<client>` with your agent's slug — common values: `claude-code`, `codex`, `cursor`, `vscode`, `claude-desktop`, `gemini-cli`, `zed`, `opencode` (run `npx add-mcp list-agents` for the full list). If `YUTORI_INSTALL_CLIENT` is unset the installer registers MCP for the default set (`claude-code`, `codex`, `cursor`, `gemini-cli`).
+
+    In non-TTY mode the installer does the CLI install via `uv tool install yutori`, registers the Yutori MCP server for the chosen client(s), and installs the six workflow skills (`yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, `yutori-api-monitor`, `yutori-login`) at user scope. Auth and verification are skipped — they need a browser and an API key (step 2 below).
+
+    If `~/.local/bin` isn't on your PATH yet, invoke `yutori` via `$(uv tool dir --bin)/yutori` or run `export PATH="$(uv tool dir --bin):$PATH"` for the rest of this session.
+
+2. Authenticate (you run this; **user clicks Allow**):
+
+    ```bash
+    yutori auth login
+    ```
+
+    Opens a Yutori sign-in tab in the user's default browser, binds `127.0.0.1` for the OAuth callback, and saves the API key to `~/.yutori/config.json`. The Bash call blocks for up to 5 minutes waiting for the user — if it times out, rerun. Tell the user: *"I'm opening a Yutori sign-in tab — click Allow when it loads."* If the command prints `Could not launch a browser` with a URL, relay that URL to the user.
+
+3. Ask the user to restart this coding agent so the MCP tools and skills load.
+
+### Fallback: if step 1 didn't configure MCP or skills
+
+The installer's status table will say `MCP server: SKIP` or `MCP skills: SKIP` if Node.js/npx wasn't on PATH. Run only the failed step(s):
+
+```bash
+# MCP server
+npx add-mcp -y -g -n yutori -a <client> "uvx yutori-mcp"
+
+# Workflow skills
+npx skills add yutori-ai/yutori-mcp -g
+```
+
+If `npx` isn't available, native CLIs work for some clients:
+- Claude Code: `claude mcp add --scope user yutori -- uvx yutori-mcp`
+- Codex: `codex mcp add yutori -- uvx yutori-mcp`
+
+**Fallback path:** if your Bash tool can't bind `127.0.0.1` for the auth callback (remote dev environment, sandboxed agent) or the user is on a different machine, ask the user to run `curl -fsSL https://yutori.com/install.sh | bash` in their own terminal — the interactive installer walks through CLI, auth, MCP, skills, and a verification task end-to-end.
+
+## Verify
+
+Run:
+
+```bash
+yutori auth status
+yutori usage
+```
+
+If MCP tools are available in the current agent, call `list_api_usage` as an additional verification.
+
+## Demonstrate
+
+After setup, demonstrate the installed workflow in the current coding agent:
+
+1. Scout: use the `yutori-scout` skill or `create_scout` MCP tool to draft a high-quality monitoring query. Ask for confirmation before creating a recurring scout.
+2. Research: use the `yutori-research` skill or `run_research_task` MCP tool for a small one-time research question. Tell the user research tasks are asynchronous and usually take several minutes.
+3. Browsing: use the `yutori-browse` skill or `run_browsing_task` MCP tool for a simple public-page task, such as extracting the headline from `https://www.yutori.com`. Ask for confirmation before running tasks that may spend credits.
+
+For SDK/API integration details, use:
+
+- Python SDK and CLI reference: https://github.com/yutori-ai/yutori-sdk-python/blob/main/api.md
+- MCP server and skill setup: https://github.com/yutori-ai/yutori-mcp
+- API docs index for agents: https://docs.yutori.com/llms.txt
