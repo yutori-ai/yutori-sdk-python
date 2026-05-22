@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _ERROR_MSG = "output_schema must be a dict, a Pydantic BaseModel class, or a BaseModel instance"
 
 

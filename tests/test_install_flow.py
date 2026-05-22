@@ -287,7 +287,10 @@ def test_install_flow_interactive_auth_decline_still_skips_mcp_and_skills():
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=True),
         patch("yutori.cli.commands.install_flow.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
-        patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "User declined SDK install.")),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_sdk",
+            return_value=StepResult("SDK", "skipped", "User declined SDK install."),
+        ),
         patch(
             "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "skipped", "User declined auth."), False),

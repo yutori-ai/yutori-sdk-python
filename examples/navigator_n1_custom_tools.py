@@ -16,7 +16,9 @@ raw request/response payloads in `visualization.html` after the run.
 Usage:
     yutori auth login  # or export YUTORI_API_KEY=...
     uv sync --extra examples
-    uv run python examples/navigator_n1_custom_tools.py --task "Get the titles and links of all the blog posts" --start-url "https://www.yutori.com"
+    uv run python examples/navigator_n1_custom_tools.py \
+        --task "Get the titles and links of all the blog posts" \
+        --start-url "https://www.yutori.com"
 """
 
 import argparse
@@ -25,13 +27,6 @@ import json
 import re
 import sys
 from functools import cached_property
-
-from loguru import logger
-from openai.types.chat import ChatCompletion
-from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-from playwright.async_api import Browser, Page, async_playwright
-from pydantic import BaseModel, Field
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from _common import (
     RETRYABLE_EXCEPTIONS,
@@ -42,6 +37,13 @@ from _common import (
     add_task_arguments,
     configure_example_logging,
 )
+from loguru import logger
+from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
+from playwright.async_api import Browser, Page, async_playwright
+from pydantic import BaseModel, Field
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates

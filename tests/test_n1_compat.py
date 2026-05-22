@@ -6,7 +6,6 @@ import warnings
 
 import pytest
 
-
 COMPAT_IMPORTS = [
     ("yutori.n1", "denormalize_coordinates"),
     ("yutori.n1.keys", "map_key_to_playwright"),
