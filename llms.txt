@@ -1,13 +1,5 @@
 # Yutori AI Agent Quickstart
 
-Copy this one-line prompt into Claude Code, Codex, Cursor, Windsurf, or another coding agent:
-
-```text
-Use https://yutori.com/api/llms.txt to set up Yutori for this project: install the CLI, authenticate through Yutori Platform, install the Yutori MCP server and workflow skills, then show me one Scout, Research, and Browsing demo.
-```
-
-## Agent Instructions
-
 You are helping a user set up Yutori from scratch. Yutori provides APIs and agent tools for:
 
 | Capability | Use it for |
