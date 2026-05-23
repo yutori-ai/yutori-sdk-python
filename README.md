@@ -7,7 +7,7 @@ The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) �
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
-## AI Agent Quickstart
+## AI agent install (recommended)
 
 Paste this into Claude Code, Codex, Cursor, Windsurf, or another coding agent:
 
@@ -15,7 +15,7 @@ Paste this into Claude Code, Codex, Cursor, Windsurf, or another coding agent:
 Use https://yutori.com/api/llms.txt and set up Yutori for me.
 ```
 
-## Install
+## Manual install
 
 On macOS or Linux, the recommended setup is the one-line installer:
 
@@ -23,19 +23,18 @@ On macOS or Linux, the recommended setup is the one-line installer:
 curl -fsSL https://yutori.com/install.sh | bash
 ```
 
-The installer installs the global `yutori` CLI with `uv tool install`, then walks the rest of setup. In an **interactive terminal** it prompts (with sensible defaults) for:
-
-- adding the SDK to your project,
-- `yutori auth login`,
-- configuring the Yutori MCP server,
-- installing workflow skills,
-- and running a verification browsing task.
-
-In a **non-interactive session** (CI, pipe, AI coding agent) the SDK install, auth, and verification steps are skipped — auth needs a browser, verification needs an API key. MCP server and workflow skills install automatically without prompts.
-
-To scope the non-interactive MCP install to one coding agent, set `YUTORI_INSTALL_CLIENT=<slug>` (e.g. `claude-code`, `codex`, `cursor`). Unset, it registers for `claude-code`, `codex`, `cursor`, and `gemini-cli`. Run `npx add-mcp list-agents` for the full slug list.
+Installs the global `yutori` CLI via `uv tool install` and prompts to add the SDK to your project, run `yutori auth login`, register the MCP server, install workflow skills, and verify with a browsing task.
 
 Python 3.9+ is required for the SDK.
+
+<details>
+<summary>Non-interactive install (CI, pipe, AI coding agent)</summary>
+
+The SDK install, auth, and verification steps are skipped — auth needs a browser, verification needs an API key. MCP server and workflow skills install automatically without prompts.
+
+To scope the MCP install to one coding agent, set `YUTORI_INSTALL_CLIENT=<slug>` (e.g. `claude-code`, `codex`, `cursor`). Unset, it registers for `claude-code`, `codex`, `cursor`, and `gemini-cli`. Run `npx add-mcp list-agents` for the full slug list.
+
+</details>
 
 <details>
 <summary>Uninstall the CLI later</summary>
