@@ -289,3 +289,21 @@ def test_full_animation_clears_frame_region_before_handoff() -> None:
         "end of screen) after the animation loop, or leftover frame rows "
         "will bleed through when the Python UI starts printing."
     )
+
+
+def test_frames_render_dir_uses_mktemp_d() -> None:
+    """Regression: the render dir must be mktemp -d-created, not derived from
+    FRAMES_CACHE_FILE — a derived name under shared /tmp can be pre-created
+    (with symlinks inside) by another local user and adopted by `mkdir -p`.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert 'FRAMES_RENDER_DIR="$(mktemp -d' in content
+    assert '"${FRAMES_CACHE_FILE}.rendered.d"' not in content
+
+
+def test_uninstall_confirm_accepts_yes() -> None:
+    """Regression: the prompt offers "[Y/n]", so a typed "yes" must not be
+    treated as a decline by a single-character match.
+    """
+    content = UNINSTALL_SH.read_text()
+    assert "^[Yy]([Ee][Ss])?$" in content

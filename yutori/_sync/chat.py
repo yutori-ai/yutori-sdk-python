@@ -58,9 +58,9 @@ class ChatNamespace:
     """Namespace for Navigator API operations (pixels-to-actions LLM).
 
     Requests go through the bundled OpenAI client, which retries failures
-    (connection errors, timeouts, 429/5xx) twice by default; pass
-    ``max_retries`` via the OpenAI kwargs to change this. The other SDK
-    namespaces never retry.
+    (connection errors, timeouts, 429/5xx) twice by default; this is not
+    configurable through the SDK surface. The other SDK namespaces never
+    retry.
     """
 
     def __init__(self, base_url: str, api_key: str, timeout: float) -> None:

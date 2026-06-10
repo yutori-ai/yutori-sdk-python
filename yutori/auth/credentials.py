@@ -112,9 +112,10 @@ def _resolve_api_key_with_source(api_key: str | None = None) -> tuple[str, str] 
     is found. Callers that only need the key itself should use
     :func:`resolve_api_key`.
 
-    Keys are stripped of surrounding whitespace: a trailing newline (common
-    with ``export YUTORI_API_KEY=$(cat key.txt)``) would otherwise be an
-    illegal HTTP header value and fail every request deep inside httpx.
+    Keys are stripped of surrounding whitespace: a trailing newline (e.g. a
+    key file read verbatim with ``open("key.txt").read()``, or a CI secret
+    decoded with its trailing newline) would otherwise be an illegal HTTP
+    header value and fail every request deep inside httpx.
     """
     if _is_real_key(api_key):
         return api_key.strip(), "param"

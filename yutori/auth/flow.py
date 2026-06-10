@@ -261,7 +261,10 @@ def run_login_flow(
                 success=False,
                 error=f"Port {REDIRECT_PORT} is already in use. Close other applications and try again.",
             )
-        return LoginResult(success=False, error=str(e))
+        return LoginResult(
+            success=False,
+            error=f"Could not start the local login callback server on {CALLBACK_HOST}:{REDIRECT_PORT}: {e}",
+        )
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -318,7 +321,8 @@ def run_login_flow(
                 error=(
                     f"Login succeeded and an API key was created, but saving it to "
                     f"{get_config_path()} failed: {e}. Fix the path and run "
-                    f"'yutori auth login' again, or set YUTORI_API_KEY directly."
+                    f"'yutori auth login' again, or set YUTORI_API_KEY to a key from "
+                    f"https://platform.yutori.com/settings."
                 ),
                 auth_url=auth_url,
             )

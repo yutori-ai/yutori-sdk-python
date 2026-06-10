@@ -1078,6 +1078,7 @@ def test_maybe_repair_path_runs_update_shell_on_consent():
         "  Invalid or missing API key (401)",
         "invalid or missing api key",
         "AuthenticationError: credentials rejected",
+        "Invalid API key or insufficient permissions (401)",
         "HTTP 401 Unauthorized",
         "HTTP 403 Forbidden",
         "Error: 403 Forbidden when accessing resource",
@@ -1313,3 +1314,50 @@ def test_run_verification_treats_na_task_id_as_missing(tmp_path: Path):
     assert result.status == "failed"
     # Only the submission command ran — no poll against the "N/A" id.
     assert len(mock_run.call_args_list) == 1
+
+
+def test_print_prompt_block_renders_markup_tokens_literally():
+    from yutori.cli.commands.install_flow import print_prompt_block
+
+    console = Console(record=True, width=120)
+    # pip routinely emits "[notice]"-style lines that Rich would swallow as
+    # markup; "[/notice]" is closing-tag-shaped and used to raise MarkupError.
+    print_prompt_block(console, "SDK", "pip says [notice] new release [/notice] available")
+    out = console.export_text()
+    assert "[notice]" in out
+    assert "[/notice]" in out
+
+
+def test_summarize_results_survives_markup_shaped_subprocess_output():
+    from yutori.cli.commands.install_flow import summarize_results
+
+    console = Console(record=True, width=120)
+    summarize_results(console, [StepResult("SDK", "failed", "unbalanced [/x] token from pip")])
+    out = console.export_text()
+    assert "[/x]" in out
+
+
+def test_detect_sdk_install_plan_windows_venv_uses_scripts_python(tmp_path: Path, monkeypatch):
+    import os as real_os
+
+    import yutori.cli.commands.install_flow as install_flow_module
+
+    venv_dir = tmp_path / "venv"
+    scripts_dir = venv_dir / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    fake_python = scripts_dir / "python.exe"
+    fake_python.write_text("#!/bin/sh\nexit 0\n")
+    fake_python.chmod(0o755)
+
+    # Patch only install_flow's view of os: setting the real os.name to "nt"
+    # would make pathlib instantiate WindowsPath on a POSIX host.
+    class _NtOsProxy:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(real_os, attr)
+
+    monkeypatch.setattr(install_flow_module, "os", _NtOsProxy())
+    plan = detect_sdk_install_plan(cwd=tmp_path, env={"VIRTUAL_ENV": str(venv_dir), "PATH": ""})
+
+    assert plan.command[0] == str(fake_python)

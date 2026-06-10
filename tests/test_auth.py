@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import io
 import json
@@ -251,8 +252,10 @@ class TestResolveApiKey:
         save_config("yt-stored")
         assert resolve_api_key() == "yt-stored"
 
-    # A trailing newline (e.g. `export YUTORI_API_KEY=$(cat key.txt)`) is an
-    # illegal HTTP header value; the resolved key must come back stripped.
+    # A trailing newline (e.g. a key file read verbatim, or a CI secret with
+    # its newline) is an illegal HTTP header value; the key must come back
+    # stripped. (Note `$(cat file)` would NOT reproduce this — command
+    # substitution strips trailing newlines.)
     def test_param_key_is_stripped(self):
         assert resolve_api_key("yt-explicit\n") == "yt-explicit"
 
@@ -654,10 +657,25 @@ class TestRunLoginFlow:
         mock_gen_key.assert_not_called()
 
     def test_port_in_use(self):
-        with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):
+        # The errno must be set: a bare OSError("Address already in use") has
+        # errno=None and would silently exercise the generic fallback branch.
+        with patch(
+            "yutori.auth.flow.socketserver.TCPServer.__init__",
+            side_effect=OSError(errno.EADDRINUSE, "Address already in use"),
+        ):
             result = run_login_flow()
             assert result.success is False
-            assert "already in use" in result.error
+            assert "Close other applications" in result.error
+
+    def test_other_bind_error_names_the_callback_server(self):
+        with patch(
+            "yutori.auth.flow.socketserver.TCPServer.__init__",
+            side_effect=OSError(errno.EACCES, "Permission denied"),
+        ):
+            result = run_login_flow()
+            assert result.success is False
+            assert "callback server" in result.error
+            assert "Permission denied" in result.error
 
     def test_timeout(self):
         def fake_server_init(self, addr, handler):
@@ -863,3 +881,21 @@ class TestTypes:
         assert s.authenticated is False
         assert s.masked_key is None
         assert s.source is None
+
+
+class TestAuthApiBaseUrlOverride:
+    def test_env_override_applies_and_is_sanitized(self, monkeypatch):
+        import importlib
+
+        from yutori.auth import constants
+
+        monkeypatch.setenv("YUTORI_API_BASE_URL", "https://api.example.test/v1/")
+        importlib.reload(constants)
+        try:
+            assert constants.build_auth_api_url("/client/generate_key") == (
+                "https://api.example.test/v1/client/generate_key"
+            )
+        finally:
+            # Restore module-level defaults for the rest of the suite.
+            monkeypatch.delenv("YUTORI_API_BASE_URL")
+            importlib.reload(constants)

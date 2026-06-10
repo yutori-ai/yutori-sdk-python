@@ -31,10 +31,17 @@ _SUBMODULES = frozenset(
 
 
 def __getattr__(name: str):
-    # The pre-rename package imported its submodules eagerly, so attribute
-    # access like ``yutori.n1.payload`` worked right after ``import
-    # yutori.n1``. Import the shim submodule on demand to keep that working
-    # without emitting thirteen DeprecationWarnings on package import.
+    # The pre-rename package imported most of its submodules eagerly, so
+    # attribute access like ``yutori.n1.payload`` worked right after
+    # ``import yutori.n1``. Import shim submodules on demand to keep that
+    # working (for every submodule) without emitting one DeprecationWarning
+    # per shim on package import.
     if name in _SUBMODULES:
         return importlib.import_module(f".{name}", __name__)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    # PEP 562 companion to __getattr__: keep the lazily-imported submodules
+    # discoverable via dir() / autocomplete, as they were pre-rename.
+    return sorted(set(globals()) | _SUBMODULES)

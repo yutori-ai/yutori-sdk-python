@@ -230,6 +230,8 @@ def test_generate_visualization_html_escapes_screenshot_url() -> None:
     html = generate_visualization_html("demo-task", messages)
 
     assert "<script>alert(1)</script>" not in html
+    # The URL must survive in escaped form — not merely be dropped from the render.
+    assert "shot.png&quot;&gt;&lt;script&gt;" in html
 
 
 def test_text_only_user_message_keeps_pending_tool_screenshot() -> None:

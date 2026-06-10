@@ -69,6 +69,11 @@ def test_auth_login_surfaces_backend_error(monkeypatch):
     assert "Creating account..." in result.stdout
     normalized_stdout = " ".join(result.stdout.split())
     assert "Authentication failed (500): backend exploded" in normalized_stdout
+    # The callback server is shut down by the time login fails, so the auth
+    # URL must not be reprinted as a (dead) recovery link; the retry hint
+    # replaces it.
+    assert "https://example.com/auth" not in result.stdout
+    assert "yutori auth login" in normalized_stdout
 
 
 def test_auth_login_ignores_placeholder_env_var(monkeypatch):

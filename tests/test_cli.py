@@ -312,7 +312,9 @@ def test_usage_rejected_key_prints_auth_guidance_not_traceback():
     # "AuthenticationError" must stay in the output: the installer's
     # AUTH_FAILURE_MARKERS classify verification failures by grepping it.
     assert "AuthenticationError" in result.stdout
-    assert "yutori auth login" in result.stdout
+    # Normalize: Rich wraps the hint at terminal width. Every variant of the
+    # source-tailored hint mentions 'yutori auth login'.
+    assert "yutori auth login" in " ".join(result.stdout.split())
     assert "Traceback" not in result.stdout
 
 
@@ -346,3 +348,33 @@ def test_usage_renders_stats_from_api_response():
     assert "Navigator API Rate Limits" in result.stdout
     assert "Navigator API calls" in result.stdout
     client.close.assert_called_once()
+
+
+def test_browse_run_missing_task_id_fails():
+    # An empty 2xx body becomes {} at the SDK layer; the CLI must not report
+    # a task that cannot be polled as submitted.
+    client = _make_client_mock()
+    client.browsing.create.return_value = {}
+
+    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "run", "do something", "https://example.com"])
+
+    assert result.exit_code == 1
+    assert "returned no task ID" in result.stdout
+
+
+def test_scouts_create_failed_status_exits_nonzero():
+    client = _make_client_mock()
+    client.scouts.create.return_value = {
+        "id": "scout-9",
+        "query": "watch things",
+        "status": "failed",
+        "rejection_reason": "billing_limit_reached",
+    }
+
+    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["scouts", "create", "-q", "watch things"])
+
+    assert result.exit_code == 1
+    assert "Scout creation failed" in result.stdout
+    assert "billing_limit_reached" in result.stdout

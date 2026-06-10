@@ -88,9 +88,10 @@ def _strip_until_fits(
             break
         if skip(idx):
             continue
-        # Drain every image in this message: a message holding several
-        # screenshots would otherwise keep its extras and could leave the
-        # payload over budget no matter how many passes run.
+        # Drain every image in this message: each of the two strip phases
+        # visits a message once, so without the inner loop a message holding
+        # several screenshots would lose at most one image per phase and
+        # could leave the payload over budget.
         while size_bytes > max_bytes and _strip_one_image(messages[idx]):
             removed += 1
             size_bytes = estimate_messages_size_bytes(messages)
@@ -105,8 +106,10 @@ def trim_images_to_fit(
 ) -> tuple[int, int]:
     """Remove old screenshots from *messages* until the payload fits within *max_bytes*.
 
-    The most recent *keep_recent* screenshots are protected from removal (the
-    very last screenshot is always kept). If the payload is already within
+    The most recent *keep_recent* image-bearing messages are protected while
+    removing older screenshots suffices; if the payload is still over the
+    limit, protected screenshots are removed too, oldest first — only the
+    very last screenshot is always kept. If the payload is already within
     limits, no changes are made.
 
     Args:

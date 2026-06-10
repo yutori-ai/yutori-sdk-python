@@ -14,6 +14,7 @@ def make_response(status_code: int, text: str = "", content: bytes = b"") -> Mag
     response.status_code = status_code
     response.text = text
     response.content = content
+    response.headers = {}
     return response
 
 
@@ -60,3 +61,19 @@ class TestResolveScoutStatusEndpoint:
     def test_empty_string_raises(self):
         with pytest.raises(ValueError, match="Invalid status"):
             resolve_scout_status_endpoint("")
+
+
+class TestHandleResponseNonJson:
+    def test_2xx_non_json_body_raises_api_error(self):
+        # A captive portal / SSO gateway returning 200 text/html must surface
+        # as an SDK error, not a bare JSONDecodeError traceback.
+        response = make_response(200, text="<html>portal</html>", content=b"<html>portal</html>")
+        response.json.side_effect = ValueError("Expecting value: line 1 column 1")
+        with pytest.raises(APIError, match="non-JSON response"):
+            handle_response(response)
+
+    def test_redirect_message_names_the_location(self):
+        response = make_response(301)
+        response.headers = {"location": "https://elsewhere.example/login"}
+        with pytest.raises(APIError, match="elsewhere.example"):
+            handle_response(response)

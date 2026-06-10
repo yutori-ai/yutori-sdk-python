@@ -57,20 +57,42 @@ def get_authenticated_client() -> Any:
     return YutoriClient(api_key=api_key)
 
 
+def _auth_recovery_hint() -> str:
+    """Recovery instruction for a rejected key, tailored to where it came from.
+
+    'Run yutori auth login' is wrong advice for an env-var key: login refuses
+    to run while YUTORI_API_KEY is set, and the env var would keep overriding
+    saved credentials anyway. Every variant mentions 'yutori auth login' so
+    the output stays stable for callers grepping it.
+    """
+    from yutori.auth.credentials import _resolve_api_key_with_source
+
+    resolved = _resolve_api_key_with_source()
+    source = resolved[1] if resolved else None
+    if source == "env_var":
+        return (
+            "YUTORI_API_KEY is set but was rejected — update or unset it "
+            "(while set, it overrides 'yutori auth login' credentials)."
+        )
+    if source == "config_file":
+        return "Your saved API key was rejected. Run 'yutori auth logout', then 'yutori auth login'."
+    return "Your API key was rejected. Run 'yutori auth login' to refresh credentials."
+
+
 @contextlib.contextmanager
 def cli_api_errors() -> Iterator[None]:
     """Convert SDK and network errors into friendly messages and exit code 1.
 
     Without this, a rejected key, an unknown task ID, or being offline dumps
-    a multi-screen Typer traceback. The exception class names stay in the
-    output because the installer's AUTH_FAILURE_MARKERS
+    a multi-screen Typer traceback. The AuthenticationError class name stays
+    in the output because the installer's AUTH_FAILURE_MARKERS
     (yutori/cli/commands/install_flow.py) classify failures by grepping it.
     """
     try:
         yield
     except AuthenticationError as exc:
         _console.print(f"[red]AuthenticationError: {escape(str(exc))}[/red]")
-        _console.print("Your API key was rejected. Run 'yutori auth login' to refresh credentials.")
+        _console.print(_auth_recovery_hint())
         raise typer.Exit(1) from exc
     except APIError as exc:
         _console.print(f"[red]APIError: {escape(str(exc))}[/red]")
@@ -162,13 +184,25 @@ def print_creation_result(
 
 
 def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> bool:
-    """Print a task creation response; returns False when the create failed."""
+    """Print a task creation response; returns False when the create failed.
+
+    A non-failed response without a ``task_id`` is also a failure: the task
+    cannot be polled, so reporting success would strand the user (and any
+    script keying off the exit code) with nothing to do next.
+    """
+    task_id = result.get("task_id")
+    has_task_id = bool(task_id) and str(task_id).strip() not in ("", "N/A")
+    if not has_task_id and result.get("status") != "failed":
+        console.print(f"\n[red]{task_type} task was accepted but the API returned no task ID.[/red]")
+        console.print(f"  Status: {escape(str(result.get('status', 'N/A')))}")
+        print_rejection_reason(console, result)
+        return False
     return print_creation_result(
         console,
         result,
         success_message=f"{task_type} task submitted.",
         failure_message=f"{task_type} task failed to start.",
-        fields=[("Task ID", escape(str(result.get("task_id", "N/A"))))],
+        fields=[("Task ID", escape(str(task_id if has_task_id else "N/A")))],
     )
 
 
