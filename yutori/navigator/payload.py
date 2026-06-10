@@ -25,10 +25,15 @@ def estimate_messages_size_bytes(messages: list[dict[str, Any]]) -> int:
 
 def message_has_image(message: dict[str, Any]) -> bool:
     """Return True if *message* contains at least one ``image_url`` content block."""
+    return _count_images(message) > 0
+
+
+def _count_images(message: dict[str, Any]) -> int:
+    """Return the number of ``image_url`` content blocks in *message*."""
     content = message.get("content")
     if not isinstance(content, list):
-        return False
-    return any(isinstance(part, dict) and part.get("type") == "image_url" for part in content)
+        return 0
+    return sum(1 for part in content if isinstance(part, dict) and part.get("type") == "image_url")
 
 
 def _strip_one_image(message: dict[str, Any]) -> bool:
@@ -83,7 +88,11 @@ def _strip_until_fits(
             break
         if skip(idx):
             continue
-        if _strip_one_image(messages[idx]):
+        # Drain every image in this message: each of the two strip phases
+        # visits a message once, so without the inner loop a message holding
+        # several screenshots would lose at most one image per phase and
+        # could leave the payload over budget.
+        while size_bytes > max_bytes and _strip_one_image(messages[idx]):
             removed += 1
             size_bytes = estimate_messages_size_bytes(messages)
     return size_bytes, removed
@@ -97,8 +106,10 @@ def trim_images_to_fit(
 ) -> tuple[int, int]:
     """Remove old screenshots from *messages* until the payload fits within *max_bytes*.
 
-    The most recent *keep_recent* screenshots are protected from removal (the
-    very last screenshot is always kept). If the payload is already within
+    The most recent *keep_recent* image-bearing messages are protected while
+    removing older screenshots suffices; if the payload is still over the
+    limit, protected screenshots are removed too, oldest first — only the
+    very last screenshot is always kept. If the payload is already within
     limits, no changes are made.
 
     Args:
@@ -130,8 +141,8 @@ def trim_images_to_fit(
     )
 
     # Phase 2: if still over limit, remove from protected set (except the latest)
+    last_idx = image_indices[-1]
     if size_bytes > max_bytes:
-        last_idx = image_indices[-1]
         size_bytes, extra_removed = _strip_until_fits(
             messages,
             image_indices,
@@ -140,6 +151,16 @@ def trim_images_to_fit(
             starting_size=size_bytes,
         )
         removed += extra_removed
+
+    # Phase 3: still over budget — drain extra images from the last message
+    # too. The "very last screenshot is always kept" guarantee protects one
+    # screenshot, not every image that happens to share its message
+    # (_strip_one_image removes the first image, so the final one survives).
+    last_message = messages[last_idx]
+    while size_bytes > max_bytes and _count_images(last_message) > 1:
+        _strip_one_image(last_message)
+        removed += 1
+        size_bytes = estimate_messages_size_bytes(messages)
 
     return size_bytes, removed
 

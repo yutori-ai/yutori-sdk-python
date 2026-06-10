@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import textwrap
 import venv
 from pathlib import Path
@@ -117,16 +118,44 @@ def _write_dependency_stubs(stub_root: Path) -> None:
 
 
 @pytest.mark.slow
-def test_built_wheel_includes_packaged_js_assets(tmp_path: Path) -> None:
+def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    shutil.rmtree(ROOT / "build", ignore_errors=True)
 
+    # Build from a copy of the source tree so the test never mutates the
+    # repo (a stale ./build dir would otherwise have to be deleted to keep
+    # setuptools from leaking removed files into the wheel).
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    shutil.copytree(ROOT / "yutori", src_dir / "yutori", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(ROOT / "tests", src_dir / "tests", ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+    for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+        shutil.copy2(ROOT / fname, src_dir / fname)
+
+    # One default `python -m build` produces the sdist and then builds the
+    # wheel FROM it — covering the sdist→wheel path with half the build work
+    # of separate --wheel/--sdist invocations.
     subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist_dir)],
-        cwd=ROOT,
+        [sys.executable, "-m", "build", "--outdir", str(dist_dir)],
+        cwd=src_dir,
         check=True,
     )
+
+    # The sdist must carry a collectable test suite (MANIFEST.in grafts
+    # tests/ — setuptools' default glob ships tests/test_*.py without the
+    # conftest/helpers they import) and the py.typed marker.
+    sdists = sorted(dist_dir.glob("yutori-*.tar.gz"))
+    assert sdists, "expected build to produce an sdist"
+    with tarfile.open(sdists[0]) as tar:
+        sdist_names = tar.getnames()
+    sdist_root = sdist_names[0].split("/")[0]
+    for required in (
+        "tests/conftest.py",
+        "tests/__init__.py",
+        "tests/_usage_fixtures.py",
+        "yutori/py.typed",
+    ):
+        assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
 
     wheels = sorted(dist_dir.glob("yutori-*.whl"))
     assert wheels, "expected build to produce a wheel"
@@ -148,6 +177,10 @@ def test_built_wheel_includes_packaged_js_assets(tmp_path: Path) -> None:
         """
         from importlib import resources
         from yutori.navigator._assets import load_js_asset
+
+        # PEP 561: without this marker, type checkers ignore every inline
+        # annotation in the installed package.
+        assert resources.files("yutori").joinpath("py.typed").is_file()
         from yutori.navigator.tools import (
             EXECUTE_JS_SCRIPT,
             EXTRACT_ELEMENTS_SCRIPT,

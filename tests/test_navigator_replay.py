@@ -198,3 +198,61 @@ async def test_trajectory_recorder_writes_artifacts(tmp_path) -> None:
     html = recorder.artifact_path("visualization.html").read_text(encoding="utf-8")
     assert "Trajectory Replay" in html
     assert "Raw Request" in html
+
+
+def test_generate_visualization_html_survives_non_object_tool_arguments() -> None:
+    # Valid JSON that isn't an object must not crash the render.
+    messages = [
+        _image_message("user", text="Open the page"),
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "left_click", "arguments": "[1, 2]"}},
+                {"id": "call_2", "type": "function", "function": {"name": "type_text", "arguments": '"hello"'}},
+            ],
+        },
+    ]
+
+    html = generate_visualization_html("demo-task", messages)
+
+    assert "left_click" in html
+    assert "type_text" in html
+
+
+def test_generate_visualization_html_escapes_screenshot_url() -> None:
+    hostile_url = 'https://example.com/shot.png"><script>alert(1)</script>'
+    messages = [
+        _image_message("user", url=hostile_url, text="Open the page"),
+        {"role": "assistant", "content": "Done."},
+    ]
+
+    html = generate_visualization_html("demo-task", messages)
+
+    assert "<script>alert(1)</script>" not in html
+    # The URL must survive in escaped form — not merely be dropped from the render.
+    assert "shot.png&quot;&gt;&lt;script&gt;" in html
+
+
+def test_text_only_user_message_keeps_pending_tool_screenshot() -> None:
+    # A human interjection between the tool screenshot and the assistant's
+    # next step must not blank out the screenshot in the replay.
+    messages = [
+        _image_message("user", text="Open the page"),
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "left_click", "arguments": "{}"}},
+            ],
+        },
+        _image_message("tool", url="data:image/png;base64,toolshot", text="Clicked"),
+        {"role": "user", "content": "Looks good, continue with checkout"},
+        {"role": "assistant", "content": "Proceeding."},
+    ]
+
+    html = generate_visualization_html("demo-task", messages)
+
+    assert "data:image/png;base64,toolshot" in html
+    assert "No screenshot recorded" not in html
+    assert "Looks good, continue with checkout" in html

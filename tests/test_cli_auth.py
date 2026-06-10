@@ -48,9 +48,7 @@ def test_auth_login_prints_logging_in_message(monkeypatch):
 
 def test_auth_login_surfaces_backend_error(monkeypatch):
     # Generic "backend rejected the login" path — any LoginResult failure
-    # message gets surfaced to the user. This replaces the old test for
-    # /client/register-api unavailability, which the backend no longer
-    # exercises (endpoint has been live since ENG-4003 landed 2026-03).
+    # message gets surfaced to the user.
     monkeypatch.delenv("YUTORI_API_KEY", raising=False)
 
     def fake_run_login_flow(*args, **kwargs):
@@ -71,6 +69,11 @@ def test_auth_login_surfaces_backend_error(monkeypatch):
     assert "Creating account..." in result.stdout
     normalized_stdout = " ".join(result.stdout.split())
     assert "Authentication failed (500): backend exploded" in normalized_stdout
+    # The callback server is shut down by the time login fails, so the auth
+    # URL must not be reprinted as a (dead) recovery link; the retry hint
+    # replaces it.
+    assert "https://example.com/auth" not in result.stdout
+    assert "yutori auth login" in normalized_stdout
 
 
 def test_auth_login_ignores_placeholder_env_var(monkeypatch):

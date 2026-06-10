@@ -556,14 +556,14 @@ Installed as `yutori` (via the `yutori` script entry point). Run any command wit
 
 | Command | Description |
 |---------|-------------|
-| `yutori browse run TASK START_URL [--max-steps N] [--agent NAME] [--require-auth] [--browser cloud\|local]` | Submit a browsing task. |
+| `yutori browse run TASK START_URL [--max-steps N] [--agent NAME] [--require-auth] [--browser cloud\|local]` | Submit a browsing task. Exit code 1 if the API rejects the task (`status: failed`). |
 | `yutori browse get TASK_ID` | Get status and result (truncates output to 2000 chars). |
 
 ### Research
 
 | Command | Description |
 |---------|-------------|
-| `yutori research run QUERY [--timezone/-tz TZ] [--location LOC]` | Submit a research task. |
+| `yutori research run QUERY [--timezone/-tz TZ] [--location LOC]` | Submit a research task. Exit code 1 if the API rejects the task (`status: failed`). |
 | `yutori research get TASK_ID` | Get status and result (truncates output to 2000 chars). |
 
 ### Scouts
@@ -572,7 +572,7 @@ Installed as `yutori` (via the `yutori` script entry point). Run any command wit
 |---------|-------------|
 | `yutori scouts list [--limit N] [--status active\|paused\|done]` | List scouts (rich table). |
 | `yutori scouts get SCOUT_ID` | Show scout detail. |
-| `yutori scouts create [--query/-q Q] [--interval/-i hourly\|daily\|weekly] [--timezone/-tz TZ]` | Create a scout. Prompts for `query` interactively if `-q` is omitted. Only the three named intervals are accepted; for arbitrary seconds, call `scouts.create` from Python. |
+| `yutori scouts create [--query/-q Q] [--interval/-i hourly\|daily\|weekly] [--timezone/-tz TZ]` | Create a scout. Prompts for `query` interactively if `-q` is omitted. Only the three named intervals are accepted; for arbitrary seconds, call `scouts.create` from Python. Exit code 1 if the API rejects the scout (`status: failed`). |
 | `yutori scouts delete SCOUT_ID [--force/-f]` | Delete a scout. Prompts for confirmation unless `--force`. |
 
 ### Usage

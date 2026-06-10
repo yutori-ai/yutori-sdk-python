@@ -17,4 +17,4 @@ __all__ = [
 try:
     __version__ = version("yutori")
 except PackageNotFoundError:
-    __version__ = "0.1.0"
+    __version__ = "0.0.0+unknown"

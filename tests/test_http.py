@@ -1,8 +1,61 @@
 """Tests for shared HTTP helpers in yutori._http."""
 
+from unittest.mock import MagicMock
+
+import httpx
 import pytest
 
-from yutori._http import resolve_scout_status_endpoint
+from yutori._http import apply_chat_extra_body, handle_response, resolve_scout_status_endpoint
+from yutori.exceptions import APIError, AuthenticationError
+
+
+def make_response(status_code: int, text: str = "", content: bytes = b"") -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.text = text
+    response.content = content
+    response.headers = {}
+    return response
+
+
+class TestHandleResponse:
+    def test_redirect_raises_api_error_instead_of_silent_success(self):
+        # Redirects are never followed, so a 3xx means a misconfigured base
+        # URL; returning {} here would look like a successful empty response.
+        with pytest.raises(APIError) as exc_info:
+            handle_response(make_response(307))
+        assert exc_info.value.status_code == 307
+
+    def test_auth_error_includes_status_and_server_detail(self):
+        with pytest.raises(AuthenticationError, match=r"403.*scout belongs to another user"):
+            handle_response(make_response(403, text="scout belongs to another user"))
+
+    def test_auth_error_without_body_still_readable(self):
+        with pytest.raises(AuthenticationError, match=r"401"):
+            handle_response(make_response(401))
+
+    def test_2xx_non_json_body_raises_api_error(self):
+        # A captive portal / SSO gateway returning 200 text/html must surface
+        # as an SDK error, not a bare JSONDecodeError traceback.
+        response = make_response(200, text="<html>portal</html>", content=b"<html>portal</html>")
+        response.json.side_effect = ValueError("Expecting value: line 1 column 1")
+        with pytest.raises(APIError, match="non-JSON response"):
+            handle_response(response)
+
+    def test_redirect_message_names_the_location(self):
+        response = make_response(301)
+        response.headers = {"location": "https://elsewhere.example/login"}
+        with pytest.raises(APIError, match="elsewhere.example"):
+            handle_response(response)
+
+
+class TestApplyChatExtraBody:
+    def test_does_not_mutate_caller_extra_body(self):
+        user_extra = {"trace_id": "trace-123"}
+        kwargs = {"extra_body": user_extra}
+        apply_chat_extra_body(kwargs, tool_set="browser_tools_core", disable_tools=None, json_schema=None)
+        assert user_extra == {"trace_id": "trace-123"}
+        assert kwargs["extra_body"] == {"trace_id": "trace-123", "tool_set": "browser_tools_core"}
 
 
 class TestResolveScoutStatusEndpoint:

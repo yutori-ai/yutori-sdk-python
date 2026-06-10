@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import io
 import json
@@ -249,6 +250,21 @@ class TestResolveApiKey:
     def test_placeholder_with_whitespace_falls_through(self, monkeypatch):
         monkeypatch.setenv("YUTORI_API_KEY", "  YOUR_API_KEY  ")
         save_config("yt-stored")
+        assert resolve_api_key() == "yt-stored"
+
+    # A trailing newline (e.g. a key file read verbatim, or a CI secret with
+    # its newline) is an illegal HTTP header value; the key must come back
+    # stripped. (Note `$(cat file)` would NOT reproduce this — command
+    # substitution strips trailing newlines.)
+    def test_param_key_is_stripped(self):
+        assert resolve_api_key("yt-explicit\n") == "yt-explicit"
+
+    def test_env_key_is_stripped(self, monkeypatch):
+        monkeypatch.setenv("YUTORI_API_KEY", " yt-env\n")
+        assert resolve_api_key() == "yt-env"
+
+    def test_stored_key_is_stripped(self):
+        save_config("yt-stored\n")
         assert resolve_api_key() == "yt-stored"
 
 
@@ -505,6 +521,47 @@ class TestRunLoginFlow:
     @patch("yutori.auth.flow.register_user")
     @patch("yutori.auth.flow.check_registration_status", return_value=False)
     @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
+    @patch("yutori.auth.flow.save_config", side_effect=OSError("read-only file system"))
+    def test_save_failure_reports_orphaned_key(
+        self, mock_save, mock_exchange, mock_status, mock_register, mock_gen_key, mock_browser
+    ):
+        # The key exists server-side by the time save_config runs; the error
+        # must say so instead of surfacing a bare OSError.
+        def fake_server_init(self, addr, handler):
+            pass
+
+        with (
+            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
+            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
+            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+        ):
+            mock_thread = MagicMock()
+            mock_thread_cls.return_value = mock_thread
+            original_result = _CallbackResult()
+            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
+                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
+
+                    def side_effect(*args, **kwargs):
+                        original_result.code = "auth_code"
+                        original_result.state = "fixed_state"
+                        original_result.received.set()
+
+                    mock_thread.start.side_effect = side_effect
+
+                    result = run_login_flow()
+
+        assert result.success is False
+        assert result.api_key == "yt-new-key"
+        assert "an API key was created" in result.error
+        assert "read-only file system" in result.error
+
+    @patch("yutori.auth.flow.webbrowser.open")
+    @patch("yutori.auth.flow.generate_api_key", return_value="yt-new-key")
+    @patch("yutori.auth.flow.register_user")
+    @patch("yutori.auth.flow.check_registration_status", return_value=False)
+    @patch("yutori.auth.flow.exchange_code_for_token", return_value="jwt123")
     @patch("yutori.auth.flow.save_config")
     @patch("yutori.auth.flow.logger.warning")
     def test_callback_exception_is_ignored(
@@ -600,10 +657,25 @@ class TestRunLoginFlow:
         mock_gen_key.assert_not_called()
 
     def test_port_in_use(self):
-        with patch("yutori.auth.flow.socketserver.TCPServer.__init__", side_effect=OSError("Address already in use")):
+        # The errno must be set: a bare OSError("Address already in use") has
+        # errno=None and would silently exercise the generic fallback branch.
+        with patch(
+            "yutori.auth.flow.socketserver.TCPServer.__init__",
+            side_effect=OSError(errno.EADDRINUSE, "Address already in use"),
+        ):
             result = run_login_flow()
             assert result.success is False
-            assert "already in use" in result.error
+            assert "Close other applications" in result.error
+
+    def test_other_bind_error_names_the_callback_server(self):
+        with patch(
+            "yutori.auth.flow.socketserver.TCPServer.__init__",
+            side_effect=OSError(errno.EACCES, "Permission denied"),
+        ):
+            result = run_login_flow()
+            assert result.success is False
+            assert "callback server" in result.error
+            assert "Permission denied" in result.error
 
     def test_timeout(self):
         def fake_server_init(self, addr, handler):
@@ -809,3 +881,21 @@ class TestTypes:
         assert s.authenticated is False
         assert s.masked_key is None
         assert s.source is None
+
+
+class TestAuthApiBaseUrlOverride:
+    def test_env_override_applies_and_is_sanitized(self, monkeypatch):
+        import importlib
+
+        from yutori.auth import constants
+
+        monkeypatch.setenv("YUTORI_API_BASE_URL", "https://api.example.test/v1/")
+        importlib.reload(constants)
+        try:
+            assert constants.build_auth_api_url("/client/generate_key") == (
+                "https://api.example.test/v1/client/generate_key"
+            )
+        finally:
+            # Restore module-level defaults for the rest of the suite.
+            monkeypatch.delenv("YUTORI_API_BASE_URL")
+            importlib.reload(constants)

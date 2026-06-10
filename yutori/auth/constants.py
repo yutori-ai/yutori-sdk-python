@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from yutori.config import DEFAULT_BASE_URL
+from yutori.config import DEFAULT_BASE_URL, sanitize_base_url
 
 # Clerk OAuth configuration
 DEFAULT_CLERK_INSTANCE_URL = "https://clerk.yutori.com"
@@ -33,6 +33,12 @@ ERROR_STATE_MISMATCH = "Security validation failed (state mismatch). Please try 
 ERROR_AUTH_FAILED = "Authentication failed"
 
 
+# Overridable so a non-production auth stack stays self-consistent: without
+# this, overriding the Clerk URLs above would still mint keys against the
+# production API.
+AUTH_API_BASE_URL = sanitize_base_url(os.environ.get("YUTORI_API_BASE_URL", DEFAULT_BASE_URL))
+
+
 def build_auth_api_url(path: str) -> str:
     """Build API URL for auth endpoints (key generation after OAuth)."""
-    return f"{DEFAULT_BASE_URL}{path}"
+    return f"{AUTH_API_BASE_URL}{path}"

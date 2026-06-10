@@ -11,7 +11,7 @@ YUTORI_RESET=$'\033[0m'
 # Installer version, injected at build time from pyproject.toml by
 # scripts/build_install.sh. Surfaced in the header so users can tell at a
 # glance which release they fetched (useful for bug reports).
-YUTORI_INSTALLER_VERSION="0.7.7"
+YUTORI_INSTALLER_VERSION="0.7.8"
 
 # Read the banner into a variable via `read -d ''` rather than `$(cat <<EOF)`.
 # Bash 3.2 (macOS /bin/bash) has a known parser bug where a heredoc nested
@@ -1748,8 +1748,10 @@ prerender_frames() {
     local frame_count="$1"
     local use_color="$2"
     local idx
-    FRAMES_RENDER_DIR="${FRAMES_CACHE_FILE}.rendered.d"
-    mkdir -p "$FRAMES_RENDER_DIR"
+    # mktemp -d, not a name derived from FRAMES_CACHE_FILE: a predictable
+    # path under a shared /tmp could be pre-created (with symlinks inside)
+    # by another local user, and `mkdir -p` would happily adopt it.
+    FRAMES_RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/yutori-install-frames-rendered.XXXXXX")"
     for (( idx = 0; idx < frame_count; idx++ )); do
         render_frame "$idx" "$use_color" >"$FRAMES_RENDER_DIR/$idx"
     done

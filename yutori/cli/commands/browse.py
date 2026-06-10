@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from yutori.cli.commands import (
-    get_authenticated_client,
+    cli_client,
     print_optional_field,
     print_task_get_header,
     print_task_result_output,
@@ -27,7 +27,7 @@ def run(
     browser: str = typer.Option(None, "--browser", help="Browser backend: cloud or local"),
 ) -> None:
     """Start a new browsing task."""
-    with get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.browsing.create(
             task=task,
             start_url=start_url,
@@ -37,7 +37,8 @@ def run(
             browser=browser,
         )
 
-        print_task_submission_result(console, "Browsing", result)
+        if not print_task_submission_result(console, "Browsing", result):
+            raise typer.Exit(1)
 
 
 @app.command()
@@ -45,7 +46,7 @@ def get(
     task_id: str = typer.Argument(help="The browsing task ID"),
 ) -> None:
     """Get the status and result of a browsing task."""
-    with get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.browsing.get(task_id)
 
         print_task_get_header(console, "Browsing", task_id, result)

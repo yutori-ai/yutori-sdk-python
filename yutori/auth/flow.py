@@ -7,6 +7,7 @@ All functions return typed results and never print directly (callers handle pres
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import html
 import http.server
@@ -253,12 +254,17 @@ def run_login_flow(
     try:
         server = _ReusableServer((CALLBACK_HOST, REDIRECT_PORT), _CallbackHandler)
     except OSError as e:
-        if "Address already in use" in str(e):
+        # errno comparison works across platforms and locales, unlike
+        # matching the English "Address already in use" message text.
+        if e.errno == errno.EADDRINUSE:
             return LoginResult(
                 success=False,
                 error=f"Port {REDIRECT_PORT} is already in use. Close other applications and try again.",
             )
-        return LoginResult(success=False, error=str(e))
+        return LoginResult(
+            success=False,
+            error=f"Could not start the local login callback server on {CALLBACK_HOST}:{REDIRECT_PORT}: {e}",
+        )
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -304,7 +310,22 @@ def run_login_flow(
         # always call it regardless of registration_status.
         register_user(jwt)
         api_key = generate_api_key(jwt, key_name=_build_key_name(key_source))
-        save_config(api_key)
+        try:
+            save_config(api_key)
+        except OSError as e:
+            # The key already exists server-side at this point; a generic
+            # error would hide that and leave the user with an orphaned key.
+            return LoginResult(
+                success=False,
+                api_key=api_key,
+                error=(
+                    f"Login succeeded and an API key was created, but saving it to "
+                    f"{get_config_path()} failed: {e}. Fix the path and run "
+                    f"'yutori auth login' again, or set YUTORI_API_KEY to a key from "
+                    f"https://platform.yutori.com/settings."
+                ),
+                auth_url=auth_url,
+            )
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
         # `e.response.text` decodes with strict error handling and can raise

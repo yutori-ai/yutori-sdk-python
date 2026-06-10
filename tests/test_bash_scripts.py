@@ -34,10 +34,6 @@ def _resolve_install_sh() -> Path:
     )
 
 
-def _all_scripts() -> list[Path]:
-    return AUTHORED_SCRIPTS + [_resolve_install_sh()]
-
-
 @pytest.mark.parametrize("script", AUTHORED_SCRIPTS, ids=lambda p: p.name)
 def test_authored_bash_syntax(script: Path) -> None:
     """`bash -n` on every hand-authored script — these must always exist."""
@@ -57,9 +53,11 @@ def test_authored_shellcheck_clean_if_available(script: Path) -> None:
     """Run shellcheck when available. Informational — non-blocking if absent."""
     if not shutil.which("shellcheck"):
         pytest.skip("shellcheck not installed")
-    # Allow SC2034 (unused color constants in template), SC1091 (sourced files).
+    # Allow SC2034 (unused color constants in template), SC1091 (sourced
+    # files), SC2016 (info-level; flags intentional literal backticks in
+    # single-quoted user-facing messages and grep patterns).
     result = subprocess.run(
-        ["shellcheck", "-e", "SC2034,SC1091", str(script)],
+        ["shellcheck", "-e", "SC2034,SC1091,SC2016", str(script)],
         capture_output=True,
         text=True,
     )
@@ -287,3 +285,21 @@ def test_full_animation_clears_frame_region_before_handoff() -> None:
         "end of screen) after the animation loop, or leftover frame rows "
         "will bleed through when the Python UI starts printing."
     )
+
+
+def test_frames_render_dir_uses_mktemp_d() -> None:
+    """Regression: the render dir must be mktemp -d-created, not derived from
+    FRAMES_CACHE_FILE — a derived name under shared /tmp can be pre-created
+    (with symlinks inside) by another local user and adopted by `mkdir -p`.
+    """
+    content = INSTALL_TEMPLATE.read_text()
+    assert 'FRAMES_RENDER_DIR="$(mktemp -d' in content
+    assert '"${FRAMES_CACHE_FILE}.rendered.d"' not in content
+
+
+def test_uninstall_confirm_accepts_yes() -> None:
+    """Regression: the prompt offers "[Y/n]", so a typed "yes" must not be
+    treated as a decline by a single-character match.
+    """
+    content = UNINSTALL_SH.read_text()
+    assert "^[Yy]([Ee][Ss])?$" in content

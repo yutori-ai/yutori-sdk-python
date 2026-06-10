@@ -37,6 +37,31 @@ from yutori.cli.main import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_mcp_installs():
+    """Safety net: tests in this file must never run real `npx` installs.
+
+    MCP server/skills are the two steps that run unattended without a TTY,
+    so any flow-level test that forgets to stub them hits the npm registry
+    and rewrites ~/.cursor / ~/.codex / ~/.gemini MCP configs. Patching the
+    module attributes covers `install_flow_command` (which resolves them at
+    call time); direct-exercise tests are unaffected because they call the
+    functions through this file's import-time bindings, and tests that need
+    custom behavior layer their own `patch(...)` on top.
+    """
+    with (
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
+            return_value=StepResult("MCP server", "success", "ok"),
+        ),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
+            return_value=StepResult("MCP skills", "success", "ok"),
+        ),
+    ):
+        yield
+
+
 def test_hidden_install_flow_not_in_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
@@ -1042,6 +1067,7 @@ def test_maybe_repair_path_runs_update_shell_on_consent():
         "  Invalid or missing API key (401)",
         "invalid or missing api key",
         "AuthenticationError: credentials rejected",
+        "Invalid API key or insufficient permissions (401)",
         "HTTP 401 Unauthorized",
         "HTTP 403 Forbidden",
         "Error: 403 Forbidden when accessing resource",
@@ -1115,9 +1141,6 @@ def test_run_command_catches_generic_oserror_not_just_filenotfound():
 
 
 def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
-    # Explicit stdin patch keeps us out of the redirected-stdout guard
-    # regardless of how the test runner exposes stdin (pytest defaults to
-    # captured stdin -> isatty=False, but be explicit).
     captured: dict[str, tuple[str, ...]] = {}
 
     def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
@@ -1125,7 +1148,6 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
         patch("yutori.cli.commands.install_flow.run_interactive_command") as fake_interactive,
@@ -1140,11 +1162,9 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
 
 
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
-    # Without YUTORI_INSTALL_CLIENT, in true automation (both streams
-    # non-TTY) install for the small popular default set -- not `--all`
-    # (which writes configs for ~14 clients including ones the user
-    # never installed). Explicit stdin patch guarantees we hit the
-    # automation branch on any test host, not the redirected-stdout guard.
+    # Without YUTORI_INSTALL_CLIENT, non-interactive installs target the
+    # small popular default set -- not `--all` (which writes configs for
+    # ~14 clients including ones the user never installed).
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     captured: dict[str, tuple[str, ...]] = {}
 
@@ -1153,7 +1173,6 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
@@ -1184,7 +1203,6 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
         return _ok_completed_process(tuple(command))
 
     with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
     ):
@@ -1212,10 +1230,6 @@ def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_outpu
     )
 
     with (
-        # stdin=False puts us in the automation branch where run_command
-        # actually executes; without it we'd hit the redirected-stdout
-        # guard and never reach the failure path under test.
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
         patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
     ):
@@ -1228,13 +1242,9 @@ def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_outpu
 
 
 def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypatch):
-    # Force automation branch (stdin=False) so the npx-missing skip is
-    # what's actually exercised, not the redirected-stdout guard which
-    # would skip earlier and shadow the npx check.
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
 
     with (
-        patch("yutori.cli.commands.install_flow.sys.stdin.isatty", return_value=False),
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=None),
         patch("yutori.cli.commands.install_flow.run_command") as fake_run,
     ):
@@ -1247,3 +1257,96 @@ def test_maybe_install_mcp_server_noninteractive_skips_when_npx_missing(monkeypa
     # run -- so the user can copy-paste it directly.
     assert "claude-code" in result.detail  # one of the default agents
     assert "yutori" in result.detail
+
+
+def test_run_verification_ctrl_c_during_poll_returns_cancelled_result(tmp_path: Path):
+    """Ctrl+C lands in the parent-side poll sleep most of the time; it must
+    produce a normal failed-verification result (summary renders, non-auth
+    verification failures exit 0) instead of bubbling to click's Aborted!."""
+    cli_path = tmp_path / "yutori"
+    submission = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="\nBrowsing task submitted.\n  Task ID: task-123\n  Status: queued\n",
+        stderr="",
+    )
+    with (
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=submission),
+        patch("yutori.cli.commands.install_flow.time.sleep", side_effect=KeyboardInterrupt),
+    ):
+        result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
+
+    assert auth_failed is False
+    assert result.status == "failed"
+    assert "Cancelled by user" in result.detail
+    assert "task-123" in result.detail
+
+
+def test_run_verification_treats_na_task_id_as_missing(tmp_path: Path):
+    """The CLI prints `Task ID: N/A` when the create response lacks an id;
+    the poller must not run `yutori browse get N/A`."""
+    cli_path = tmp_path / "yutori"
+    submission = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="\nBrowsing task failed to start.\n  Task ID: N/A\n  Status: queued\n",
+        stderr="",
+    )
+    with (
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=submission) as mock_run,
+    ):
+        result, auth_failed = run_verification(Console(), interactive=True, cli_state=_cli_state(cli_path))
+
+    assert auth_failed is False
+    assert result.status == "failed"
+    # Only the submission command ran — no poll against the "N/A" id.
+    assert len(mock_run.call_args_list) == 1
+
+
+def test_print_prompt_block_renders_markup_tokens_literally():
+    from yutori.cli.commands.install_flow import print_prompt_block
+
+    console = Console(record=True, width=120)
+    # pip routinely emits "[notice]"-style lines that Rich would swallow as
+    # markup; "[/notice]" is closing-tag-shaped and used to raise MarkupError.
+    print_prompt_block(console, "SDK", "pip says [notice] new release [/notice] available")
+    out = console.export_text()
+    assert "[notice]" in out
+    assert "[/notice]" in out
+
+
+def test_summarize_results_survives_markup_shaped_subprocess_output():
+    from yutori.cli.commands.install_flow import summarize_results
+
+    console = Console(record=True, width=120)
+    summarize_results(console, [StepResult("SDK", "failed", "unbalanced [/x] token from pip")])
+    out = console.export_text()
+    assert "[/x]" in out
+
+
+def test_detect_sdk_install_plan_windows_venv_uses_scripts_python(tmp_path: Path, monkeypatch):
+    import os as real_os
+
+    import yutori.cli.commands.install_flow as install_flow_module
+
+    venv_dir = tmp_path / "venv"
+    scripts_dir = venv_dir / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    fake_python = scripts_dir / "python.exe"
+    fake_python.write_text("#!/bin/sh\nexit 0\n")
+    fake_python.chmod(0o755)
+
+    # Patch only install_flow's view of os: setting the real os.name to "nt"
+    # would make pathlib instantiate WindowsPath on a POSIX host.
+    class _NtOsProxy:
+        name = "nt"
+
+        def __getattr__(self, attr):
+            return getattr(real_os, attr)
+
+    monkeypatch.setattr(install_flow_module, "os", _NtOsProxy())
+    plan = detect_sdk_install_plan(cwd=tmp_path, env={"VIRTUAL_ENV": str(venv_dir), "PATH": ""})
+
+    assert plan.command[0] == str(fake_python)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ._compat import warn_renamed
+from ._compat import install_shim
 
-warn_renamed(__name__)
-
-from yutori.navigator.models import *  # noqa: E402,F401,F403
+install_shim(globals())

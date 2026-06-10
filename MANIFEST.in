@@ -1,0 +1,6 @@
+# Ship the complete test suite in the sdist. Without this, setuptools'
+# default glob picks up tests/test_*.py but not conftest.py, tests/__init__.py,
+# or tests/_usage_fixtures.py — files those tests import — leaving sdist
+# consumers (e.g. distro packagers) with a suite that cannot even collect.
+graft tests
+global-exclude __pycache__ *.py[cod]

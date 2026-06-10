@@ -6,10 +6,10 @@ import os
 
 import typer
 from rich.console import Console
-from rich.markup import escape
 
 from yutori.auth.credentials import _is_real_key, clear_config, get_stored_api_key, load_config
 from yutori.auth.flow import get_auth_status, run_login_flow
+from yutori.cli.commands import safe_str
 
 app = typer.Typer(help="Manage authentication")
 console = Console()
@@ -49,9 +49,10 @@ def login() -> None:
         console.print("[green]Successfully authenticated![/green]")
         console.print("You can now use the Yutori CLI and SDK.")
     else:
-        console.print(f"\n[red]Authentication failed: {escape(str(result.error))}[/red]")
-        if result.auth_url:
-            console.print(f"\n[dim]If the browser didn't open, visit:[/dim]\n  {result.auth_url}")
+        console.print(f"\n[red]Authentication failed: {safe_str(result.error)}[/red]")
+        # Don't reprint result.auth_url here: the local callback server is
+        # already shut down, so visiting it can no longer complete a login.
+        console.print("Run [bold]yutori auth login[/bold] to try again.")
         raise typer.Exit(1)
 
 

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+import contextlib
+from typing import Any, Iterator
 
+import httpx
 import typer
 from rich.console import Console
 from rich.markup import escape
 
 from yutori.auth.credentials import resolve_api_key
+from yutori.exceptions import APIError, AuthenticationError
 
 __all__ = [
     "INTERVAL_PRESETS",
@@ -16,6 +19,8 @@ __all__ = [
     "SECONDS_PER_HOUR",
     "SECONDS_PER_MINUTE",
     "SECONDS_PER_WEEK",
+    "cli_api_errors",
+    "cli_client",
     "format_interval",
     "get_authenticated_client",
     "print_aligned_fields",
@@ -25,6 +30,7 @@ __all__ = [
     "print_task_get_header",
     "print_task_result_output",
     "print_task_submission_result",
+    "safe_str",
 ]
 
 SECONDS_PER_MINUTE = 60
@@ -41,6 +47,17 @@ INTERVAL_PRESETS: dict[str, int] = {
 _console = Console()
 
 
+def safe_str(value: Any) -> str:
+    """Stringify and Rich-escape a data value so it renders literally.
+
+    Every value that reaches a markup-enabled print must go through this (or
+    a helper that calls it): API and subprocess strings can carry tokens like
+    ``[beta]`` (silently eaten as markup) or ``[/x]`` (raises MarkupError),
+    and non-string values would crash ``escape`` itself.
+    """
+    return escape(str(value))
+
+
 def get_authenticated_client() -> Any:
     """Get an authenticated YutoriClient, or exit with an error message."""
     from yutori.client import YutoriClient
@@ -53,11 +70,69 @@ def get_authenticated_client() -> Any:
     return YutoriClient(api_key=api_key)
 
 
+def _auth_recovery_hint() -> str:
+    """Recovery instruction for a rejected key, tailored to where it came from.
+
+    'Run yutori auth login' is wrong advice for an env-var key: login refuses
+    to run while YUTORI_API_KEY is set, and the env var would keep overriding
+    saved credentials anyway. Every variant mentions 'yutori auth login' so
+    the output stays stable for callers grepping it.
+    """
+    from yutori.auth.flow import get_auth_status
+
+    source = get_auth_status().source
+    if source == "env_var":
+        return (
+            "YUTORI_API_KEY is set but was rejected — update or unset it "
+            "(while set, it overrides 'yutori auth login' credentials)."
+        )
+    if source == "config_file":
+        return "Your saved API key was rejected. Run 'yutori auth logout', then 'yutori auth login'."
+    return "Your API key was rejected. Run 'yutori auth login' to refresh credentials."
+
+
+@contextlib.contextmanager
+def cli_api_errors() -> Iterator[None]:
+    """Convert SDK and network errors into friendly messages and exit code 1.
+
+    Without this, a rejected key, an unknown task ID, or being offline dumps
+    a multi-screen Typer traceback. The AuthenticationError class name stays
+    in the output because the installer's AUTH_FAILURE_MARKERS
+    (yutori/cli/commands/install_flow.py) classify failures by grepping it.
+    """
+    try:
+        yield
+    except AuthenticationError as exc:
+        _console.print(f"[red]AuthenticationError: {safe_str(exc)}[/red]")
+        _console.print(_auth_recovery_hint())
+        raise typer.Exit(1) from exc
+    except APIError as exc:
+        _console.print(f"[red]APIError: {safe_str(exc)}[/red]")
+        raise typer.Exit(1) from exc
+    except httpx.HTTPError as exc:
+        _console.print(f"[red]Network error: {safe_str(exc)}[/red]")
+        _console.print("Check your connection and try again.")
+        raise typer.Exit(1) from exc
+
+
+@contextlib.contextmanager
+def cli_client() -> Iterator[Any]:
+    """Authenticated client with CLI error handling — the one entry point
+    for API-calling commands.
+
+    Bundles :func:`cli_api_errors` with :func:`get_authenticated_client` so a
+    new command cannot accidentally take the client without the friendly
+    error handling (forgetting it regresses to multi-screen tracebacks).
+    """
+    with cli_api_errors(), get_authenticated_client() as client:
+        yield client
+
+
 def print_rejection_reason(console: Console, result: dict[str, Any]) -> None:
     """Print rejection_reason from an API response if present."""
     reason = result.get("rejection_reason")
     if reason:
-        console.print(f"  Rejection Reason: {escape(str(reason))}")
+        console.print(f"  Rejection Reason: {safe_str(reason)}")
 
 
 def print_optional_field(
@@ -65,19 +140,15 @@ def print_optional_field(
     data: dict[str, Any],
     key: str,
     label: str,
-    *,
-    escape_value: bool = False,
 ) -> None:
     """Print ``  {label}: {data[key]}`` only when ``data[key]`` is truthy.
 
-    Set ``escape_value=True`` for user-supplied strings that may contain
-    Rich markup (e.g. ``[red]``) so they render literally.
+    Values render literally (Rich-escaped) — no caller passes markup as data.
     """
     value = data.get(key)
     if not value:
         return
-    rendered = escape(str(value)) if escape_value else value
-    console.print(f"  {label}: {rendered}")
+    console.print(f"  {label}: {safe_str(value)}")
 
 
 def print_aligned_fields(
@@ -99,7 +170,7 @@ def print_aligned_fields(
     label_width = max(min_label_width, *(len(label) for label, _ in fields))
     indent_str = " " * indent
     for label, value in fields:
-        console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{value}")
+        console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{safe_str(value)}")
 
 
 def print_creation_result(
@@ -109,40 +180,58 @@ def print_creation_result(
     success_message: str,
     failure_message: str,
     fields: list[tuple[str, Any]] | None = None,
-) -> None:
+) -> bool:
     """Print a creation response: colored header, optional fields, status, rejection reason.
 
     The header is red on ``status == "failed"`` and green otherwise so failed
     creates do not display a misleading success banner. Each ``(label, value)``
     in ``fields`` is rendered as ``  label: value`` between the header and the
     ``Status`` line, mirroring the existing per-command output ordering.
+    Field values render literally (Rich-escaped) — pass them raw.
+
+    Returns False when the response reports a failed status, so callers can
+    exit non-zero — scripts must not see a rejected create as success.
     """
     status = result.get("status", "N/A")
-    if status == "failed":
+    failed = status == "failed"
+    if failed:
         console.print(f"\n[red]{failure_message}[/red]")
     else:
         console.print(f"\n[green]{success_message}[/green]")
     for label, value in fields or []:
-        console.print(f"  {label}: {value}")
-    console.print(f"  Status: {status}")
+        console.print(f"  {label}: {safe_str(value)}")
+    console.print(f"  Status: {safe_str(status)}")
     print_rejection_reason(console, result)
+    return not failed
 
 
-def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
-    """Print a task creation response without implying success on failed creates."""
-    print_creation_result(
+def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> bool:
+    """Print a task creation response; returns False when the create failed.
+
+    A non-failed response without a ``task_id`` is also a failure: the task
+    cannot be polled, so reporting success would strand the user (and any
+    script keying off the exit code) with nothing to do next.
+    """
+    task_id = result.get("task_id")
+    has_task_id = str(task_id or "").strip() not in ("", "N/A")
+    if not has_task_id and result.get("status") != "failed":
+        console.print(f"\n[red]{task_type} task was accepted but the API returned no task ID.[/red]")
+        console.print(f"  Status: {safe_str(result.get('status', 'N/A'))}")
+        print_rejection_reason(console, result)
+        return False
+    return print_creation_result(
         console,
         result,
         success_message=f"{task_type} task submitted.",
         failure_message=f"{task_type} task failed to start.",
-        fields=[("Task ID", result.get("task_id", "N/A"))],
+        fields=[("Task ID", task_id if has_task_id else "N/A")],
     )
 
 
 def print_task_get_header(console: Console, task_type: str, task_id: str, result: dict[str, Any]) -> None:
     """Print the common header for a task-get response: title, status, and rejection reason."""
-    console.print(f"\n[bold]{task_type} Task: {result.get('task_id', task_id)}[/bold]\n")
-    console.print(f"  Status: {result.get('status', 'N/A')}")
+    console.print(f"\n[bold]{task_type} Task: {safe_str(result.get('task_id', task_id))}[/bold]\n")
+    console.print(f"  Status: {safe_str(result.get('status', 'N/A'))}")
     print_rejection_reason(console, result)
 
 

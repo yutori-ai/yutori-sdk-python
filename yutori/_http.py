@@ -21,7 +21,24 @@ def build_headers(api_key: str) -> dict[str, str]:
 def handle_response(response: httpx.Response) -> dict[str, Any]:
     """Process HTTP response, raising appropriate errors for failures."""
     if response.status_code in (401, 403):
-        raise AuthenticationError("Invalid or missing API key")
+        # Truncate: a proxy or gateway can return a full HTML error page here.
+        detail = f": {response.text[:500]}" if response.text else ""
+        raise AuthenticationError(
+            f"Invalid API key or insufficient permissions ({response.status_code}){detail}"
+        )
+
+    # Redirects are not followed, so a 3xx here means the base URL does not
+    # point directly at the API; treat it as an error rather than empty success.
+    if 300 <= response.status_code < 400:
+        location = response.headers.get("location") or "unknown"
+        raise APIError(
+            message=(
+                f"Unexpected redirect to {location} — "
+                "the configured base_url may not point directly at the API."
+            ),
+            status_code=response.status_code,
+            response=response,
+        )
 
     if response.status_code >= 400:
         raise APIError(
@@ -31,7 +48,16 @@ def handle_response(response: httpx.Response) -> dict[str, Any]:
         )
 
     if response.content:
-        return response.json()
+        # A 2xx non-JSON body (captive portal, SSO gateway, HTML error page)
+        # must surface as an SDK error, not a bare JSONDecodeError.
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise APIError(
+                message=f"API returned a non-JSON response: {response.text[:200]!r}",
+                status_code=response.status_code,
+                response=response,
+            ) from exc
     return {}
 
 
@@ -107,13 +133,14 @@ def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
     """Merge non-None ``fields`` into ``kwargs["extra_body"]`` in place.
 
     Pops any user-provided ``extra_body`` from ``kwargs``, overlays the
-    non-None ``fields`` on top of it, and writes the result back under
-    ``extra_body`` — but only if the merged dict is non-empty. Used by
-    ChatCompletions.create to compose the ``extra_body`` kwarg forwarded
-    to the OpenAI client without letting sync and async implementations
-    drift out of sync.
+    non-None ``fields`` on top of a copy of it, and writes the result back
+    under ``extra_body`` — but only if the merged dict is non-empty. The copy
+    keeps the caller's dict unmodified so it can be safely reused across
+    calls. Used by ChatCompletions.create to compose the ``extra_body`` kwarg
+    forwarded to the OpenAI client without letting sync and async
+    implementations drift out of sync.
     """
-    extra_body = kwargs.pop("extra_body", None) or {}
+    extra_body = dict(kwargs.pop("extra_body", None) or {})
     for key, value in fields.items():
         if value is not None:
             extra_body[key] = value
