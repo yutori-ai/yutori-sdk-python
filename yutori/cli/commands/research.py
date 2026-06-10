@@ -6,8 +6,7 @@ import typer
 from rich.console import Console
 
 from yutori.cli.commands import (
-    cli_api_errors,
-    get_authenticated_client,
+    cli_client,
     print_optional_field,
     print_task_get_header,
     print_task_result_output,
@@ -25,7 +24,7 @@ def run(
     location: str = typer.Option(None, "--location", help="e.g., San Francisco, CA, US"),
 ) -> None:
     """Start a new research task."""
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.research.create(
             query=query,
             user_timezone=timezone,
@@ -41,12 +40,12 @@ def get(
     task_id: str = typer.Argument(help="The research task ID"),
 ) -> None:
     """Get the status and result of a research task."""
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.research.get(task_id)
 
         print_task_get_header(console, "Research", task_id, result)
 
-        print_optional_field(console, result, "query", "Query", escape_value=True)
+        print_optional_field(console, result, "query", "Query")
         print_optional_field(console, result, "created_at", "Created")
 
         print_task_result_output(console, result)

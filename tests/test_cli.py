@@ -45,7 +45,7 @@ def test_browse_run_forwards_local_browser_and_auth():
     client = _make_client_mock()
     client.browsing.create.return_value = {"task_id": "task-123", "status": "queued"}
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
             [
@@ -77,7 +77,7 @@ def test_research_run_basic():
     client = _make_client_mock()
     client.research.create.return_value = {"task_id": "research-123", "status": "queued"}
 
-    with patch("yutori.cli.commands.research.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
             ["research", "run", "latest AI announcements", "--timezone", "America/Los_Angeles"],
@@ -102,7 +102,7 @@ def test_browse_run_handles_failed_create_response():
         "rejection_reason": "billing_limit_reached",
     }
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
             ["browse", "run", "click the button", "https://example.com"],
@@ -122,7 +122,7 @@ def test_research_run_handles_failed_create_response():
         "status": "failed",
     }
 
-    with patch("yutori.cli.commands.research.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(
             app,
             ["research", "run", "latest AI announcements"],
@@ -143,7 +143,7 @@ def test_browse_get_shows_rejection_reason():
         "rejection_reason": "billing_limit_reached",
     }
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["browse", "get", "task-123"])
 
     assert result.exit_code == 0
@@ -159,7 +159,7 @@ def test_research_get_shows_rejection_reason():
         "rejection_reason": "rate_limit_exceeded",
     }
 
-    with patch("yutori.cli.commands.research.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["research", "get", "research-123"])
 
     assert result.exit_code == 0
@@ -176,7 +176,7 @@ def test_scouts_get_shows_rejection_reason():
         "rejection_reason": "invalid_query",
     }
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "get", "scout-123"])
 
     assert result.exit_code == 0
@@ -198,7 +198,7 @@ def test_scouts_list_shows_rejection_reason_column():
         ]
     }
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "list"])
 
     assert result.exit_code == 0
@@ -230,7 +230,7 @@ def test_scouts_list_renders_markup_like_queries_literally():
         ]
     }
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "list"])
 
     # "[/b]" used to crash the whole listing with MarkupError; "[beta]" used
@@ -254,7 +254,7 @@ def test_scouts_list_stringifies_non_string_fields_before_escaping():
         ]
     }
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "list"])
 
     assert result.exit_code == 0
@@ -271,7 +271,7 @@ def test_browse_get_renders_markup_like_start_url_literally():
         "start_url": "https://example.com/[beta]/page",
     }
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["browse", "get", "task-123"])
 
     assert result.exit_code == 0
@@ -289,7 +289,7 @@ def test_browse_get_api_error_prints_message_not_traceback():
     client = _make_client_mock()
     client.browsing.get.side_effect = APIError("task not found", status_code=404)
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["browse", "get", "nope"])
 
     assert result.exit_code == 1
@@ -305,7 +305,7 @@ def test_usage_rejected_key_prints_auth_guidance_not_traceback():
     client = _make_client_mock()
     client.get_usage.side_effect = AuthenticationError("Invalid API key or insufficient permissions (401)")
 
-    with patch("yutori.cli.commands.usage.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["usage"])
 
     assert result.exit_code == 1
@@ -324,7 +324,7 @@ def test_scouts_list_network_error_prints_message_not_traceback():
     client = _make_client_mock()
     client.scouts.list.side_effect = httpx.ConnectError("connection refused")
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "list"])
 
     assert result.exit_code == 1
@@ -338,7 +338,7 @@ def test_usage_renders_stats_from_api_response():
     client = _make_client_mock()
     client.get_usage.return_value = USAGE_RESPONSE
 
-    with patch("yutori.cli.commands.usage.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["usage", "--period", "7d"])
 
     assert result.exit_code == 0
@@ -356,7 +356,7 @@ def test_browse_run_missing_task_id_fails():
     client = _make_client_mock()
     client.browsing.create.return_value = {}
 
-    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["browse", "run", "do something", "https://example.com"])
 
     assert result.exit_code == 1
@@ -372,7 +372,7 @@ def test_scouts_create_failed_status_exits_nonzero():
         "rejection_reason": "billing_limit_reached",
     }
 
-    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
         result = runner.invoke(app, ["scouts", "create", "-q", "watch things"])
 
     assert result.exit_code == 1

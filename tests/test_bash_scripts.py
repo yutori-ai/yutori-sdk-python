@@ -34,10 +34,6 @@ def _resolve_install_sh() -> Path:
     )
 
 
-def _all_scripts() -> list[Path]:
-    return AUTHORED_SCRIPTS + [_resolve_install_sh()]
-
-
 @pytest.mark.parametrize("script", AUTHORED_SCRIPTS, ids=lambda p: p.name)
 def test_authored_bash_syntax(script: Path) -> None:
     """`bash -n` on every hand-authored script — these must always exist."""

@@ -14,7 +14,7 @@ class AuthenticationError(YutoriSDKError):
 
 
 class APIError(YutoriSDKError):
-    """Raised when the Yutori API returns a non-successful response."""
+    """Raised when the Yutori API returns a non-successful or unusable response."""
 
     def __init__(self, message: str, status_code: int, response: Any | None = None):
         super().__init__(message)

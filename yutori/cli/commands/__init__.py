@@ -20,6 +20,7 @@ __all__ = [
     "SECONDS_PER_MINUTE",
     "SECONDS_PER_WEEK",
     "cli_api_errors",
+    "cli_client",
     "format_interval",
     "get_authenticated_client",
     "print_aligned_fields",
@@ -29,6 +30,7 @@ __all__ = [
     "print_task_get_header",
     "print_task_result_output",
     "print_task_submission_result",
+    "safe_str",
 ]
 
 SECONDS_PER_MINUTE = 60
@@ -43,6 +45,17 @@ INTERVAL_PRESETS: dict[str, int] = {
 }
 
 _console = Console()
+
+
+def safe_str(value: Any) -> str:
+    """Stringify and Rich-escape a data value so it renders literally.
+
+    Every value that reaches a markup-enabled print must go through this (or
+    a helper that calls it): API and subprocess strings can carry tokens like
+    ``[beta]`` (silently eaten as markup) or ``[/x]`` (raises MarkupError),
+    and non-string values would crash ``escape`` itself.
+    """
+    return escape(str(value))
 
 
 def get_authenticated_client() -> Any:
@@ -65,10 +78,9 @@ def _auth_recovery_hint() -> str:
     saved credentials anyway. Every variant mentions 'yutori auth login' so
     the output stays stable for callers grepping it.
     """
-    from yutori.auth.credentials import _resolve_api_key_with_source
+    from yutori.auth.flow import get_auth_status
 
-    resolved = _resolve_api_key_with_source()
-    source = resolved[1] if resolved else None
+    source = get_auth_status().source
     if source == "env_var":
         return (
             "YUTORI_API_KEY is set but was rejected — update or unset it "
@@ -91,23 +103,36 @@ def cli_api_errors() -> Iterator[None]:
     try:
         yield
     except AuthenticationError as exc:
-        _console.print(f"[red]AuthenticationError: {escape(str(exc))}[/red]")
+        _console.print(f"[red]AuthenticationError: {safe_str(exc)}[/red]")
         _console.print(_auth_recovery_hint())
         raise typer.Exit(1) from exc
     except APIError as exc:
-        _console.print(f"[red]APIError: {escape(str(exc))}[/red]")
+        _console.print(f"[red]APIError: {safe_str(exc)}[/red]")
         raise typer.Exit(1) from exc
     except httpx.HTTPError as exc:
-        _console.print(f"[red]Network error: {escape(str(exc))}[/red]")
+        _console.print(f"[red]Network error: {safe_str(exc)}[/red]")
         _console.print("Check your connection and try again.")
         raise typer.Exit(1) from exc
+
+
+@contextlib.contextmanager
+def cli_client() -> Iterator[Any]:
+    """Authenticated client with CLI error handling — the one entry point
+    for API-calling commands.
+
+    Bundles :func:`cli_api_errors` with :func:`get_authenticated_client` so a
+    new command cannot accidentally take the client without the friendly
+    error handling (forgetting it regresses to multi-screen tracebacks).
+    """
+    with cli_api_errors(), get_authenticated_client() as client:
+        yield client
 
 
 def print_rejection_reason(console: Console, result: dict[str, Any]) -> None:
     """Print rejection_reason from an API response if present."""
     reason = result.get("rejection_reason")
     if reason:
-        console.print(f"  Rejection Reason: {escape(str(reason))}")
+        console.print(f"  Rejection Reason: {safe_str(reason)}")
 
 
 def print_optional_field(
@@ -115,19 +140,15 @@ def print_optional_field(
     data: dict[str, Any],
     key: str,
     label: str,
-    *,
-    escape_value: bool = False,
 ) -> None:
     """Print ``  {label}: {data[key]}`` only when ``data[key]`` is truthy.
 
-    Set ``escape_value=True`` for user-supplied strings that may contain
-    Rich markup (e.g. ``[red]``) so they render literally.
+    Values render literally (Rich-escaped) — no caller passes markup as data.
     """
     value = data.get(key)
     if not value:
         return
-    rendered = escape(str(value)) if escape_value else value
-    console.print(f"  {label}: {rendered}")
+    console.print(f"  {label}: {safe_str(value)}")
 
 
 def print_aligned_fields(
@@ -149,7 +170,7 @@ def print_aligned_fields(
     label_width = max(min_label_width, *(len(label) for label, _ in fields))
     indent_str = " " * indent
     for label, value in fields:
-        console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{value}")
+        console.print(f"{indent_str}{(label + ':').ljust(label_width + 2)}{safe_str(value)}")
 
 
 def print_creation_result(
@@ -166,6 +187,7 @@ def print_creation_result(
     creates do not display a misleading success banner. Each ``(label, value)``
     in ``fields`` is rendered as ``  label: value`` between the header and the
     ``Status`` line, mirroring the existing per-command output ordering.
+    Field values render literally (Rich-escaped) — pass them raw.
 
     Returns False when the response reports a failed status, so callers can
     exit non-zero — scripts must not see a rejected create as success.
@@ -177,8 +199,8 @@ def print_creation_result(
     else:
         console.print(f"\n[green]{success_message}[/green]")
     for label, value in fields or []:
-        console.print(f"  {label}: {value}")
-    console.print(f"  Status: {escape(str(status))}")
+        console.print(f"  {label}: {safe_str(value)}")
+    console.print(f"  Status: {safe_str(status)}")
     print_rejection_reason(console, result)
     return not failed
 
@@ -191,10 +213,10 @@ def print_task_submission_result(console: Console, task_type: str, result: dict[
     script keying off the exit code) with nothing to do next.
     """
     task_id = result.get("task_id")
-    has_task_id = bool(task_id) and str(task_id).strip() not in ("", "N/A")
+    has_task_id = str(task_id or "").strip() not in ("", "N/A")
     if not has_task_id and result.get("status") != "failed":
         console.print(f"\n[red]{task_type} task was accepted but the API returned no task ID.[/red]")
-        console.print(f"  Status: {escape(str(result.get('status', 'N/A')))}")
+        console.print(f"  Status: {safe_str(result.get('status', 'N/A'))}")
         print_rejection_reason(console, result)
         return False
     return print_creation_result(
@@ -202,14 +224,14 @@ def print_task_submission_result(console: Console, task_type: str, result: dict[
         result,
         success_message=f"{task_type} task submitted.",
         failure_message=f"{task_type} task failed to start.",
-        fields=[("Task ID", escape(str(task_id if has_task_id else "N/A")))],
+        fields=[("Task ID", task_id if has_task_id else "N/A")],
     )
 
 
 def print_task_get_header(console: Console, task_type: str, task_id: str, result: dict[str, Any]) -> None:
     """Print the common header for a task-get response: title, status, and rejection reason."""
-    console.print(f"\n[bold]{task_type} Task: {escape(str(result.get('task_id', task_id)))}[/bold]\n")
-    console.print(f"  Status: {escape(str(result.get('status', 'N/A')))}")
+    console.print(f"\n[bold]{task_type} Task: {safe_str(result.get('task_id', task_id))}[/bold]\n")
+    console.print(f"  Status: {safe_str(result.get('status', 'N/A'))}")
     print_rejection_reason(console, result)
 
 

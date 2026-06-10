@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from yutori.cli.commands import cli_api_errors, get_authenticated_client, print_aligned_fields
+from yutori.cli.commands import cli_client, print_aligned_fields, safe_str
 
 app = typer.Typer(help="View usage statistics")
 console = Console()
@@ -59,7 +59,7 @@ def usage(
     if ctx.invoked_subcommand is not None:
         return
 
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         data = client.get_usage(period=period)
 
         console.print("\n[bold]Usage Statistics[/bold]\n")
@@ -70,7 +70,7 @@ def usage(
         active_ids = data.get("active_scout_ids", [])
         if active_ids:
             for sid in active_ids[:5]:
-                console.print(f"    - {sid}")
+                console.print(f"    - {safe_str(sid)}")
             if len(active_ids) > 5:
                 console.print(f"    ... and {len(active_ids) - 5} more")
 
@@ -79,7 +79,7 @@ def usage(
         if rate_limits:
             _print_rate_limits(
                 console,
-                f"\n  [bold]API Rate Limits[/bold] ({rate_limits.get('status', 'unknown')})",
+                f"\n  [bold]API Rate Limits[/bold] ({safe_str(rate_limits.get('status', 'unknown'))})",
                 rate_limits,
                 gate_on_status_available=True,
             )

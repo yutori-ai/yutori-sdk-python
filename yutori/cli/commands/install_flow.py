@@ -895,8 +895,9 @@ def run_verification(
         return StepResult("Verification", "failed", detail), auth_failed
 
     task_id = parse_cli_field(submission.stdout, "Task ID")
-    # The CLI prints the literal placeholder "N/A" when the create response
-    # had no task_id; treat it as missing instead of polling `browse get N/A`.
+    # Older CLI versions print the literal placeholder "N/A" (and exit 0)
+    # when the create response has no task_id; current CLIs fail before this
+    # point, so this guards against a version-skewed `yutori` on PATH.
     if not task_id or task_id == "N/A":
         detail = submission_output or "CLI did not print a task ID for the verification task."
         return StepResult("Verification", "failed", detail), False

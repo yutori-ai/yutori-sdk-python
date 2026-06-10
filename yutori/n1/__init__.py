@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import pkgutil
 
 from ._compat import warn_renamed
 
@@ -11,22 +12,12 @@ warn_renamed(__name__, suffix="Update imports to 'from yutori.navigator import .
 from yutori.navigator import *  # noqa: E402,F401,F403
 from yutori.navigator import __all__  # noqa: E402,F401
 
+# Shim modules in this package: everything on disk except the _compat
+# helper, so adding or removing a shim file needs no registry edit.
 _SUBMODULES = frozenset(
-    {
-        "_assets",
-        "content",
-        "context",
-        "coordinates",
-        "hooks",
-        "images",
-        "keys",
-        "loop",
-        "models",
-        "page_ready",
-        "payload",
-        "replay",
-        "stop",
-    }
+    module.name
+    for module in pkgutil.iter_modules(__path__)  # noqa: F405 — package __path__, not a star import
+    if module.name != "_compat"
 )
 
 

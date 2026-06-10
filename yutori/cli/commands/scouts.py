@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
-from rich.markup import escape
 from rich.table import Table
 
 from yutori.cli.commands import (
     INTERVAL_PRESETS,
-    cli_api_errors,
+    cli_client,
     format_interval,
-    get_authenticated_client,
     print_creation_result,
     print_optional_field,
     print_rejection_reason,
+    safe_str,
 )
 
 app = typer.Typer(help="Manage scouts")
@@ -27,7 +26,7 @@ def list_scouts(
     status: str = typer.Option(None, help="Filter by status: active, paused, done"),
 ) -> None:
     """List your scouts."""
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.scouts.list(limit=limit, status=status)
         scouts = result.get("scouts", [])
 
@@ -50,11 +49,11 @@ def list_scouts(
                 query = query[:47] + "..."
 
             table.add_row(
-                escape(str(scout.get("id", ""))),
-                escape(str(query)),
-                escape(str(scout.get("status", "unknown"))),
+                safe_str(scout.get("id", "")),
+                safe_str(query),
+                safe_str(scout.get("status", "unknown")),
                 interval_str,
-                escape(str(scout.get("rejection_reason") or "")),
+                safe_str(scout.get("rejection_reason") or ""),
             )
 
         console.print(table)
@@ -65,12 +64,12 @@ def get(
     scout_id: str = typer.Argument(help="The scout ID"),
 ) -> None:
     """Get details of a specific scout."""
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         scout = client.scouts.get(scout_id)
 
-        console.print(f"\n[bold]Scout: {escape(str(scout.get('id', scout_id)))}[/bold]\n")
-        console.print(f"  Query: {escape(str(scout.get('query', 'N/A')))}")
-        console.print(f"  Status: {escape(str(scout.get('status', 'N/A')))}")
+        console.print(f"\n[bold]Scout: {safe_str(scout.get('id', scout_id))}[/bold]\n")
+        console.print(f"  Query: {safe_str(scout.get('query', 'N/A'))}")
+        console.print(f"  Status: {safe_str(scout.get('status', 'N/A'))}")
         print_rejection_reason(console, scout)
 
         interval_str = format_interval(scout.get("output_interval") or 0)
@@ -94,10 +93,10 @@ def create(
     output_interval = INTERVAL_PRESETS.get(interval.lower())
     if output_interval is None:
         choices = ", ".join(INTERVAL_PRESETS)
-        console.print(f"[red]Invalid interval '{escape(interval)}'. Choose from: {choices}[/red]")
+        console.print(f"[red]Invalid interval '{safe_str(interval)}'. Choose from: {choices}[/red]")
         raise typer.Exit(1)
 
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         result = client.scouts.create(
             query=query,
             output_interval=output_interval,
@@ -110,8 +109,8 @@ def create(
             success_message="Scout created successfully!",
             failure_message="Scout creation failed.",
             fields=[
-                ("ID", escape(str(result.get("id", "N/A")))),
-                ("Query", escape(str(result.get("query", query)))),
+                ("ID", result.get("id", "N/A")),
+                ("Query", result.get("query", query)),
             ],
         )
         if not ok:
@@ -130,6 +129,6 @@ def delete(
             console.print("[yellow]Cancelled.[/yellow]")
             raise typer.Exit(0)
 
-    with cli_api_errors(), get_authenticated_client() as client:
+    with cli_client() as client:
         client.scouts.delete(scout_id)
-        console.print(f"[green]Scout {escape(scout_id)} deleted.[/green]")
+        console.print(f"[green]Scout {safe_str(scout_id)} deleted.[/green]")

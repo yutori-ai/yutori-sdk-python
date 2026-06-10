@@ -37,6 +37,31 @@ from yutori.cli.main import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_mcp_installs():
+    """Safety net: tests in this file must never run real `npx` installs.
+
+    MCP server/skills are the two steps that run unattended without a TTY,
+    so any flow-level test that forgets to stub them hits the npm registry
+    and rewrites ~/.cursor / ~/.codex / ~/.gemini MCP configs. Patching the
+    module attributes covers `install_flow_command` (which resolves them at
+    call time); direct-exercise tests are unaffected because they call the
+    functions through this file's import-time bindings, and tests that need
+    custom behavior layer their own `patch(...)` on top.
+    """
+    with (
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
+            return_value=StepResult("MCP server", "success", "ok"),
+        ),
+        patch(
+            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
+            return_value=StepResult("MCP skills", "success", "ok"),
+        ),
+    ):
+        yield
+
+
 def test_hidden_install_flow_not_in_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
@@ -328,15 +353,6 @@ def test_install_flow_exits_nonzero_when_cli_verification_fails():
                 False,
             ),
         ),
-        # Stub the real installs so the test stays hermetic.
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
-            return_value=StepResult("MCP server", "success", "ok"),
-        ),
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
-            return_value=StepResult("MCP skills", "success", "ok"),
-        ),
     ):
         result = runner.invoke(app, ["__install_flow"])
 
@@ -373,15 +389,6 @@ def test_install_flow_marks_auth_failure_when_verification_rejects_credentials()
         patch(
             "yutori.cli.commands.install_flow.run_verification",
             return_value=(StepResult("Verification", "failed", "Authentication failed during verification."), True),
-        ),
-        # Stub the real installs so the test stays hermetic.
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
-            return_value=StepResult("MCP server", "success", "ok"),
-        ),
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
-            return_value=StepResult("MCP skills", "success", "ok"),
         ),
     ):
         result = runner.invoke(app, ["__install_flow"])
@@ -537,15 +544,6 @@ def test_install_flow_skips_header_when_bootstrap_already_rendered():
             "yutori.cli.commands.install_flow.maybe_authenticate",
             return_value=(StepResult("Auth", "skipped", "skip"), False),
         ),
-        # Stub the real installs so the test stays hermetic.
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
-            return_value=StepResult("MCP server", "success", "ok"),
-        ),
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
-            return_value=StepResult("MCP skills", "success", "ok"),
-        ),
     ):
         result = runner.invoke(app, ["__install_flow"], env={"YUTORI_INSTALLER_BOOTSTRAP_SHOWN": "1"})
 
@@ -582,15 +580,6 @@ def test_install_flow_exits_zero_when_verification_fails_for_non_auth_reason():
         patch(
             "yutori.cli.commands.install_flow.run_verification",
             return_value=(StepResult("Verification", "failed", "yutori.com unreachable"), False),
-        ),
-        # Stub the real installs so the test stays hermetic.
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_server",
-            return_value=StepResult("MCP server", "success", "ok"),
-        ),
-        patch(
-            "yutori.cli.commands.install_flow.maybe_install_mcp_skills",
-            return_value=StepResult("MCP skills", "success", "ok"),
         ),
     ):
         result = runner.invoke(app, ["__install_flow"])

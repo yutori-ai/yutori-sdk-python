@@ -9,12 +9,13 @@ centralizes the warning text and ``stacklevel`` accounting;
 
 from __future__ import annotations
 
+import importlib
 import warnings
 from types import ModuleType
 from typing import Any
 
 
-def warn_renamed(old_name: str, *, suffix: str = "") -> None:
+def warn_renamed(old_name: str, *, suffix: str = "", stacklevel: int = 3) -> None:
     """Emit a DeprecationWarning announcing the ``yutori.n1`` rename.
 
     ``old_name`` is the importing shim's ``__name__`` (e.g.
@@ -25,12 +26,14 @@ def warn_renamed(old_name: str, *, suffix: str = "") -> None:
 
     ``suffix`` is appended after the rename sentence; the package-level
     shim uses it to nudge callers toward updating their imports.
+    ``stacklevel`` defaults to 3 (this helper + the shim module body);
+    :func:`install_shim` passes 4 for its extra frame.
     """
     new_name = old_name.replace("yutori.n1", "yutori.navigator", 1)
     message = f"{old_name} has been renamed to {new_name}."
     if suffix:
         message = f"{message} {suffix}"
-    warnings.warn(message, DeprecationWarning, stacklevel=3)
+    warnings.warn(message, DeprecationWarning, stacklevel=stacklevel)
 
 
 # Attributes that identify the shim module itself and must not be replaced
@@ -60,7 +63,24 @@ def alias_module_contents(shim_globals: dict[str, Any], target: ModuleType) -> N
     which ``__all__`` omits). Copying ``vars(target)`` — including
     ``__all__`` itself, so star-imports from the shim keep the target's
     export list — preserves the original import surface exactly.
+
+    Note the copy semantics: monkeypatching an attribute on the shim module
+    does not affect the ``yutori.navigator`` module (or vice versa) — patch
+    the navigator module directly.
     """
     shim_globals.update(
         {name: value for name, value in vars(target).items() if name not in _MODULE_IDENTITY_ATTRS}
     )
+
+
+def install_shim(shim_globals: dict[str, Any]) -> None:
+    """Set up a ``yutori.n1`` submodule shim: warn, then re-export the target.
+
+    Derives the target module from the shim's own ``__name__`` so the 13
+    shim files cannot drift (a copy-pasted shim aliasing the wrong module
+    is the one realistic editing mistake this prevents).
+    """
+    old_name = shim_globals["__name__"]
+    warn_renamed(old_name, stacklevel=4)
+    target = importlib.import_module(old_name.replace("yutori.n1", "yutori.navigator", 1))
+    alias_module_contents(shim_globals, target)

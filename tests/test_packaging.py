@@ -132,8 +132,11 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(ROOT / fname, src_dir / fname)
 
+    # One default `python -m build` produces the sdist and then builds the
+    # wheel FROM it — covering the sdist→wheel path with half the build work
+    # of separate --wheel/--sdist invocations.
     subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist_dir)],
+        [sys.executable, "-m", "build", "--outdir", str(dist_dir)],
         cwd=src_dir,
         check=True,
     )
@@ -141,11 +144,6 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     # The sdist must carry a collectable test suite (MANIFEST.in grafts
     # tests/ — setuptools' default glob ships tests/test_*.py without the
     # conftest/helpers they import) and the py.typed marker.
-    subprocess.run(
-        [sys.executable, "-m", "build", "--sdist", "--outdir", str(dist_dir)],
-        cwd=src_dir,
-        check=True,
-    )
     sdists = sorted(dist_dir.glob("yutori-*.tar.gz"))
     assert sdists, "expected build to produce an sdist"
     with tarfile.open(sdists[0]) as tar:
