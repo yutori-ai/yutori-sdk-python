@@ -97,7 +97,7 @@ def get_stored_api_key() -> str | None:
         return None
     stored = config.get("api_key")
     if isinstance(stored, str) and _is_real_key(stored):
-        return stored
+        return stored.strip()
     return None
 
 
@@ -111,13 +111,17 @@ def _resolve_api_key_with_source(api_key: str | None = None) -> tuple[str, str] 
     ``"param"``, ``"env_var"``, or ``"config_file"``, or ``None`` if no key
     is found. Callers that only need the key itself should use
     :func:`resolve_api_key`.
+
+    Keys are stripped of surrounding whitespace: a trailing newline (common
+    with ``export YUTORI_API_KEY=$(cat key.txt)``) would otherwise be an
+    illegal HTTP header value and fail every request deep inside httpx.
     """
     if _is_real_key(api_key):
-        return api_key, "param"
+        return api_key.strip(), "param"
 
     env_key = os.environ.get("YUTORI_API_KEY")
     if _is_real_key(env_key):
-        return env_key, "env_var"
+        return env_key.strip(), "env_var"
 
     stored_key = get_stored_api_key()
     if stored_key is not None:

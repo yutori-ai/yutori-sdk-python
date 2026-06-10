@@ -19,8 +19,17 @@ jobs:
       - name: Install build tools
         run: pip install build twine
 
+      # Gate publishing on the test suite — a broken tag must not ship.
+      - name: Run tests
+        run: |
+          pip install -e ".[dev]"
+          pytest -m "not slow"
+
       - name: Build package
         run: python -m build
+
+      - name: Validate package metadata
+        run: twine check dist/*
 
       # install.sh is regenerated from the committed template + banner +
       # frames so the uploaded release asset matches the tagged commit
@@ -42,7 +51,10 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Upload installer assets to release
-        uses: softprops/action-gh-release@v2
+        # Pinned to a commit SHA: this third-party action runs with
+        # contents:write and uploads the curl|sh installer artifact, so a
+        # mutable tag would be a supply-chain risk. (v2 at time of pinning.)
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             install.sh

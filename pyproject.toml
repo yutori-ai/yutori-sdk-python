@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=67.0"]
+# >=77 is required for the PEP 639 string form of `license`; older
+# setuptools fails pyproject validation on it.
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -51,6 +53,7 @@ where = ["."]
 include = ["yutori*"]
 
 [tool.setuptools.package-data]
+"yutori" = ["py.typed"]
 "yutori.navigator" = ["js/*.js"]
 "yutori.navigator.tools" = ["js/*.js"]
 

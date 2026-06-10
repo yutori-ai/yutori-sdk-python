@@ -32,6 +32,7 @@ from typing import Literal, Mapping, Sequence
 import typer
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 from rich.table import Table
 
@@ -60,8 +61,8 @@ MCP_SKILLS_INSTALL_COMMAND = ("npx", "skills", "add", "yutori-ai/yutori-mcp", "-
 # never installed). Set YUTORI_INSTALL_CLIENT=<slug> to override with a
 # single target; see `npx add-mcp list-agents` for the full slug list.
 DEFAULT_NONINTERACTIVE_MCP_CLIENTS = ("claude-code", "codex", "cursor", "gemini-cli")
-# Route matches api-dashboard's /browsing/tasks/[id] page; the Vercel project
-# serves it on platform.yutori.com (production) and platform.dev.yutori.com (dev).
+# Public dashboard page for a browsing task, shown so users can watch the
+# verification task run.
 VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tasks"
 
 # Terminal task statuses. Broader than just {succeeded, failed} so the poll
@@ -84,6 +85,7 @@ FINAL_TASK_STATUSES = FINAL_SUCCESS_STATUSES | FINAL_FAILURE_STATUSES
 AUTH_FAILURE_MARKERS = (
     "not authenticated",
     "invalid or missing api key",
+    "invalid api key",
     "authenticationerror",
     "unauthorized",
     "forbidden",
@@ -368,11 +370,14 @@ def render_header(console: Console, *, interactive: bool) -> None:
 
 
 def print_prompt_block(console: Console, title: str, description: str, *, command: Sequence[str] | None = None) -> None:
+    # Descriptions often carry raw subprocess output; escape so tokens like
+    # pip's "[notice]" render literally instead of being parsed as markup
+    # (which deletes them or, for "[/x]"-shaped tokens, raises MarkupError).
     console.print(f"\n[{SLATE_TEXT}]|[/]")
-    console.print(f"[bold {MINT_HIGHLIGHT}]> {title}[/bold {MINT_HIGHLIGHT}]")
-    console.print(f"[{SLATE_TEXT}]| {description}[/]")
+    console.print(f"[bold {MINT_HIGHLIGHT}]> {escape(title)}[/bold {MINT_HIGHLIGHT}]")
+    console.print(f"[{SLATE_TEXT}]| {escape(description)}[/]")
     if command:
-        console.print(f"[{SLATE_TEXT}]| Command: {format_command(command)}[/]")
+        console.print(f"[{SLATE_TEXT}]| Command: {escape(format_command(command))}[/]")
 
 
 def ask_confirm(console: Console, question: str, *, default: bool) -> bool:
@@ -403,7 +408,9 @@ def summarize_results(console: Console, results: Sequence[StepResult]) -> None:
 
     for result in results:
         label, color = STATUS_LABELS[result.status]
-        table.add_row(result.name, f"[{color}]{label}[/{color}]", result.detail)
+        # result.detail routinely carries subprocess output; unescaped markup
+        # tokens in it would crash the summary after the install already ran.
+        table.add_row(escape(result.name), f"[{color}]{label}[/{color}]", escape(result.detail))
 
     console.print("\n")
     console.print(table)
@@ -470,7 +477,10 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
         )
 
     if resolved_env.get("VIRTUAL_ENV"):
-        venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "bin" / "python"
+        if os.name == "nt":
+            venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
+        else:
+            venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "bin" / "python"
         python_path = (
             str(venv_python)
             if _is_executable(venv_python)
@@ -885,7 +895,9 @@ def run_verification(
         return StepResult("Verification", "failed", detail), auth_failed
 
     task_id = parse_cli_field(submission.stdout, "Task ID")
-    if not task_id:
+    # The CLI prints the literal placeholder "N/A" when the create response
+    # had no task_id; treat it as missing instead of polling `browse get N/A`.
+    if not task_id or task_id == "N/A":
         detail = submission_output or "CLI did not print a task ID for the verification task."
         return StepResult("Verification", "failed", detail), False
 
@@ -893,38 +905,49 @@ def run_verification(
     deadline = time.monotonic() + VERIFICATION_POLL_BUDGET_SECONDS
     status = parse_cli_field(submission.stdout, "Status") or "queued"
     last_output = submission.stdout
-    console.print(f"[{SLATE_TEXT}]| Task: {task_url}[/]")
+    console.print(f"[{SLATE_TEXT}]| Task: {escape(task_url)}[/]")
 
     # Live status line: updates in place so the user sees both the current
     # status and continuous dot-motion confirming the installer is alive
     # during queued/running phases that may last the full 180s poll budget.
-    with console.status(
-        f"[{SLATE_TEXT}]| Status: {status}[/]",
-        spinner="simpleDots",
-        spinner_style=SLATE_TEXT,
-    ) as spinner:
-        while status not in FINAL_TASK_STATUSES:
-            if time.monotonic() >= deadline:
-                detail = (
-                    f"Verification timed out after {VERIFICATION_POLL_BUDGET_SECONDS}s. "
-                    f"View task: {task_url}"
-                )
-                return StepResult("Verification", "failed", detail), False
+    try:
+        with console.status(
+            f"[{SLATE_TEXT}]| Status: {escape(status)}[/]",
+            spinner="simpleDots",
+            spinner_style=SLATE_TEXT,
+        ) as spinner:
+            while status not in FINAL_TASK_STATUSES:
+                if time.monotonic() >= deadline:
+                    detail = (
+                        f"Verification timed out after {VERIFICATION_POLL_BUDGET_SECONDS}s. "
+                        f"View task: {task_url}"
+                    )
+                    return StepResult("Verification", "failed", detail), False
 
-            time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
-            poll = run_command((cli_invocation, "browse", "get", task_id))
-            poll_output = collect_process_output(poll)
-            if poll.returncode != 0:
-                auth_failed = looks_like_auth_failure(poll_output)
-                detail = poll_output or describe_completed_process(poll)
-                return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
+                time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)
+                poll = run_command((cli_invocation, "browse", "get", task_id))
+                poll_output = collect_process_output(poll)
+                if poll.returncode != 0:
+                    auth_failed = looks_like_auth_failure(poll_output)
+                    detail = poll_output or describe_completed_process(poll)
+                    return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
 
-            last_output = poll.stdout
-            status = parse_cli_field(poll.stdout, "Status") or "queued"
-            spinner.update(f"[{SLATE_TEXT}]| Status: {status}[/]")
+                last_output = poll.stdout
+                status = parse_cli_field(poll.stdout, "Status") or "queued"
+                spinner.update(f"[{SLATE_TEXT}]| Status: {escape(status)}[/]")
+    except KeyboardInterrupt:
+        # Most poll wall-time is spent in the parent-side sleep above, where
+        # run_command's KeyboardInterrupt-to-130 mapping can't help. Without
+        # this, Ctrl+C here bubbles to click's "Aborted!" and exits 1 with no
+        # summary — violating the contract that verification failures other
+        # than auth never exit non-zero.
+        return (
+            StepResult("Verification", "failed", f"Cancelled by user. View task: {task_url}"),
+            False,
+        )
 
     summary = _summarize_cli_output(last_output)
-    console.print(f"[{SLATE_TEXT}]| Result: {summary}[/]")
+    console.print(f"[{SLATE_TEXT}]| Result: {escape(summary)}[/]")
     if status in FINAL_SUCCESS_STATUSES:
         return StepResult("Verification", "success", f"Verification succeeded. View task: {task_url}"), False
 

@@ -6,5 +6,7 @@ repos:
         entry: bash scripts/check_install_sh_fresh.sh
         language: system
         pass_filenames: false
-        # Only rerun when the inputs or the generator change.
-        files: '^(install\.sh\.template|assets/terminal/(yutori_banner|agent_logo_frames)\.txt|scripts/build_install\.sh|scripts/check_install_sh_fresh\.sh|install\.sh)$'
+        # Only rerun when the inputs or the generator change. pyproject.toml
+        # is an input: the generator embeds its `version`, so version bumps
+        # must regenerate install.sh too.
+        files: '^(pyproject\.toml|install\.sh\.template|assets/terminal/(yutori_banner|agent_logo_frames)\.txt|scripts/build_install\.sh|scripts/check_install_sh_fresh\.sh|install\.sh)$'

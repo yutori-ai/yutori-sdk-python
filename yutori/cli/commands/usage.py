@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from yutori.cli.commands import get_authenticated_client, print_aligned_fields
+from yutori.cli.commands import cli_api_errors, get_authenticated_client, print_aligned_fields
 
 app = typer.Typer(help="View usage statistics")
 console = Console()
@@ -59,7 +59,7 @@ def usage(
     if ctx.invoked_subcommand is not None:
         return
 
-    with get_authenticated_client() as client:
+    with cli_api_errors(), get_authenticated_client() as client:
         data = client.get_usage(period=period)
 
         console.print("\n[bold]Usage Statistics[/bold]\n")

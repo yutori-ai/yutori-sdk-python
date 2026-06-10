@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from ._compat import warn_renamed
+from yutori.navigator import replay as _target
+
+from ._compat import alias_module_contents, warn_renamed
 
 warn_renamed(__name__)
-
-from yutori.navigator.replay import *  # noqa: E402,F401,F403
+alias_module_contents(globals(), _target)

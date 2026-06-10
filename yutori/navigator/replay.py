@@ -290,7 +290,13 @@ def _build_steps(
                 user_query = extract_text_content(content) or _stringify_content(content)
             observation = _normalize_observation(content)
             if observation:
-                current_observation = observation
+                if current_observation and not _observation_has_image(observation):
+                    # A text-only interjection (e.g. a user nudge after a tool
+                    # screenshot) augments the pending observation; replacing
+                    # it would drop the screenshot the model actually acted on.
+                    current_observation = current_observation + observation
+                else:
+                    current_observation = observation
             continue
 
         if role != "assistant":
@@ -342,6 +348,11 @@ def _normalize_observation(content: Any) -> list[dict] | None:
         if stripped:
             return [{"type": "text", "text": stripped}]
     return None
+
+
+def _observation_has_image(observation: list[dict]) -> bool:
+    screenshot_url, _ = _extract_observation_parts(observation)
+    return screenshot_url is not None
 
 
 def _extract_observation_parts(observation: list[dict] | None) -> tuple[str | None, list[str]]:
@@ -417,7 +428,11 @@ def _parse_tool_calls(message: dict) -> list[dict[str, Any]]:
         arguments = function.get("arguments") or "{}"
         try:
             parsed_arguments = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
-        except (TypeError, json.JSONDecodeError):
+        except (TypeError, ValueError):
+            parsed_arguments = {}
+        if not isinstance(parsed_arguments, dict):
+            # Valid JSON that isn't an object (e.g. "[1, 2]") — treat it like
+            # unparseable arguments instead of crashing the render.
             parsed_arguments = {}
         action = {"action_type": function.get("name", "unknown")}
         action.update(parsed_arguments)
@@ -478,7 +493,7 @@ def _render_step(step: dict[str, Any]) -> str:
         (
             f"<div class=\"image-frame\" data-modal-source=\"step-{step['step_num']}\" "
             f"onclick=\"openReplayModal('step-{step['step_num']}')\">"
-            f"<img src=\"{step['screenshot_url']}\" alt=\"Step {step['step_num']} screenshot\">"
+            f"<img src=\"{_escape_html(step['screenshot_url'])}\" alt=\"Step {step['step_num']} screenshot\">"
             f"{markers_html}</div>"
         )
         if step["screenshot_url"]

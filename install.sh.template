@@ -241,8 +241,10 @@ prerender_frames() {
     local frame_count="$1"
     local use_color="$2"
     local idx
-    FRAMES_RENDER_DIR="${FRAMES_CACHE_FILE}.rendered.d"
-    mkdir -p "$FRAMES_RENDER_DIR"
+    # mktemp -d, not a name derived from FRAMES_CACHE_FILE: a predictable
+    # path under a shared /tmp could be pre-created (with symlinks inside)
+    # by another local user, and `mkdir -p` would happily adopt it.
+    FRAMES_RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/yutori-install-frames-rendered.XXXXXX")"
     for (( idx = 0; idx < frame_count; idx++ )); do
         render_frame "$idx" "$use_color" >"$FRAMES_RENDER_DIR/$idx"
     done

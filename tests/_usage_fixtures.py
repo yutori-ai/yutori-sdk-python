@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import httpx
 
 # Mirrors the current server dual-emit: both navigator_* and n1_* keys
-# are present with equal values. See yutori.codex PR #8174.
+# are present with equal values (n1_* is the deprecated alias).
 _NAVIGATOR_LIMITS = {
     "requests_today": 50,
     "daily_limit": 50000,

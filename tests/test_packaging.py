@@ -120,11 +120,19 @@ def _write_dependency_stubs(stub_root: Path) -> None:
 def test_built_wheel_includes_packaged_js_assets(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    shutil.rmtree(ROOT / "build", ignore_errors=True)
+
+    # Build from a copy of the source tree so the test never mutates the
+    # repo (a stale ./build dir would otherwise have to be deleted to keep
+    # setuptools from leaking removed files into the wheel).
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    shutil.copytree(ROOT / "yutori", src_dir / "yutori", ignore=shutil.ignore_patterns("__pycache__"))
+    for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+        shutil.copy2(ROOT / fname, src_dir / fname)
 
     subprocess.run(
         [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist_dir)],
-        cwd=ROOT,
+        cwd=src_dir,
         check=True,
     )
 
@@ -148,6 +156,10 @@ def test_built_wheel_includes_packaged_js_assets(tmp_path: Path) -> None:
         """
         from importlib import resources
         from yutori.navigator._assets import load_js_asset
+
+        # PEP 561: without this marker, type checkers ignore every inline
+        # annotation in the installed package.
+        assert resources.files("yutori").joinpath("py.typed").is_file()
         from yutori.navigator.tools import (
             EXECUTE_JS_SCRIPT,
             EXTRACT_ELEMENTS_SCRIPT,

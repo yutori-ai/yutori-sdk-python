@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+import contextlib
+from typing import Any, Iterator
 
+import httpx
 import typer
 from rich.console import Console
 from rich.markup import escape
 
 from yutori.auth.credentials import resolve_api_key
+from yutori.exceptions import APIError, AuthenticationError
 
 __all__ = [
     "INTERVAL_PRESETS",
@@ -16,6 +19,7 @@ __all__ = [
     "SECONDS_PER_HOUR",
     "SECONDS_PER_MINUTE",
     "SECONDS_PER_WEEK",
+    "cli_api_errors",
     "format_interval",
     "get_authenticated_client",
     "print_aligned_fields",
@@ -51,6 +55,30 @@ def get_authenticated_client() -> Any:
         raise typer.Exit(1)
 
     return YutoriClient(api_key=api_key)
+
+
+@contextlib.contextmanager
+def cli_api_errors() -> Iterator[None]:
+    """Convert SDK and network errors into friendly messages and exit code 1.
+
+    Without this, a rejected key, an unknown task ID, or being offline dumps
+    a multi-screen Typer traceback. The exception class names stay in the
+    output because the installer's AUTH_FAILURE_MARKERS
+    (yutori/cli/commands/install_flow.py) classify failures by grepping it.
+    """
+    try:
+        yield
+    except AuthenticationError as exc:
+        _console.print(f"[red]AuthenticationError: {escape(str(exc))}[/red]")
+        _console.print("Your API key was rejected. Run 'yutori auth login' to refresh credentials.")
+        raise typer.Exit(1) from exc
+    except APIError as exc:
+        _console.print(f"[red]APIError: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    except httpx.HTTPError as exc:
+        _console.print(f"[red]Network error: {escape(str(exc))}[/red]")
+        _console.print("Check your connection and try again.")
+        raise typer.Exit(1) from exc
 
 
 def print_rejection_reason(console: Console, result: dict[str, Any]) -> None:
@@ -109,40 +137,45 @@ def print_creation_result(
     success_message: str,
     failure_message: str,
     fields: list[tuple[str, Any]] | None = None,
-) -> None:
+) -> bool:
     """Print a creation response: colored header, optional fields, status, rejection reason.
 
     The header is red on ``status == "failed"`` and green otherwise so failed
     creates do not display a misleading success banner. Each ``(label, value)``
     in ``fields`` is rendered as ``  label: value`` between the header and the
     ``Status`` line, mirroring the existing per-command output ordering.
+
+    Returns False when the response reports a failed status, so callers can
+    exit non-zero — scripts must not see a rejected create as success.
     """
     status = result.get("status", "N/A")
-    if status == "failed":
+    failed = status == "failed"
+    if failed:
         console.print(f"\n[red]{failure_message}[/red]")
     else:
         console.print(f"\n[green]{success_message}[/green]")
     for label, value in fields or []:
         console.print(f"  {label}: {value}")
-    console.print(f"  Status: {status}")
+    console.print(f"  Status: {escape(str(status))}")
     print_rejection_reason(console, result)
+    return not failed
 
 
-def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> None:
-    """Print a task creation response without implying success on failed creates."""
-    print_creation_result(
+def print_task_submission_result(console: Console, task_type: str, result: dict[str, Any]) -> bool:
+    """Print a task creation response; returns False when the create failed."""
+    return print_creation_result(
         console,
         result,
         success_message=f"{task_type} task submitted.",
         failure_message=f"{task_type} task failed to start.",
-        fields=[("Task ID", result.get("task_id", "N/A"))],
+        fields=[("Task ID", escape(str(result.get("task_id", "N/A"))))],
     )
 
 
 def print_task_get_header(console: Console, task_type: str, task_id: str, result: dict[str, Any]) -> None:
     """Print the common header for a task-get response: title, status, and rejection reason."""
-    console.print(f"\n[bold]{task_type} Task: {result.get('task_id', task_id)}[/bold]\n")
-    console.print(f"  Status: {result.get('status', 'N/A')}")
+    console.print(f"\n[bold]{task_type} Task: {escape(str(result.get('task_id', task_id)))}[/bold]\n")
+    console.print(f"  Status: {escape(str(result.get('status', 'N/A')))}")
     print_rejection_reason(console, result)
 
 

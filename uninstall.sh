@@ -47,7 +47,9 @@ prompt_confirm() {
         reply="$default_answer"
     fi
 
-    [[ "$reply" =~ ^[Yy]$ ]]
+    # Accept y/Y/yes/Yes/YES — the prompt offers "[Y/n]", so a typed "yes"
+    # must not silently count as a decline.
+    [[ "$reply" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
 uv_bin() {

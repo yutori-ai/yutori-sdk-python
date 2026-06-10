@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -m "not slow"
+
+  # The wheel-content test and metadata validation are slower, so they run
+  # once rather than across the whole matrix.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" twine
+      - name: Wheel content test
+        run: pytest -m slow
+      - name: Build and validate metadata
+        run: |
+          python -m build
+          twine check dist/*
+
+  install-sh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify install.sh matches template + assets + version
+        run: bash scripts/check_install_sh_fresh.sh
+      - name: Syntax-check shell scripts
+        run: |
+          bash -n install.sh
+          bash -n install.sh.template
+          bash -n uninstall.sh

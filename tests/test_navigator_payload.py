@@ -1,5 +1,7 @@
 """Tests for yutori.navigator.payload - payload management utilities."""
 
+from __future__ import annotations
+
 from yutori.navigator.payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
@@ -223,3 +225,47 @@ class TestTrimmedMessagesToFit:
         assert trimmed_messages is not original_messages
         assert message_has_image(original_messages[0]) is True
         assert any(not message_has_image(message) for message in trimmed_messages[:-1])
+
+
+# ---------------------------------------------------------------------------
+# Multi-image messages (trimming must converge, not strip one image per pass)
+# ---------------------------------------------------------------------------
+
+
+def _multi_image_msg(role: str, urls: list[str]) -> dict:
+    return {
+        "role": role,
+        "content": [{"type": "image_url", "image_url": {"url": url}} for url in urls],
+    }
+
+
+class TestMultiImageTrimming:
+    def test_old_multi_image_message_is_fully_drained(self):
+        big = "B" * 3000
+        messages = [
+            _multi_image_msg("user", [f"data:image/png;base64,{big}{i}" for i in range(3)]),
+            _image_msg("tool", url="data:image/png;base64,recent"),
+        ]
+        target = estimate_messages_size_bytes([messages[1]]) + 200
+
+        size, removed = trim_images_to_fit(messages, max_bytes=target, keep_recent=1)
+
+        assert removed == 3
+        assert size <= target
+        assert message_has_image(messages[0]) is False
+        assert message_has_image(messages[1]) is True
+
+    def test_multi_image_last_message_drains_to_final_screenshot(self):
+        big = "B" * 3000
+        last = _multi_image_msg(
+            "tool",
+            [f"data:image/png;base64,{big}1", f"data:image/png;base64,{big}2", "data:image/png;base64,final"],
+        )
+        messages = [last]
+
+        size, removed = trim_images_to_fit(messages, max_bytes=600, keep_recent=6)
+
+        assert removed == 2
+        assert size <= 600
+        urls = [p["image_url"]["url"] for p in last["content"] if p.get("type") == "image_url"]
+        assert urls == ["data:image/png;base64,final"]

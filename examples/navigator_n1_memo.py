@@ -50,7 +50,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
-from yutori.navigator import N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.navigator import NAVIGATOR_N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
@@ -63,7 +63,7 @@ class Config(BaseModel):
     start_url: str = "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
     # model
     base_url: str = DEFAULT_BASE_URL
-    model: str = N1_MODEL
+    model: str = NAVIGATOR_N1_MODEL
     temperature: float = 0.3
     # agent
     max_steps: int = 100
@@ -187,7 +187,7 @@ class Agent:
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
-        model: str = N1_MODEL,
+        model: str = NAVIGATOR_N1_MODEL,
         temperature: float = 0.3,
         max_steps: int = 100,
         viewport_width: int = 1280,

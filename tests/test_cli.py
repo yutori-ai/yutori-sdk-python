@@ -108,7 +108,8 @@ def test_browse_run_handles_failed_create_response():
             ["browse", "run", "click the button", "https://example.com"],
         )
 
-    assert result.exit_code == 0
+    # A rejected create must exit non-zero so scripts don't treat it as success.
+    assert result.exit_code == 1
     assert "Browsing task failed to start" in result.stdout
     assert "Rejection Reason: billing_limit_reached" in result.stdout
     client.close.assert_called_once()
@@ -127,7 +128,8 @@ def test_research_run_handles_failed_create_response():
             ["research", "run", "latest AI announcements"],
         )
 
-    assert result.exit_code == 0
+    # A rejected create must exit non-zero so scripts don't treat it as success.
+    assert result.exit_code == 1
     assert "Research task failed to start" in result.stdout
     assert "Rejection Reason" not in result.stdout
     client.close.assert_called_once()
@@ -201,4 +203,146 @@ def test_scouts_list_shows_rejection_reason_column():
 
     assert result.exit_code == 0
     assert "invalid_query" in result.stdout
+    client.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Rich markup safety: API/user strings must render literally, never parse.
+# ---------------------------------------------------------------------------
+
+
+def test_scouts_list_renders_markup_like_queries_literally():
+    client = _make_client_mock()
+    client.scouts.list.return_value = {
+        "scouts": [
+            {
+                "id": "scout-1",
+                "query": "watch [/b] releases",
+                "status": "active",
+                "output_interval": 86400,
+            },
+            {
+                "id": "scout-2",
+                "query": "monitor [beta] pages",
+                "status": "active",
+                "output_interval": 86400,
+            },
+        ]
+    }
+
+    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["scouts", "list"])
+
+    # "[/b]" used to crash the whole listing with MarkupError; "[beta]" used
+    # to be silently deleted by markup parsing.
+    assert result.exit_code == 0
+    assert "[/b]" in result.stdout
+    assert "[beta]" in result.stdout
+
+
+def test_scouts_list_stringifies_non_string_fields_before_escaping():
+    client = _make_client_mock()
+    client.scouts.list.return_value = {
+        "scouts": [
+            {
+                "id": 123,
+                "query": 456,
+                "status": None,
+                "output_interval": 86400,
+                "rejection_reason": {"code": "[/b]"},
+            }
+        ]
+    }
+
+    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["scouts", "list"])
+
+    assert result.exit_code == 0
+    assert "123" in result.stdout
+    assert "456" in result.stdout
+    assert "[/b]" in result.stdout
+
+
+def test_browse_get_renders_markup_like_start_url_literally():
+    client = _make_client_mock()
+    client.browsing.get.return_value = {
+        "task_id": "task-123",
+        "status": "completed",
+        "start_url": "https://example.com/[beta]/page",
+    }
+
+    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "get", "task-123"])
+
+    assert result.exit_code == 0
+    assert "[beta]" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Friendly API error handling: no tracebacks for routine failures.
+# ---------------------------------------------------------------------------
+
+
+def test_browse_get_api_error_prints_message_not_traceback():
+    from yutori.exceptions import APIError
+
+    client = _make_client_mock()
+    client.browsing.get.side_effect = APIError("task not found", status_code=404)
+
+    with patch("yutori.cli.commands.browse.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "get", "nope"])
+
+    assert result.exit_code == 1
+    assert "APIError" in result.stdout
+    assert "task not found" in result.stdout
+    assert "Traceback" not in result.stdout
+    client.close.assert_called_once()
+
+
+def test_usage_rejected_key_prints_auth_guidance_not_traceback():
+    from yutori.exceptions import AuthenticationError
+
+    client = _make_client_mock()
+    client.get_usage.side_effect = AuthenticationError("Invalid API key or insufficient permissions (401)")
+
+    with patch("yutori.cli.commands.usage.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["usage"])
+
+    assert result.exit_code == 1
+    # "AuthenticationError" must stay in the output: the installer's
+    # AUTH_FAILURE_MARKERS classify verification failures by grepping it.
+    assert "AuthenticationError" in result.stdout
+    assert "yutori auth login" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_scouts_list_network_error_prints_message_not_traceback():
+    import httpx
+
+    client = _make_client_mock()
+    client.scouts.list.side_effect = httpx.ConnectError("connection refused")
+
+    with patch("yutori.cli.commands.scouts.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["scouts", "list"])
+
+    assert result.exit_code == 1
+    assert "Network error" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_usage_renders_stats_from_api_response():
+    from ._usage_fixtures import USAGE_RESPONSE
+
+    client = _make_client_mock()
+    client.get_usage.return_value = USAGE_RESPONSE
+
+    with patch("yutori.cli.commands.usage.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["usage", "--period", "7d"])
+
+    assert result.exit_code == 0
+    client.get_usage.assert_called_once_with(period="7d")
+    assert "Usage Statistics" in result.stdout
+    assert "Active Scouts: 2" in result.stdout
+    assert "Navigator API Rate Limits" in result.stdout
+    assert "Navigator API calls" in result.stdout
     client.close.assert_called_once()

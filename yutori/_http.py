@@ -21,9 +21,14 @@ def build_headers(api_key: str) -> dict[str, str]:
 def handle_response(response: httpx.Response) -> dict[str, Any]:
     """Process HTTP response, raising appropriate errors for failures."""
     if response.status_code in (401, 403):
-        raise AuthenticationError("Invalid or missing API key")
+        detail = f": {response.text}" if response.text else ""
+        raise AuthenticationError(
+            f"Invalid API key or insufficient permissions ({response.status_code}){detail}"
+        )
 
-    if response.status_code >= 400:
+    # Redirects are not followed, so a 3xx here means the base URL does not
+    # point directly at the API; treat it as an error rather than empty success.
+    if response.status_code >= 300:
         raise APIError(
             message=response.text or "Yutori API call failed",
             status_code=response.status_code,
@@ -107,13 +112,14 @@ def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
     """Merge non-None ``fields`` into ``kwargs["extra_body"]`` in place.
 
     Pops any user-provided ``extra_body`` from ``kwargs``, overlays the
-    non-None ``fields`` on top of it, and writes the result back under
-    ``extra_body`` — but only if the merged dict is non-empty. Used by
-    ChatCompletions.create to compose the ``extra_body`` kwarg forwarded
-    to the OpenAI client without letting sync and async implementations
-    drift out of sync.
+    non-None ``fields`` on top of a copy of it, and writes the result back
+    under ``extra_body`` — but only if the merged dict is non-empty. The copy
+    keeps the caller's dict unmodified so it can be safely reused across
+    calls. Used by ChatCompletions.create to compose the ``extra_body`` kwarg
+    forwarded to the OpenAI client without letting sync and async
+    implementations drift out of sync.
     """
-    extra_body = kwargs.pop("extra_body", None) or {}
+    extra_body = dict(kwargs.pop("extra_body", None) or {})
     for key, value in fields.items():
         if value is not None:
             extra_body[key] = value
