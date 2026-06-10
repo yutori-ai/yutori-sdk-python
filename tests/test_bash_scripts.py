@@ -57,9 +57,11 @@ def test_authored_shellcheck_clean_if_available(script: Path) -> None:
     """Run shellcheck when available. Informational — non-blocking if absent."""
     if not shutil.which("shellcheck"):
         pytest.skip("shellcheck not installed")
-    # Allow SC2034 (unused color constants in template), SC1091 (sourced files).
+    # Allow SC2034 (unused color constants in template), SC1091 (sourced
+    # files), SC2016 (info-level; flags intentional literal backticks in
+    # single-quoted user-facing messages and grep patterns).
     result = subprocess.run(
-        ["shellcheck", "-e", "SC2034,SC1091", str(script)],
+        ["shellcheck", "-e", "SC2034,SC1091,SC2016", str(script)],
         capture_output=True,
         text=True,
     )
