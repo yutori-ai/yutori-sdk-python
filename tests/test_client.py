@@ -166,9 +166,24 @@ class TestScoutsNamespace:
             assert result["query"] == "new query"
             mock_patch.assert_called_once()
 
+    def test_scouts_update_is_public(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"id": "scout-123", "is_public": false}'
+        mock_response.json.return_value = {"id": "scout-123", "is_public": False}
+
+        with patch.object(httpx.Client, "patch", return_value=mock_response) as mock_patch:
+            client.scouts.update("scout-123", is_public=False)
+            payload = mock_patch.call_args[1]["json"]
+            assert payload["is_public"] is False
+
     def test_scouts_update_status_and_fields_raises(self, client):
         with pytest.raises(ValueError, match="Cannot update status and other fields simultaneously"):
             client.scouts.update("scout-123", status="paused", query="new query")
+
+    def test_scouts_update_status_and_is_public_raises(self, client):
+        with pytest.raises(ValueError, match="Cannot update status and other fields simultaneously"):
+            client.scouts.update("scout-123", status="paused", is_public=False)
 
     def test_scouts_delete(self, client):
         mock_response = MagicMock(spec=httpx.Response)
@@ -592,3 +607,34 @@ class TestErrorHandling:
                 client.get_usage()
             assert exc_info.value.status_code == 500
             client.close()
+
+
+class TestTransportErrorWrapping:
+    """httpx transport errors are wrapped in APIConnectionError with a
+    never-blank message (some httpx errors stringify to "")."""
+
+    def test_connect_error_wrapped(self, client):
+        from yutori.exceptions import APIConnectionError
+
+        with patch.object(httpx.Client, "get", side_effect=httpx.ConnectError("refused")):
+            with pytest.raises(APIConnectionError, match="ConnectError.*refused"):
+                client.scouts.list()
+
+    def test_blank_timeout_still_has_message(self, client):
+        from yutori.exceptions import APIConnectionError
+
+        with patch.object(httpx.Client, "get", side_effect=httpx.ReadTimeout("")):
+            with pytest.raises(APIConnectionError, match="ReadTimeout"):
+                client.scouts.list()
+
+
+class TestLazyChatNamespace:
+    """The chat namespace (and its OpenAI client) is only built on first use."""
+
+    def test_chat_not_built_at_init(self, client):
+        assert client._chat is None
+
+    def test_close_without_chat_use(self, client):
+        with patch.object(httpx.Client, "close"):
+            client.close()
+        assert client._chat is None

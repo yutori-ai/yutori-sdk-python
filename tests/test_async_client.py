@@ -120,6 +120,18 @@ class TestAsyncScoutsNamespace:
                 result = await client.scouts.update("scout-123", query="new query")
                 assert result["query"] == "new query"
 
+    async def test_scouts_update_is_public(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"id": "scout-123", "is_public": false}'
+        mock_response.json.return_value = {"id": "scout-123", "is_public": False}
+
+        with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock_response) as mock_patch:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.scouts.update("scout-123", is_public=False)
+                payload = mock_patch.call_args[1]["json"]
+                assert payload["is_public"] is False
+
     async def test_scouts_update_status_and_fields_raises(self):
         async with AsyncYutoriClient(api_key="yt-test") as client:
             with pytest.raises(ValueError, match="Cannot update status and other fields simultaneously"):
@@ -567,3 +579,22 @@ class TestAsyncErrorHandling:
                 with pytest.raises(APIError) as exc_info:
                     await client.get_usage()
                 assert exc_info.value.status_code == 500
+
+
+class TestAsyncTransportErrorWrapping:
+    async def test_connect_error_wrapped(self):
+        from yutori.exceptions import APIConnectionError
+
+        with patch.object(
+            httpx.AsyncClient, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")
+        ):
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                with pytest.raises(APIConnectionError, match="ConnectError.*refused"):
+                    await client.scouts.list()
+
+
+class TestAsyncLazyChatNamespace:
+    async def test_chat_not_built_at_init_and_close_safe(self):
+        async with AsyncYutoriClient(api_key="yt-test") as client:
+            assert client._chat is None
+        assert client._chat is None

@@ -104,6 +104,7 @@ class AsyncScoutsNamespace(_AsyncBaseNamespace):
         skip_email: bool | None = None,
         webhook_url: str | None = None,
         webhook_format: str | None = None,
+        is_public: bool | None = None,
     ) -> dict[str, Any]:
         """Update an existing scout.
 
@@ -120,6 +121,7 @@ class AsyncScoutsNamespace(_AsyncBaseNamespace):
             skip_email: Updated email notification setting.
             webhook_url: Updated webhook URL.
             webhook_format: Updated webhook format.
+            is_public: Updated public visibility setting.
 
         Returns:
             Dictionary containing updated scout details.
@@ -136,6 +138,7 @@ class AsyncScoutsNamespace(_AsyncBaseNamespace):
             skip_email=skip_email,
             webhook_url=webhook_url,
             webhook_format=webhook_format,
+            is_public=is_public,
         )
 
         method, path, json = prepare_scout_update(scout_id, status, payload)
