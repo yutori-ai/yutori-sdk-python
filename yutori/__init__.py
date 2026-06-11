@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .async_client import AsyncYutoriClient
 from .client import YutoriClient
-from .exceptions import APIError, AuthenticationError, YutoriSDKError
+from .exceptions import APIConnectionError, APIError, AuthenticationError, YutoriSDKError
 
 __all__ = [
     "YutoriClient",
@@ -12,6 +12,7 @@ __all__ = [
     "YutoriSDKError",
     "AuthenticationError",
     "APIError",
+    "APIConnectionError",
 ]
 
 try:

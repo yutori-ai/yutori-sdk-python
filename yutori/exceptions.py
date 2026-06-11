@@ -13,6 +13,10 @@ class AuthenticationError(YutoriSDKError):
     """Raised when an API key is missing or rejected by the server."""
 
 
+class APIConnectionError(YutoriSDKError):
+    """Raised when the Yutori API cannot be reached (connection or timeout failure)."""
+
+
 class APIError(YutoriSDKError):
     """Raised when the Yutori API returns a non-successful or unusable response."""
 
