@@ -65,7 +65,8 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         self.scouts = AsyncScoutsNamespace(self._client, self._base_url, self._api_key)
         self.browsing = AsyncBrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = AsyncResearchNamespace(self._client, self._base_url, self._api_key)
-        self.chat = AsyncChatNamespace(self._base_url, self._api_key, timeout)
+        self._timeout = timeout
+        self._chat: AsyncChatNamespace | None = None
 
     async def get_usage(self, *, period: str | None = None) -> dict[str, Any]:
         """Get usage statistics for your API key.
@@ -84,10 +85,27 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         """
         return await self._request("get", "/usage", params=build_query_params(period=period))
 
+    @property
+    def chat(self) -> AsyncChatNamespace:
+        """Chat completions namespace, constructed lazily on first use.
+
+        Building it eagerly would pay the AsyncOpenAI client construction
+        cost (its own HTTP client and SSL context) on every
+        AsyncYutoriClient, even for callers that never use chat completions.
+        """
+        if self._chat is None:
+            self._chat = AsyncChatNamespace(self._base_url, self._api_key, self._timeout)
+        return self._chat
+
     async def close(self) -> None:
         """Release the underlying HTTP client resources."""
-        await self._client.aclose()
-        await self.chat.close()
+        try:
+            await self._client.aclose()
+        finally:
+            # Close the chat client (if ever built) even if the HTTP client
+            # close fails.
+            if self._chat is not None:
+                await self._chat.close()
 
     async def __aenter__(self) -> AsyncYutoriClient:
         return self
