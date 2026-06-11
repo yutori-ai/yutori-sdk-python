@@ -280,12 +280,14 @@ asyncio.run(main())
 ## Error Handling
 
 ```python
-from yutori import YutoriClient, APIError, AuthenticationError
+from yutori import YutoriClient, APIError, APIConnectionError, AuthenticationError
 
 try:
     client.get_usage()
 except AuthenticationError as e:
     print(f"Invalid API key: {e}")
+except APIConnectionError as e:
+    print(f"Connection failed: {e}")
 except APIError as e:
     print(f"API error (status {e.status_code}): {e.message}")
 ```
