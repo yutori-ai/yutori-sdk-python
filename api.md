@@ -261,7 +261,7 @@ Recurring web-monitoring scouts.
 | `client.scouts.list(*, limit=None, status=None)` | GET | `/v1/scouting/tasks` | `dict` |
 | `client.scouts.get(scout_id)` | GET | `/v1/scouting/tasks/{scout_id}` | `dict` |
 | `client.scouts.create(query, *, output_interval=86400, start_timestamp=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None, is_public=None)` | POST | `/v1/scouting/tasks` | `dict` |
-| `client.scouts.update(scout_id, *, query=None, status=None, output_interval=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None)` | PATCH or POST (status endpoints) | `/v1/scouting/tasks/{scout_id}` or `.../pause|resume|done` | `dict` |
+| `client.scouts.update(scout_id, *, query=None, status=None, output_interval=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None, is_public=None)` | PATCH or POST (status endpoints) | `/v1/scouting/tasks/{scout_id}` or `.../pause|resume|done` | `dict` |
 | `client.scouts.delete(scout_id)` | DELETE | `/v1/scouting/tasks/{scout_id}` | `dict` |
 | `client.scouts.get_updates(scout_id, *, limit=None, cursor=None)` | GET | `/v1/scouting/tasks/{scout_id}/updates` | `dict` |
 

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from ._schema import resolve_output_schema
-from .exceptions import APIError, AuthenticationError
+from .exceptions import APIConnectionError, APIError, AuthenticationError
 
 
 def build_headers(api_key: str) -> dict[str, str]:
@@ -148,6 +148,19 @@ def apply_chat_extra_body(kwargs: dict[str, Any], **fields: Any) -> None:
         kwargs["extra_body"] = extra_body
 
 
+def _to_connection_error(exc: httpx.HTTPError) -> APIConnectionError:
+    """Build an APIConnectionError with a never-blank message.
+
+    Some httpx errors (e.g. ReadTimeout) stringify to "", so the exception
+    type name is always included.
+    """
+    message = f"Network error calling the Yutori API ({type(exc).__name__})"
+    detail = str(exc)
+    if detail:
+        message = f"{message}: {detail}"
+    return APIConnectionError(message)
+
+
 class _BaseNamespace:
     """Shared base for SDK namespace classes (sync and async).
 
@@ -187,10 +200,13 @@ class _SyncBaseNamespace(_BaseNamespace):
         json: Any = None,
     ) -> dict[str, Any]:
         http_method = getattr(self._client, method)
-        response = http_method(
-            f"{self._base_url}{path}",
-            **self._request_kwargs(params, json),
-        )
+        try:
+            response = http_method(
+                f"{self._base_url}{path}",
+                **self._request_kwargs(params, json),
+            )
+        except httpx.HTTPError as exc:
+            raise _to_connection_error(exc) from exc
         return handle_response(response)
 
 
@@ -206,8 +222,11 @@ class _AsyncBaseNamespace(_BaseNamespace):
         json: Any = None,
     ) -> dict[str, Any]:
         http_method = getattr(self._client, method)
-        response = await http_method(
-            f"{self._base_url}{path}",
-            **self._request_kwargs(params, json),
-        )
+        try:
+            response = await http_method(
+                f"{self._base_url}{path}",
+                **self._request_kwargs(params, json),
+            )
+        except httpx.HTTPError as exc:
+            raise _to_connection_error(exc) from exc
         return handle_response(response)

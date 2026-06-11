@@ -55,7 +55,8 @@ class YutoriClient(_SyncBaseNamespace):
         self.scouts = ScoutsNamespace(self._client, self._base_url, self._api_key)
         self.browsing = BrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = ResearchNamespace(self._client, self._base_url, self._api_key)
-        self.chat = ChatNamespace(self._base_url, self._api_key, timeout)
+        self._timeout = timeout
+        self._chat: ChatNamespace | None = None
 
     def get_usage(self, *, period: str | None = None) -> dict[str, Any]:
         """Get usage statistics for your API key.
@@ -74,10 +75,27 @@ class YutoriClient(_SyncBaseNamespace):
         """
         return self._request("get", "/usage", params=build_query_params(period=period))
 
+    @property
+    def chat(self) -> ChatNamespace:
+        """Chat completions namespace, constructed lazily on first use.
+
+        Building it eagerly would pay the OpenAI client construction cost
+        (its own HTTP client and SSL context) on every YutoriClient, even
+        for callers that never use chat completions.
+        """
+        if self._chat is None:
+            self._chat = ChatNamespace(self._base_url, self._api_key, self._timeout)
+        return self._chat
+
     def close(self) -> None:
         """Release the underlying HTTP client resources."""
-        self._client.close()
-        self.chat.close()
+        try:
+            self._client.close()
+        finally:
+            # Close the chat client (if ever built) even if the HTTP client
+            # close fails.
+            if self._chat is not None:
+                self._chat.close()
 
     def __enter__(self) -> YutoriClient:
         return self
