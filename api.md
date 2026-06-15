@@ -6,7 +6,7 @@ A dense reference to everything the Yutori Python SDK and CLI expose. The [READM
 
 | Import | Purpose |
 |--------|---------|
-| `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `AuthenticationError`, `YutoriSDKError`) |
+| `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `APIConnectionError`, `AuthenticationError`, `YutoriSDKError`) |
 | `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator n1 / Navigator n1.5 chat completions) |
 | `yutori.navigator.tools` | Packaged JavaScript reference implementations for the Navigator n1.5 expanded browser tools |
 
@@ -15,13 +15,14 @@ All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator hel
 ## Exceptions
 
 ```python
-from yutori import YutoriSDKError, AuthenticationError, APIError
+from yutori import YutoriSDKError, AuthenticationError, APIConnectionError, APIError
 ```
 
 | Exception | Description |
 |-----------|-------------|
 | `YutoriSDKError` | Base class for all Yutori SDK errors. |
 | `AuthenticationError` | Raised on HTTP 401/403 and when no API key can be resolved. |
+| `APIConnectionError` | Raised when the API cannot be reached (connection refused, DNS failure, timeout). |
 | `APIError` | Raised for other non-2xx responses. Attributes: `status_code: int`, `message: str`, `response: httpx.Response \| None`. |
 
 `client.chat` is backed by the OpenAI Python SDK, so HTTP errors from that path surface as `openai.OpenAIError` subclasses (e.g. `openai.APIError`, `openai.RateLimitError`), not wrapped into `yutori` exceptions.
@@ -603,13 +604,15 @@ Optional extras:
 ## Error handling example
 
 ```python
-from yutori import YutoriClient, APIError, AuthenticationError
+from yutori import YutoriClient, APIError, APIConnectionError, AuthenticationError
 
 try:
     client = YutoriClient(api_key="invalid-key")
     client.get_usage()
 except AuthenticationError as e:
     print(f"Invalid API key: {e}")
+except APIConnectionError as e:
+    print(f"Connection failed: {e}")
 except APIError as e:
     print(f"API error (status {e.status_code}): {e.message}")
 ```
