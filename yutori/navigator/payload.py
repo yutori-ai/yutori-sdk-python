@@ -11,8 +11,9 @@ Adapted from the n1-brightdata project (https://github.com/meirk-brd/n1-brightda
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
 
 DEFAULT_MAX_REQUEST_BYTES = 9_500_000
 DEFAULT_KEEP_RECENT_SCREENSHOTS = 6
