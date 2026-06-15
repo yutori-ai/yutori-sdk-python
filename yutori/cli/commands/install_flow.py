@@ -24,10 +24,11 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Literal
 
 import typer
 from rich import box
