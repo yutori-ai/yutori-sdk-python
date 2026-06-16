@@ -74,6 +74,16 @@ def update_trimmed_history(
     return request_messages, size_bytes, removed
 
 
+def _prepare_trimmed_messages(
+    messages: list[dict[str, Any]],
+    *,
+    max_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+    keep_recent: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
+) -> list[dict[str, Any]]:
+    trimmed_messages, _, _ = trimmed_messages_to_fit(messages, max_bytes=max_bytes, keep_recent=keep_recent)
+    return trimmed_messages
+
+
 def create_trimmed(
     completions: SupportsSyncChatCompletionsCreate,
     messages: list[dict[str, Any]],
@@ -84,13 +94,11 @@ def create_trimmed(
     **kwargs: Any,
 ) -> ChatCompletion:
     """Create a sync chat completion from a trimmed copy of *messages*."""
-
-    trimmed_messages, _, _ = trimmed_messages_to_fit(
-        messages,
-        max_bytes=max_bytes,
-        keep_recent=keep_recent,
+    return completions.create(
+        _prepare_trimmed_messages(messages, max_bytes=max_bytes, keep_recent=keep_recent),
+        model=model,
+        **kwargs,
     )
-    return completions.create(trimmed_messages, model=model, **kwargs)
 
 
 async def acreate_trimmed(
@@ -103,10 +111,8 @@ async def acreate_trimmed(
     **kwargs: Any,
 ) -> ChatCompletion:
     """Create an async chat completion from a trimmed copy of *messages*."""
-
-    trimmed_messages, _, _ = trimmed_messages_to_fit(
-        messages,
-        max_bytes=max_bytes,
-        keep_recent=keep_recent,
+    return await completions.create(
+        _prepare_trimmed_messages(messages, max_bytes=max_bytes, keep_recent=keep_recent),
+        model=model,
+        **kwargs,
     )
-    return await completions.create(trimmed_messages, model=model, **kwargs)
