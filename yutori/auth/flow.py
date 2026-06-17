@@ -230,6 +230,10 @@ def register_user(jwt: str, signup_source: str = "cli") -> None:
     _post_auth_api(jwt, "/client/register-api", {"signup_source": signup_source})
 
 
+def _failure_result(error: str, *, auth_url: str | None = None, api_key: str | None = None) -> LoginResult:
+    return LoginResult(success=False, error=error, auth_url=auth_url, api_key=api_key)
+
+
 def run_login_flow(
     key_source: str = "yutori-cli",
     on_registration_state: Callable[[str], None] | None = None,
@@ -258,13 +262,9 @@ def run_login_flow(
         # errno comparison works across platforms and locales, unlike
         # matching the English "Address already in use" message text.
         if e.errno == errno.EADDRINUSE:
-            return LoginResult(
-                success=False,
-                error=f"Port {REDIRECT_PORT} is already in use. Close other applications and try again.",
-            )
-        return LoginResult(
-            success=False,
-            error=f"Could not start the local login callback server on {CALLBACK_HOST}:{REDIRECT_PORT}: {e}",
+            return _failure_result(f"Port {REDIRECT_PORT} is already in use. Close other applications and try again.")
+        return _failure_result(
+            f"Could not start the local login callback server on {CALLBACK_HOST}:{REDIRECT_PORT}: {e}"
         )
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -287,16 +287,16 @@ def run_login_flow(
         server.server_close()
 
     if not callback_result.received.is_set():
-        return LoginResult(success=False, error=ERROR_AUTH_TIMEOUT, auth_url=auth_url)
+        return _failure_result(ERROR_AUTH_TIMEOUT, auth_url=auth_url)
 
     if callback_result.error:
-        return LoginResult(success=False, error=callback_result.error, auth_url=auth_url)
+        return _failure_result(callback_result.error, auth_url=auth_url)
 
     if callback_result.state != state:
-        return LoginResult(success=False, error=ERROR_STATE_MISMATCH, auth_url=auth_url)
+        return _failure_result(ERROR_STATE_MISMATCH, auth_url=auth_url)
 
     if not callback_result.code:
-        return LoginResult(success=False, error=ERROR_AUTH_FAILED, auth_url=auth_url)
+        return _failure_result(ERROR_AUTH_FAILED, auth_url=auth_url)
 
     try:
         jwt = exchange_code_for_token(callback_result.code, code_verifier)
@@ -316,16 +316,13 @@ def run_login_flow(
         except OSError as e:
             # The key already exists server-side at this point; a generic
             # error would hide that and leave the user with an orphaned key.
-            return LoginResult(
-                success=False,
-                api_key=api_key,
-                error=(
-                    f"Login succeeded and an API key was created, but saving it to "
-                    f"{get_config_path()} failed: {e}. Fix the path and run "
-                    f"'yutori auth login' again, or set YUTORI_API_KEY to a key from "
-                    f"https://platform.yutori.com/settings."
-                ),
+            return _failure_result(
+                f"Login succeeded and an API key was created, but saving it to "
+                f"{get_config_path()} failed: {e}. Fix the path and run "
+                f"'yutori auth login' again, or set YUTORI_API_KEY to a key from "
+                f"https://platform.yutori.com/settings.",
                 auth_url=auth_url,
+                api_key=api_key,
             )
         return LoginResult(success=True, api_key=api_key, auth_url=auth_url)
     except httpx.HTTPStatusError as e:
@@ -335,16 +332,12 @@ def run_login_flow(
         # error detail rather than crashing the login flow.
         body_text = e.response.content.decode("utf-8", errors="replace")
         detail = f": {body_text}" if body_text else ""
-        return LoginResult(
-            success=False,
-            error=f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}",
-            auth_url=auth_url,
-        )
+        return _failure_result(f"{ERROR_AUTH_FAILED} ({e.response.status_code}){detail}", auth_url=auth_url)
     # ValueError covers json.JSONDecodeError (response.json() on a 2xx
     # response with a non-JSON body) — same rationale as the ValueError
     # catch in check_registration_status above.
     except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
-        return LoginResult(success=False, error=str(e), auth_url=auth_url)
+        return _failure_result(str(e), auth_url=auth_url)
 
 
 def _mask_key(key: str) -> str:
