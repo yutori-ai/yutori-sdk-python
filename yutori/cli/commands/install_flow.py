@@ -180,6 +180,10 @@ def _is_executable(path: str | os.PathLike[str]) -> bool:
     return candidate.is_file() and os.access(str(candidate), os.X_OK)
 
 
+def _resolve_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
+    return env or os.environ
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -327,7 +331,7 @@ def looks_like_auth_failure(text: str) -> bool:
 
 
 def resolve_uv_path(env: Mapping[str, str] | None = None) -> str | None:
-    resolved_env = env or os.environ
+    resolved_env = _resolve_env(env)
     explicit_uv = resolved_env.get("YUTORI_UV_BIN")
     if explicit_uv and _is_executable(explicit_uv):
         return explicit_uv
@@ -345,7 +349,7 @@ def resolve_uv_path(env: Mapping[str, str] | None = None) -> str | None:
 
 
 def resolve_npx_path(env: Mapping[str, str] | None = None) -> str | None:
-    resolved_env = env or os.environ
+    resolved_env = _resolve_env(env)
     return shutil.which("npx", path=resolved_env.get("PATH"))
 
 
@@ -418,7 +422,7 @@ def summarize_results(console: Console, results: Sequence[StepResult]) -> None:
 
 
 def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstallState | None, StepResult]:
-    resolved_env = env or os.environ
+    resolved_env = _resolve_env(env)
     uv_path = resolve_uv_path(resolved_env)
     if not uv_path:
         return None, StepResult("CLI", "failed", "uv is not available, so the installed CLI could not be verified.")
@@ -466,7 +470,7 @@ def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstal
 
 def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | None = None) -> SDKInstallPlan:
     resolved_cwd = cwd or Path.cwd()
-    resolved_env = env or os.environ
+    resolved_env = _resolve_env(env)
 
     if (resolved_cwd / "pyproject.toml").exists():
         uv_path = resolve_uv_path(resolved_env)
