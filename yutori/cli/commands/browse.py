@@ -9,12 +9,25 @@ from yutori.cli.commands import (
     cli_client,
     print_optional_field,
     print_task_get_header,
+    print_task_list,
     print_task_result_output,
     print_task_submission_result,
 )
 
 app = typer.Typer(help="Run and manage browsing tasks")
 console = Console()
+
+
+@app.command("list")
+def list_tasks(
+    limit: int = typer.Option(None, help="Maximum number of tasks to return"),
+    status: str = typer.Option(None, help="Filter by status: running, succeeded, failed"),
+    cursor: str = typer.Option(None, help="Pagination cursor from a previous response"),
+) -> None:
+    """List your browsing tasks."""
+    with cli_client() as client:
+        result = client.browsing.list(limit=limit, status=status, cursor=cursor)
+        print_task_list(console, "Browsing", result)
 
 
 @app.command()

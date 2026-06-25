@@ -112,6 +112,18 @@ class TestScoutsNamespace:
             assert "limit" not in params
             assert params["status"] == "active"
 
+    def test_scouts_list_forwards_cursor(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"scouts": []}'
+        mock_response.json.return_value = {"scouts": []}
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            client.scouts.list(cursor="next-page")
+            params = mock_get.call_args[1]["params"]
+            assert params["cursor"] == "next-page"
+            assert "page_size" not in params
+
     def test_scouts_get(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -207,6 +219,33 @@ class TestScoutsNamespace:
 
 
 class TestBrowsingNamespace:
+    def test_browsing_list(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": [], "total": 0}'
+        mock_response.json.return_value = {"tasks": [], "total": 0}
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            result = client.browsing.list(limit=20, status="succeeded", cursor="cur-1")
+            assert result == {"tasks": [], "total": 0}
+            mock_get.assert_called_once()
+            assert mock_get.call_args[0][0].endswith("/browsing/tasks")
+            params = mock_get.call_args[1]["params"]
+            assert params["page_size"] == 20
+            assert "limit" not in params
+            assert params["status"] == "succeeded"
+            assert params["cursor"] == "cur-1"
+
+    def test_browsing_list_no_args_sends_empty_params(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": []}'
+        mock_response.json.return_value = {"tasks": []}
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            client.browsing.list()
+            assert mock_get.call_args[1]["params"] == {}
+
     def test_browsing_create(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -274,6 +313,33 @@ class TestBrowsingNamespace:
 
 
 class TestResearchNamespace:
+    def test_research_list(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": [], "total": 0}'
+        mock_response.json.return_value = {"tasks": [], "total": 0}
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            result = client.research.list(limit=20, status="succeeded", cursor="cur-1")
+            assert result == {"tasks": [], "total": 0}
+            mock_get.assert_called_once()
+            assert mock_get.call_args[0][0].endswith("/research/tasks")
+            params = mock_get.call_args[1]["params"]
+            assert params["page_size"] == 20
+            assert "limit" not in params
+            assert params["status"] == "succeeded"
+            assert params["cursor"] == "cur-1"
+
+    def test_research_list_no_args_sends_empty_params(self, client):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": []}'
+        mock_response.json.return_value = {"tasks": []}
+
+        with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
+            client.research.list()
+            assert mock_get.call_args[1]["params"] == {}
+
     def test_research_create(self, client):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200

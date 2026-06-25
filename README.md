@@ -200,6 +200,8 @@ print(result)
 
 Common options: `require_auth=True` for login flows, `browser="local"` for Yutori Local, `webhook_url=...` for async completion notifications. Failed tasks may include a `rejection_reason`.
 
+`client.browsing.list()` enumerates your browsing tasks — omit `limit` to get them all, or pass `status` (`running`/`succeeded`/`failed`) and `cursor` to filter and paginate.
+
 ### Structured output
 
 Define the output structure with a JSON Schema dict or a Pydantic model:
@@ -240,6 +242,14 @@ while True:
 ```
 
 Failed tasks may include a `rejection_reason`.
+
+`client.research.list()` enumerates your research tasks — handy for exporting or recovering task IDs from a large batch. Omit `limit` to get them all, or pass `status` / `cursor` to filter and paginate:
+
+```python
+completed = client.research.list(status="succeeded")
+for t in completed["tasks"]:
+    print(t["task_id"], t["created_at"])
+```
 
 ## Scouting API
 

@@ -4,11 +4,40 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import _AsyncBaseNamespace, build_payload_with_schema
+from .._http import _AsyncBaseNamespace, build_payload_with_schema, build_query_params
 
 
 class AsyncResearchNamespace(_AsyncBaseNamespace):
     """Async namespace for research operations (one-time deep web research)."""
+
+    async def list(
+        self,
+        *,
+        limit: int | None = None,
+        status: str | None = None,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List research tasks for the authenticated user.
+
+        Args:
+            limit: Maximum number of tasks to return. If omitted, returns all
+                research tasks.
+            status: Filter by status ("running", "succeeded", "failed"). This
+                lightweight status is derived from stored task state without a
+                live workflow lookup, so "running" also covers queued tasks and
+                tasks whose workflow finished but isn't yet reconciled; call
+                ``get(task_id)`` for the authoritative per-task status.
+            cursor: Pagination cursor from a previous response's ``next_cursor``
+                or ``prev_cursor``.
+
+        Returns:
+            Dictionary with a ``tasks`` list plus ``total``, ``filtered_total``,
+            ``summary`` counts, ``has_more``, and ``next_cursor`` / ``prev_cursor``
+            pagination info.
+        """
+        # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
+        params = build_query_params(page_size=limit, status=status, cursor=cursor)
+        return await self._request("get", "/research/tasks", params=params)
 
     async def create(
         self,

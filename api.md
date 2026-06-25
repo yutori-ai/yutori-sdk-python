@@ -181,8 +181,22 @@ One-time browser automation on Yutori's cloud browser or on Yutori Local.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
+| `client.browsing.list(*, limit=None, status=None, cursor=None)` | GET | `/v1/browsing/tasks` | `dict` |
 | `client.browsing.create(task, start_url, *, max_steps=None, agent=None, require_auth=None, browser=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/browsing/tasks` | `dict` |
 | `client.browsing.get(task_id)` | GET | `/v1/browsing/tasks/{task_id}` | `dict` |
+
+#### `browsing.list`
+
+```python
+tasks = client.browsing.list(limit=20, status="succeeded")
+```
+
+**Parameters:**
+- `limit` (`int`, optional): Max tasks to return. Mapped to the API's `page_size` query param. If omitted, returns all browsing tasks.
+- `status` (`str`, optional): Filter by `"running"`, `"succeeded"`, or `"failed"`.
+- `cursor` (`str`, optional): Pagination cursor from a previous response's `next_cursor`/`prev_cursor`.
+
+**Returns:** Dict with a `tasks` list plus `total`, `filtered_total`, `summary` counts, `has_more`, and `next_cursor`/`prev_cursor`. The list `status` is a lightweight value derived without a live workflow lookup, so `"running"` also covers queued and not-yet-reconciled tasks — call `browsing.get(task_id)` for the authoritative per-task status.
 
 #### `browsing.create`
 
@@ -227,8 +241,22 @@ Deep web research using 100+ MCP tools.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
+| `client.research.list(*, limit=None, status=None, cursor=None)` | GET | `/v1/research/tasks` | `dict` |
 | `client.research.create(query, *, user_timezone=None, user_location=None, output_schema=None, webhook_url=None, webhook_format=None)` | POST | `/v1/research/tasks` | `dict` |
 | `client.research.get(task_id)` | GET | `/v1/research/tasks/{task_id}` | `dict` |
+
+#### `research.list`
+
+```python
+tasks = client.research.list(limit=20, status="succeeded")
+```
+
+**Parameters:**
+- `limit` (`int`, optional): Max tasks to return. Mapped to the API's `page_size` query param. If omitted, returns all research tasks.
+- `status` (`str`, optional): Filter by `"running"`, `"succeeded"`, or `"failed"`.
+- `cursor` (`str`, optional): Pagination cursor from a previous response's `next_cursor`/`prev_cursor`.
+
+**Returns:** Dict with a `tasks` list plus `total`, `filtered_total`, `summary` counts, `has_more`, and `next_cursor`/`prev_cursor`. The list `status` is a lightweight value derived without a live workflow lookup, so `"running"` also covers queued and not-yet-reconciled tasks — call `research.get(task_id)` for the authoritative per-task status.
 
 #### `research.create`
 
@@ -259,7 +287,7 @@ Recurring web-monitoring scouts.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.scouts.list(*, limit=None, status=None)` | GET | `/v1/scouting/tasks` | `dict` |
+| `client.scouts.list(*, limit=None, status=None, cursor=None)` | GET | `/v1/scouting/tasks` | `dict` |
 | `client.scouts.get(scout_id)` | GET | `/v1/scouting/tasks/{scout_id}` | `dict` |
 | `client.scouts.create(query, *, output_interval=86400, start_timestamp=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None, is_public=None)` | POST | `/v1/scouting/tasks` | `dict` |
 | `client.scouts.update(scout_id, *, query=None, status=None, output_interval=None, user_timezone=None, user_location=None, output_schema=None, skip_email=None, webhook_url=None, webhook_format=None, is_public=None)` | PATCH or POST (status endpoints) | `/v1/scouting/tasks/{scout_id}` or `.../pause|resume|done` | `dict` |
@@ -275,6 +303,7 @@ scouts = client.scouts.list(limit=20, status="active")
 **Parameters:**
 - `limit` (`int`, optional): Max scouts to return. Mapped to the API's `page_size` query param.
 - `status` (`str`, optional): `"active"`, `"paused"`, or `"done"`.
+- `cursor` (`str`, optional): Pagination cursor from a previous response's `next_cursor`/`prev_cursor`.
 
 **Returns:** Dict containing `scouts` list and pagination info.
 
@@ -557,6 +586,7 @@ Installed as `yutori` (via the `yutori` script entry point). Run any command wit
 
 | Command | Description |
 |---------|-------------|
+| `yutori browse list [--limit N] [--status running\|succeeded\|failed] [--cursor C]` | List browsing tasks (rich table). If `--limit` is omitted, returns all tasks. |
 | `yutori browse run TASK START_URL [--max-steps N] [--agent NAME] [--require-auth] [--browser cloud\|local]` | Submit a browsing task. Exit code 1 if the API rejects the task (`status: failed`). |
 | `yutori browse get TASK_ID` | Get status and result (truncates output to 2000 chars). |
 
@@ -564,6 +594,7 @@ Installed as `yutori` (via the `yutori` script entry point). Run any command wit
 
 | Command | Description |
 |---------|-------------|
+| `yutori research list [--limit N] [--status running\|succeeded\|failed] [--cursor C]` | List research tasks (rich table). If `--limit` is omitted, returns all tasks. |
 | `yutori research run QUERY [--timezone/-tz TZ] [--location LOC]` | Submit a research task. Exit code 1 if the API rejects the task (`status: failed`). |
 | `yutori research get TASK_ID` | Get status and result (truncates output to 2000 chars). |
 
