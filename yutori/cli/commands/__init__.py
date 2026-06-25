@@ -254,42 +254,43 @@ def print_task_list(console: Console, task_type: str, result: dict[str, Any]) ->
     """Render a browsing/research task-list response as a Rich table.
 
     Shared by ``yutori browse list`` and ``yutori research list``: both render
-    the identical task-list response shape, differing only by the title. Below
-    the table it prints status-count totals and a ``--cursor`` hint when more
-    results remain, so the enumerate-all workflow is discoverable from the CLI.
-    Every cell goes through ``safe_str`` so API strings render literally.
+    the identical task-list response shape, differing only by the title. The
+    status-count totals and the ``--cursor`` hint print even when the page is
+    empty, so a status filter with no matches still surfaces the account's
+    totals in other statuses (rather than a bare "no tasks found"). Every cell
+    goes through ``safe_str`` so API strings render literally.
     """
     tasks = result.get("tasks", [])
-    if not tasks:
+
+    if tasks:
+        table = Table(title=f"Your {task_type} Tasks")
+        table.add_column("Task ID", style="cyan", no_wrap=True)
+        table.add_column("Query", max_width=50)
+        table.add_column("Status", style="green")
+        table.add_column("Created")
+        table.add_column("Reason", max_width=32)
+
+        for task in tasks:
+            # The list endpoint returns the prompt under `query` for both task types
+            # (browse create takes it as `task`).
+            query = str(task.get("query", ""))
+            if len(query) > 47:
+                query = query[:47] + "..."
+
+            # created_at is an ISO-8601 datetime; show just the YYYY-MM-DD date.
+            created = str(task.get("created_at") or "")[:10]
+
+            table.add_row(
+                safe_str(task.get("task_id", "")),
+                safe_str(query),
+                safe_str(task.get("status", "unknown")),
+                safe_str(created),
+                safe_str(task.get("rejection_reason") or ""),
+            )
+
+        console.print(table)
+    else:
         console.print(f"[yellow]No {task_type.lower()} tasks found.[/yellow]")
-        return
-
-    table = Table(title=f"Your {task_type} Tasks")
-    table.add_column("Task ID", style="cyan", no_wrap=True)
-    table.add_column("Query", max_width=50)
-    table.add_column("Status", style="green")
-    table.add_column("Created")
-    table.add_column("Reason", max_width=32)
-
-    for task in tasks:
-        # The list endpoint returns the prompt under `query` for both task types
-        # (browse create takes it as `task`).
-        query = str(task.get("query", ""))
-        if len(query) > 47:
-            query = query[:47] + "..."
-
-        # created_at is an ISO-8601 datetime; show just the YYYY-MM-DD date.
-        created = str(task.get("created_at") or "")[:10]
-
-        table.add_row(
-            safe_str(task.get("task_id", "")),
-            safe_str(query),
-            safe_str(task.get("status", "unknown")),
-            safe_str(created),
-            safe_str(task.get("rejection_reason") or ""),
-        )
-
-    console.print(table)
 
     summary = result.get("summary") or {}
     if summary:

@@ -245,6 +245,24 @@ def test_research_list_forwards_limit_and_cursor():
     assert "No research tasks found" in result.stdout
 
 
+def test_browse_list_empty_filter_still_shows_summary():
+    # A status filter with no matches should still surface the account totals,
+    # not just a bare "no tasks found".
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [],
+        "total": 163,
+        "summary": {"running": 0, "succeeded": 162, "failed": 1},
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list", "--status", "running"])
+
+    assert result.exit_code == 0
+    assert "No browsing tasks found" in result.stdout
+    assert "163 total: 0 running, 162 succeeded, 1 failed." in result.stdout
+
+
 def test_browse_list_shows_next_cursor_when_more_results():
     client = _make_client_mock()
     client.browsing.list.return_value = {
