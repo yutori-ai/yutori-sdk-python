@@ -206,9 +206,132 @@ def test_scouts_list_shows_rejection_reason_column():
     client.close.assert_called_once()
 
 
+def test_browse_list_renders_tasks_and_summary():
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [
+            {
+                "task_id": "task-1",
+                "query": "extract employees",
+                "status": "succeeded",
+                "created_at": "2026-06-25T21:13:08+00:00",
+            }
+        ],
+        "total": 1,
+        "summary": {"running": 0, "succeeded": 1, "failed": 0},
+        "has_more": False,
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list", "--status", "succeeded"])
+
+    assert result.exit_code == 0
+    client.browsing.list.assert_called_once_with(limit=None, status="succeeded", cursor=None)
+    assert "task-1" in result.stdout
+    # Assert the full summary line, not just a substring that could appear elsewhere.
+    assert "1 total: 0 running, 1 succeeded, 0 failed." in result.stdout
+    client.close.assert_called_once()
+
+
+def test_research_list_forwards_limit_and_cursor():
+    client = _make_client_mock()
+    client.research.list.return_value = {"tasks": []}
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["research", "list", "--limit", "5", "--cursor", "cur-2"])
+
+    assert result.exit_code == 0
+    client.research.list.assert_called_once_with(limit=5, status=None, cursor="cur-2")
+    assert "No research tasks found" in result.stdout
+
+
+def test_browse_list_empty_filter_still_shows_summary():
+    # A status filter with no matches should still surface the account totals,
+    # not just a bare "no tasks found".
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [],
+        "total": 163,
+        "summary": {"running": 0, "succeeded": 162, "failed": 1},
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list", "--status", "running"])
+
+    assert result.exit_code == 0
+    assert "No browsing tasks found" in result.stdout
+    assert "163 total: 0 running, 162 succeeded, 1 failed." in result.stdout
+
+
+def test_browse_list_shows_next_cursor_when_more_results():
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [{"task_id": "t1", "query": "q", "status": "running"}],
+        "total": 2,
+        "summary": {"running": 2, "succeeded": 0, "failed": 0},
+        "has_more": True,
+        "next_cursor": "next-cur",
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list", "--limit", "1"])
+
+    assert result.exit_code == 0
+    assert "next-cur" in result.stdout
+
+
+def test_browse_list_without_summary_omits_totals_line():
+    # The summary/totals line is gated behind `if summary:`; a response with tasks
+    # but no summary must still render the table without a misleading totals line.
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [{"task_id": "task-9", "query": "q", "status": "running"}]
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list"])
+
+    assert result.exit_code == 0
+    assert "task-9" in result.stdout
+    assert " total:" not in result.stdout
+
+
 # ---------------------------------------------------------------------------
 # Rich markup safety: API/user strings must render literally, never parse.
 # ---------------------------------------------------------------------------
+
+
+def test_browse_list_renders_markup_like_queries_literally():
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [
+            {"task_id": "t1", "query": "watch [/b] page", "status": "running"},
+        ]
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list"])
+
+    # "[/b]" used to crash the whole listing with MarkupError.
+    assert result.exit_code == 0
+    assert "[/b]" in result.stdout
+
+
+def test_browse_list_renders_markup_like_cursor_literally():
+    # next_cursor is printed on a markup-enabled console.print line (not a table cell),
+    # so an untrusted cursor containing markup must be escaped, not parsed.
+    client = _make_client_mock()
+    client.browsing.list.return_value = {
+        "tasks": [{"task_id": "t1", "query": "q", "status": "running"}],
+        "has_more": True,
+        "next_cursor": "abc[/b]def",
+    }
+
+    with patch("yutori.cli.commands.get_authenticated_client", return_value=client):
+        result = runner.invoke(app, ["browse", "list", "--limit", "1"])
+
+    assert result.exit_code == 0
+    assert "abc[/b]def" in result.stdout
 
 
 def test_scouts_list_renders_markup_like_queries_literally():

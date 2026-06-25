@@ -10,6 +10,7 @@ import httpx
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 
 from yutori.auth.credentials import resolve_api_key
 from yutori.exceptions import APIError, AuthenticationError
@@ -29,6 +30,7 @@ __all__ = [
     "print_optional_field",
     "print_rejection_reason",
     "print_task_get_header",
+    "print_task_list",
     "print_task_result_output",
     "print_task_submission_result",
     "safe_str",
@@ -236,9 +238,7 @@ def print_task_get_header(console: Console, task_type: str, task_id: str, result
     print_rejection_reason(console, result)
 
 
-def print_task_result_output(
-    console: Console, result: dict[str, Any], *, max_length: int = 2000
-) -> None:
+def print_task_result_output(console: Console, result: dict[str, Any], *, max_length: int = 2000) -> None:
     """Print the ``result``/``output`` body of a task, truncated to ``max_length`` chars."""
     output = result.get("result") or result.get("output")
     if not output:
@@ -248,6 +248,63 @@ def print_task_result_output(
     if len(text) > max_length:
         text = text[:max_length] + "\n... (truncated)"
     console.print(text, markup=False)
+
+
+def print_task_list(console: Console, task_type: str, result: dict[str, Any]) -> None:
+    """Render a browsing/research task-list response as a Rich table.
+
+    Shared by ``yutori browse list`` and ``yutori research list``: both render
+    the identical task-list response shape, differing only by the title. The
+    status-count totals and the ``--cursor`` hint print even when the page is
+    empty, so a status filter with no matches still surfaces the account's
+    totals in other statuses (rather than a bare "no tasks found"). Every cell
+    goes through ``safe_str`` so API strings render literally.
+    """
+    tasks = result.get("tasks", [])
+
+    if tasks:
+        table = Table(title=f"Your {task_type} Tasks")
+        table.add_column("Task ID", style="cyan", no_wrap=True)
+        table.add_column("Query", max_width=50)
+        table.add_column("Status", style="green")
+        table.add_column("Created")
+        table.add_column("Reason", max_width=32)
+
+        for task in tasks:
+            # The list endpoint returns the prompt under `query` for both task types
+            # (browse create takes it as `task`).
+            query = str(task.get("query", ""))
+            if len(query) > 47:
+                query = query[:47] + "..."
+
+            # created_at is an ISO-8601 datetime; show just the YYYY-MM-DD date.
+            created = str(task.get("created_at") or "")[:10]
+
+            table.add_row(
+                safe_str(task.get("task_id", "")),
+                safe_str(query),
+                safe_str(task.get("status", "unknown")),
+                safe_str(created),
+                safe_str(task.get("rejection_reason") or ""),
+            )
+
+        console.print(table)
+    else:
+        console.print(f"[yellow]No {task_type.lower()} tasks found.[/yellow]")
+
+    summary = result.get("summary") or {}
+    if summary:
+        total = result.get("total", len(tasks))
+        console.print(
+            f"\n{safe_str(total)} total: "
+            f"{safe_str(summary.get('running', 0))} running, "
+            f"{safe_str(summary.get('succeeded', 0))} succeeded, "
+            f"{safe_str(summary.get('failed', 0))} failed."
+        )
+
+    next_cursor = result.get("next_cursor")
+    if result.get("has_more") and next_cursor:
+        console.print(f"More results available. Re-run with --cursor {safe_str(next_cursor)}")
 
 
 def format_interval(seconds: int, *, short: bool = False) -> str:

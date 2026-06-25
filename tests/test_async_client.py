@@ -75,6 +75,19 @@ class TestAsyncScoutsNamespace:
                 assert "limit" not in params
                 assert params["status"] == "active"
 
+    async def test_scouts_list_forwards_cursor(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"scouts": []}'
+        mock_response.json.return_value = {"scouts": []}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                await client.scouts.list(cursor="next-page")
+                params = mock_get.call_args[1]["params"]
+                assert params["cursor"] == "next-page"
+                assert "page_size" not in params
+
     async def test_scouts_get(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -161,6 +174,23 @@ class TestAsyncScoutsNamespace:
 
 @pytest.mark.asyncio
 class TestAsyncBrowsingNamespace:
+    async def test_browsing_list(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": [], "total": 0}'
+        mock_response.json.return_value = {"tasks": [], "total": 0}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.browsing.list(limit=20, status="succeeded", cursor="cur-1")
+                assert result == {"tasks": [], "total": 0}
+                assert mock_get.call_args[0][0].endswith("/browsing/tasks")
+                params = mock_get.call_args[1]["params"]
+                assert params["page_size"] == 20
+                assert "limit" not in params
+                assert params["status"] == "succeeded"
+                assert params["cursor"] == "cur-1"
+
     async def test_browsing_create(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -228,6 +258,23 @@ class TestAsyncBrowsingNamespace:
 
 @pytest.mark.asyncio
 class TestAsyncResearchNamespace:
+    async def test_research_list(self):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.content = b'{"tasks": [], "total": 0}'
+        mock_response.json.return_value = {"tasks": [], "total": 0}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            async with AsyncYutoriClient(api_key="yt-test") as client:
+                result = await client.research.list(limit=20, status="succeeded", cursor="cur-1")
+                assert result == {"tasks": [], "total": 0}
+                assert mock_get.call_args[0][0].endswith("/research/tasks")
+                params = mock_get.call_args[1]["params"]
+                assert params["page_size"] == 20
+                assert "limit" not in params
+                assert params["status"] == "succeeded"
+                assert params["cursor"] == "cur-1"
+
     async def test_research_create(self):
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
@@ -585,9 +632,7 @@ class TestAsyncTransportErrorWrapping:
     async def test_connect_error_wrapped(self):
         from yutori.exceptions import APIConnectionError
 
-        with patch.object(
-            httpx.AsyncClient, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")
-        ):
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 with pytest.raises(APIConnectionError, match="ConnectError.*refused"):
                     await client.scouts.list()

@@ -20,18 +20,21 @@ class ScoutsNamespace(_SyncBaseNamespace):
         *,
         limit: int | None = None,
         status: str | None = None,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
         """List scouts for the authenticated user.
 
         Args:
             limit: Maximum number of scouts to return.
             status: Filter by status ("active", "paused", "done").
+            cursor: Pagination cursor from a previous response's ``next_cursor``
+                or ``prev_cursor``.
 
         Returns:
-            Dictionary containing list of scouts.
+            Dictionary containing list of scouts and pagination info.
         """
         # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
-        params = build_query_params(page_size=limit, status=status)
+        params = build_query_params(page_size=limit, status=status, cursor=cursor)
         return self._request("get", "/scouting/tasks", params=params)
 
     def get(self, scout_id: str) -> dict[str, Any]:
