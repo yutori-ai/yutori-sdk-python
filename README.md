@@ -318,12 +318,16 @@ yutori scouts get SCOUT_ID
 yutori scouts delete SCOUT_ID
 
 # Browsing
+yutori browse list
+yutori browse list --limit 20 --status succeeded
 yutori browse run "extract all prices" https://example.com/products
 yutori browse run "log in and continue" https://example.com/login --require-auth
 yutori browse run "export dashboard data" https://example.com/dashboard --browser local
 yutori browse get TASK_ID
 
 # Research
+yutori research list
+yutori research list --limit 10 --status running
 yutori research run "latest developments in quantum computing" -tz America/Los_Angeles
 yutori research get TASK_ID
 
