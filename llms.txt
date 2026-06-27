@@ -169,7 +169,9 @@ from yutori.navigator import (
 abs_x, abs_y = denormalize_coordinates([500, 250], width=1280, height=800)
 
 # Trim old screenshots to stay under the API size limit:
-messages = trimmed_messages_to_fit(messages, max_bytes=9_500_000, keep_recent=6)
+messages, _size, _removed = trimmed_messages_to_fit(
+    messages, max_bytes=9_500_000, keep_recent=6,
+)
 ```
 
 ### Navigator n1.5 parameters
