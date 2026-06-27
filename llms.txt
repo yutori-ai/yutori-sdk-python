@@ -105,6 +105,64 @@ yutori scouts create -q "Tell me about the latest news, product updates, press r
 
 If they decline, skip the Scout demo and end with a recap of Research + Browsing.
 
+## Navigator API
+
+Navigator is Yutori's computer-use model (model id `n1.5-latest`). It is an **OpenAI Chat Completions-compatible endpoint**: you send a screenshot of a web page plus a task instruction, and the model returns **browser actions** as tool calls (`left_click`, `type`, `scroll`, `goto_url`, …). You execute those actions in your own browser (e.g. Playwright), append the results, capture a fresh screenshot, and call again — an **agent loop** — until the model returns a text response with no tool calls.
+
+There is no `yutori` CLI command for Navigator; it is called from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client.
+
+### Minimal single call
+
+```python
+from yutori import YutoriClient
+from yutori.navigator import playwright_screenshot_to_data_url
+from playwright.sync_api import sync_playwright
+
+with YutoriClient() as client, sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.goto("https://www.yutori.com")
+
+    image_url = playwright_screenshot_to_data_url(page)
+
+    response = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "List the team member names."},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }
+        ],
+    )
+
+    message = response.choices[0].message
+    print(message.content)            # model's reasoning / final answer
+    for tc in message.tool_calls or []:
+        print(tc.function.name, tc.function.arguments)
+```
+
+### Building an agent loop
+
+In practice you run a loop: execute the returned tool calls on your Playwright `page`, append the results as `tool` messages, capture a fresh screenshot, and call `create()` again until the model returns no tool calls. The `yutori.navigator` subpackage provides helpers for this — screenshot capture, coordinate denormalization (model uses a 1000×1000 space), message trimming, and key mapping.
+
+For a complete working agent loop with retries, structured output, and expanded tools, see [`examples/navigator_n1_5.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n1_5.py).
+
+### Navigator n1.5 parameters
+
+Pass these as keyword args to `client.chat.completions.create(...)`:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `model` | `"n1.5-latest"` (default) or a dated version like `"n1.5-20260428"`. |
+| `tool_set` | Built-in tool set: `"browser_tools_core-20260403"` (default — 18 coordinate-based tools) or `"browser_tools_expanded-20260403"` (adds `extract_elements`, `find`, `set_element_value`, `execute_js`). |
+| `disable_tools` | Remove specific tools by name, e.g. `["hold_key", "drag"]`. |
+| `json_schema` | JSON Schema dict for structured output. Model returns conforming JSON; accessible as `response.parsed_json`. |
+| `temperature` | Sampling temperature (default 0.3). |
+
+The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>. For the SDK and CLI reference, see the link at the bottom of this file.
+
 For SDK/API integration details, use:
 
 - Python SDK and CLI reference: https://github.com/yutori-ai/yutori-sdk-python/blob/main/api.md
