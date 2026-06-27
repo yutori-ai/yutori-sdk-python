@@ -161,7 +161,7 @@ Pass these as keyword args to `client.chat.completions.create(...)`:
 | `json_schema` | JSON Schema dict for structured output. Model returns conforming JSON; accessible as `response.parsed_json`. |
 | `temperature` | Sampling temperature (default 0.3). |
 
-The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>.
+The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>. For the SDK and CLI reference, see <https://github.com/yutori-ai/yutori-sdk-python/blob/main/api.md>.
 
 For SDK/API integration details, use:
 
