@@ -145,34 +145,9 @@ with YutoriClient() as client, sync_playwright() as p:
 
 ### Building an agent loop
 
-The model returns one or more tool calls per turn. For each call:
+In practice you run a loop: execute the returned tool calls on your Playwright `page`, append the results as `tool` messages, capture a fresh screenshot, and call `create()` again until the model returns no tool calls. The `yutori.navigator` subpackage provides helpers for this — screenshot capture, coordinate denormalization (model uses a 1000×1000 space), message trimming, and key mapping.
 
-1. **Execute** the action on your Playwright `page` (click at the denormalized coordinates, type text, scroll, etc.).
-2. **Append** the result as a `{"role": "tool", "tool_call_id": tc.id, "content": [...]}` message.
-3. **Capture** a fresh screenshot and append it to the last user message as an `image_url` part.
-4. **Call** `create()` again with the updated message list.
-
-Stop when the model returns no tool calls (task done) or you hit a step limit. Use `format_stop_and_summarize(task)` to request a final summary when stopping early.
-
-```python
-from yutori.navigator import (
-    playwright_screenshot_to_data_url,
-    denormalize_coordinates,
-    format_task_with_context,
-    format_stop_and_summarize,
-    trimmed_messages_to_fit,
-    map_key_to_playwright,
-)
-
-# Coordinates come back in a normalized 1000×1000 space —
-# map them to your viewport before clicking:
-abs_x, abs_y = denormalize_coordinates([500, 250], width=1280, height=800)
-
-# Trim old screenshots to stay under the API size limit:
-messages, _size, _removed = trimmed_messages_to_fit(
-    messages, max_bytes=9_500_000, keep_recent=6,
-)
-```
+For a complete working agent loop with retries, structured output, and expanded tools, see [`examples/navigator_n1_5.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n1_5.py).
 
 ### Navigator n1.5 parameters
 
@@ -186,52 +161,7 @@ Pass these as keyword args to `client.chat.completions.create(...)`:
 | `json_schema` | JSON Schema dict for structured output. Model returns conforming JSON; accessible as `response.parsed_json`. |
 | `temperature` | Sampling temperature (default 0.3). |
 
-### `yutori.navigator` helpers
-
-| Helper | Purpose |
-|--------|---------|
-| `playwright_screenshot_to_data_url(page)` / `aplaywright_screenshot_to_data_url(page)` | Capture a Playwright screenshot as a Navigator-optimized WebP data URL (sync / async). |
-| `denormalize_coordinates(coords, width, height)` | Map the model's 1000×1000 coordinate space to viewport pixels. |
-| `format_task_with_context(task, user_timezone=..., user_location=...)` | Append location, timezone, and current date to a task message. |
-| `format_stop_and_summarize(task)` | Produce a "stop and summarize" user message for early termination. |
-| `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit. |
-| `map_key_to_playwright(key)` / `map_keys_individual(keys)` | Convert n1.5 lowercase key names (`ctrl+c`, `enter`) to Playwright format. |
-| `yutori.navigator.tools` | Reference JS implementations for the expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`) plus `evaluate_tool_script(page, SCRIPT, *args)`. |
-
-### Core action space
-
-The default tool set (`browser_tools_core-20260403`) exposes 18 coordinate-based tools:
-
-| Action | Key args |
-|--------|----------|
-| `left_click` / `double_click` / `triple_click` / `middle_click` / `right_click` | `coordinates` `[x, y]` (1000×1000 space), optional `ref`, `modifier` |
-| `scroll` | `coordinates`, `direction` (`down`/`up`/`left`/`right`), `amount` (1 unit ≈ 10% screen) |
-| `type` | `text` |
-| `key_press` | `key` (lowercase: `ctrl+c`, `enter`, `down down down enter`) |
-| `drag` | `start_coordinates`, `coordinates` |
-| `mouse_move` / `mouse_down` / `mouse_up` | `coordinates`, optional `ref` |
-| `goto_url` | `url` |
-| `go_back` / `go_forward` / `refresh` / `wait` | — (optional `duration` for `wait`) |
-| `hold_key` | `key`, optional `duration` (seconds) |
-
-### Expanded tools
-
-Switch to `tool_set="browser_tools_expanded-20260403"` to add DOM-based tools. These are executed by evaluating bundled JavaScript against the page via `evaluate_tool_script` from `yutori.navigator.tools`:
-
-| Action | Purpose |
-|--------|---------|
-| `extract_elements` | Extract a structured ARIA-snapshot of the page's elements (returns `pageContent` with `ref` handles). |
-| `find` | Search the page for elements matching text (returns `matches` with `ref` handles). |
-| `set_element_value` | Set an input/textarea/select value directly by `ref`. |
-| `execute_js` | Run arbitrary JavaScript against the page and return the serialized result. |
-
-Refs from `extract_elements`/`find` can be passed as the `ref` arg to click/scroll actions — the model uses them as stable element handles.
-
-### Complete examples and reference
-
-- **Full agent loop**: [`examples/navigator_n1_5.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n1_5.py) — complete n1.5 loop with retries, replay logging, structured output, expanded tools, and page-ready detection.
-- **SDK and CLI reference**: https://github.com/yutori-ai/yutori-sdk-python/blob/main/api.md
-- **Navigator n1.5 API reference**: https://docs.yutori.com/reference/n1-5 — full action space, key names, and parameter details.
+The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>.
 
 For SDK/API integration details, use:
 
