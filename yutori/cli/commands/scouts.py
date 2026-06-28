@@ -14,6 +14,7 @@ from yutori.cli.commands import (
     print_optional_field,
     print_rejection_reason,
     safe_str,
+    truncate_for_display,
 )
 
 app = typer.Typer(help="Manage scouts")
@@ -44,9 +45,7 @@ def list_scouts(
         for scout in scouts:
             interval_str = format_interval(scout.get("output_interval") or 0, short=True)
 
-            query = str(scout.get("query", ""))
-            if len(query) > 47:
-                query = query[:47] + "..."
+            query = truncate_for_display(str(scout.get("query", "")))
 
             table.add_row(
                 safe_str(scout.get("id", "")),

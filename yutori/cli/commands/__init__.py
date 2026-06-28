@@ -34,6 +34,7 @@ __all__ = [
     "print_task_result_output",
     "print_task_submission_result",
     "safe_str",
+    "truncate_for_display",
 ]
 
 SECONDS_PER_MINUTE = 60
@@ -48,6 +49,13 @@ INTERVAL_PRESETS: dict[str, int] = {
 }
 
 _console = Console()
+
+
+def truncate_for_display(text: str, max_len: int = 47) -> str:
+    """Truncate ``text`` to ``max_len`` chars, appending ``...`` when truncated."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
 
 
 def safe_str(value: Any) -> str:
@@ -273,9 +281,7 @@ def print_task_list(console: Console, task_type: str, result: dict[str, Any]) ->
         for task in tasks:
             # The list endpoint returns the prompt under `query` for both task types
             # (browse create takes it as `task`).
-            query = str(task.get("query", ""))
-            if len(query) > 47:
-                query = query[:47] + "..."
+            query = truncate_for_display(str(task.get("query", "")))
 
             # created_at is an ISO-8601 datetime; show just the YYYY-MM-DD date.
             created = str(task.get("created_at") or "")[:10]
