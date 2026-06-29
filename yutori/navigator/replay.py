@@ -535,7 +535,7 @@ def _render_step(step: dict[str, Any]) -> str:
         "<div class=\"side-panel\">"
         "<div class=\"panel nested\">"
         "<h3>Actions</h3>"
-        f"<div class=\"action-list\">{chr(39).join(action_items)}</div>"
+        f"<div class=\"action-list\">{''.join(action_items)}</div>"
         "</div>"
         f"{raw_request_html}"
         f"{raw_response_html}"
