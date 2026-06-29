@@ -11,7 +11,7 @@ import asyncio
 import html
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +72,7 @@ def log_formatter(record: dict, *, colorize: bool = True) -> str:
 def make_run_id(*, prefix: str = "run", label: str | None = None) -> str:
     """Create a filesystem-friendly replay id for optional local artifacts."""
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     clean_prefix = _slugify(prefix) or "run"
     clean_label = _slugify(label or "")
     if clean_label:
@@ -535,7 +535,7 @@ def _render_step(step: dict[str, Any]) -> str:
         "<div class=\"side-panel\">"
         "<div class=\"panel nested\">"
         "<h3>Actions</h3>"
-        f"<div class=\"action-list\">{''.join(action_items)}</div>"
+        f"<div class=\"action-list\">{chr(39).join(action_items)}</div>"
         "</div>"
         f"{raw_request_html}"
         f"{raw_response_html}"
