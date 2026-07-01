@@ -184,6 +184,27 @@ def _resolve_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return env or os.environ
 
 
+def _synthetic_returncode_for_exception(exc: BaseException) -> int:
+    """Map a caught subprocess-launch exception to a synthetic returncode.
+
+    Shared by ``run_command`` and ``run_interactive_command``, which must
+    classify the same three failure modes (timeout, Ctrl+C, exec failure)
+    into the same module-level ``RETURNCODE_*`` constants. Centralizing the
+    mapping keeps the two call sites' comments from having to cross-reference
+    each other to describe why the catches match.
+
+    Only ``subprocess.TimeoutExpired``, ``KeyboardInterrupt``, and ``OSError``
+    (covering ``FileNotFoundError``, ``PermissionError``, and rarer fork/exec
+    failures like ENOEXEC, EMFILE, ENOMEM) are recognized; callers must not
+    pass any other exception type.
+    """
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return RETURNCODE_TIMEOUT
+    if isinstance(exc, KeyboardInterrupt):
+        return RETURNCODE_CANCELLED
+    return RETURNCODE_EXEC_FAILED
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -217,18 +238,18 @@ def run_command(
         partial_stderr = _coerce_output_text(exc.stderr)
         return subprocess.CompletedProcess(
             argv,
-            returncode=RETURNCODE_TIMEOUT,
+            returncode=_synthetic_returncode_for_exception(exc),
             stdout=partial_stdout,
             stderr=f"{partial_stderr}\nTimed out after {timeout}s waiting for {format_command(argv)}.",
         )
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         # Mirror run_interactive_command: Ctrl+C during a long npx run
         # (no-TTY MCP/skills install can take ~minutes on first network
         # fetch) should yield a "Cancelled" status row instead of
         # aborting the installer before the summary table prints.
         return subprocess.CompletedProcess(
             argv,
-            returncode=RETURNCODE_CANCELLED,
+            returncode=_synthetic_returncode_for_exception(exc),
             stdout="",
             stderr=f"Cancelled by user while running {argv[0]!r}.",
         )
@@ -240,7 +261,7 @@ def run_command(
         # path would have folded into the status table.
         return subprocess.CompletedProcess(
             argv,
-            returncode=RETURNCODE_EXEC_FAILED,
+            returncode=_synthetic_returncode_for_exception(exc),
             stdout="",
             stderr=f"Could not execute {argv[0]!r}: {exc}",
         )
@@ -274,19 +295,22 @@ def run_interactive_command(
             check=False,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_TIMEOUT, stdout=None, stderr=None)
-    except KeyboardInterrupt:
+    except subprocess.TimeoutExpired as exc:
+        returncode = _synthetic_returncode_for_exception(exc)
+        return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
+    except KeyboardInterrupt as exc:
         # Ctrl+C is forwarded to the child via the shared TTY; once it exits,
         # the parent's default SIGINT handler raises here. Convert to a
         # synthetic returncode so callers can render a "Cancelled" row
         # instead of crashing the installer mid-summary.
-        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_CANCELLED, stdout=None, stderr=None)
-    except OSError:
+        returncode = _synthetic_returncode_for_exception(exc)
+        return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
+    except OSError as exc:
         # Catches FileNotFoundError, PermissionError, and rarer fork/exec
         # failures (ENOEXEC, EMFILE, ENOMEM). All map to "could not execute"
         # from the user's perspective.
-        return subprocess.CompletedProcess(argv, returncode=RETURNCODE_EXEC_FAILED, stdout=None, stderr=None)
+        returncode = _synthetic_returncode_for_exception(exc)
+        return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
 
 
 def describe_completed_process(result: subprocess.CompletedProcess[str], *, max_lines: int = 8) -> str:
