@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AsyncYutoriClient, AuthenticationError
 
-from ._usage_fixtures import make_mock_usage_response
+from ._usage_fixtures import make_json_response, make_mock_usage_response
 
 
 class TestAsyncYutoriClientInit:
@@ -61,10 +61,7 @@ class TestAsyncYutoriClientGetUsage:
 @pytest.mark.asyncio
 class TestAsyncScoutsNamespace:
     async def test_scouts_list(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"scouts": []}'
-        mock_response.json.return_value = {"scouts": []}
+        mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -76,10 +73,7 @@ class TestAsyncScoutsNamespace:
                 assert params["status"] == "active"
 
     async def test_scouts_list_forwards_cursor(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"scouts": []}'
-        mock_response.json.return_value = {"scouts": []}
+        mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -89,10 +83,7 @@ class TestAsyncScoutsNamespace:
                 assert "page_size" not in params
 
     async def test_scouts_get(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123"}'
-        mock_response.json.return_value = {"id": "scout-123"}
+        mock_response = make_json_response({"id": "scout-123"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -100,10 +91,7 @@ class TestAsyncScoutsNamespace:
                 assert result["id"] == "scout-123"
 
     async def test_scouts_create(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "new-scout"}'
-        mock_response.json.return_value = {"id": "new-scout"}
+        mock_response = make_json_response({"id": "new-scout"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -111,10 +99,7 @@ class TestAsyncScoutsNamespace:
                 assert result["id"] == "new-scout"
 
     async def test_scouts_update_status(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "status": "paused"}'
-        mock_response.json.return_value = {"id": "scout-123", "status": "paused"}
+        mock_response = make_json_response({"id": "scout-123", "status": "paused"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -123,10 +108,7 @@ class TestAsyncScoutsNamespace:
                 assert "/pause" in mock_post.call_args[0][0]
 
     async def test_scouts_update_fields(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "query": "new query"}'
-        mock_response.json.return_value = {"id": "scout-123", "query": "new query"}
+        mock_response = make_json_response({"id": "scout-123", "query": "new query"})
 
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -134,10 +116,7 @@ class TestAsyncScoutsNamespace:
                 assert result["query"] == "new query"
 
     async def test_scouts_update_is_public(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "is_public": false}'
-        mock_response.json.return_value = {"id": "scout-123", "is_public": False}
+        mock_response = make_json_response({"id": "scout-123", "is_public": False})
 
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock_response) as mock_patch:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -161,10 +140,7 @@ class TestAsyncScoutsNamespace:
                 assert result == {}
 
     async def test_scouts_get_updates(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"updates": []}'
-        mock_response.json.return_value = {"updates": []}
+        mock_response = make_json_response({"updates": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -175,10 +151,7 @@ class TestAsyncScoutsNamespace:
 @pytest.mark.asyncio
 class TestAsyncBrowsingNamespace:
     async def test_browsing_list(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": [], "total": 0}'
-        mock_response.json.return_value = {"tasks": [], "total": 0}
+        mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -192,10 +165,7 @@ class TestAsyncBrowsingNamespace:
                 assert params["cursor"] == "cur-1"
 
     async def test_browsing_create(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-123"}'
-        mock_response.json.return_value = {"task_id": "task-123"}
+        mock_response = make_json_response({"task_id": "task-123"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -206,10 +176,7 @@ class TestAsyncBrowsingNamespace:
                 assert result["task_id"] == "task-123"
 
     async def test_browsing_create_with_local_browser_and_auth(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-456"}'
-        mock_response.json.return_value = {"task_id": "task-456"}
+        mock_response = make_json_response({"task_id": "task-456"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -227,10 +194,7 @@ class TestAsyncBrowsingNamespace:
                 assert payload["webhook_format"] == "zapier"
 
     async def test_browsing_get(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-123", "status": "succeeded"}'
-        mock_response.json.return_value = {"task_id": "task-123", "status": "succeeded"}
+        mock_response = make_json_response({"task_id": "task-123", "status": "succeeded"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -238,16 +202,13 @@ class TestAsyncBrowsingNamespace:
                 assert result["status"] == "succeeded"
 
     async def test_browsing_get_with_rejection_reason(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = (
-            b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        mock_response = make_json_response(
+            {
+                "task_id": "task-123",
+                "status": "failed",
+                "rejection_reason": "billing_limit_reached",
+            }
         )
-        mock_response.json.return_value = {
-            "task_id": "task-123",
-            "status": "failed",
-            "rejection_reason": "billing_limit_reached",
-        }
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -259,10 +220,7 @@ class TestAsyncBrowsingNamespace:
 @pytest.mark.asyncio
 class TestAsyncResearchNamespace:
     async def test_research_list(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": [], "total": 0}'
-        mock_response.json.return_value = {"tasks": [], "total": 0}
+        mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -276,10 +234,7 @@ class TestAsyncResearchNamespace:
                 assert params["cursor"] == "cur-1"
 
     async def test_research_create(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-123"}'
-        mock_response.json.return_value = {"task_id": "research-123"}
+        mock_response = make_json_response({"task_id": "research-123"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -287,10 +242,7 @@ class TestAsyncResearchNamespace:
                 assert result["task_id"] == "research-123"
 
     async def test_research_get(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-123", "status": "succeeded"}'
-        mock_response.json.return_value = {"task_id": "research-123", "status": "succeeded"}
+        mock_response = make_json_response({"task_id": "research-123", "status": "succeeded"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -298,16 +250,13 @@ class TestAsyncResearchNamespace:
                 assert result["status"] == "succeeded"
 
     async def test_research_get_with_rejection_reason(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = (
-            b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        mock_response = make_json_response(
+            {
+                "task_id": "research-123",
+                "status": "failed",
+                "rejection_reason": "rate_limit_exceeded",
+            }
         )
-        mock_response.json.return_value = {
-            "task_id": "research-123",
-            "status": "failed",
-            "rejection_reason": "rate_limit_exceeded",
-        }
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -322,11 +271,7 @@ class TestAsyncPydanticSchemaIntegration:
 
     @staticmethod
     def _make_mock_response():
-        mock = MagicMock(spec=httpx.Response)
-        mock.status_code = 200
-        mock.content = b'{"task_id": "t-1"}'
-        mock.json.return_value = {"task_id": "t-1"}
-        return mock
+        return make_json_response({"task_id": "t-1"})
 
     class _FakeModel:
         @classmethod
@@ -361,9 +306,7 @@ class TestAsyncPydanticSchemaIntegration:
                 assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_create_with_model_class(self):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock) as mock_post:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 await client.scouts.create(query="q", output_schema=self._FakeModel)
@@ -371,9 +314,7 @@ class TestAsyncPydanticSchemaIntegration:
                 assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_update_with_model_class(self):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 await client.scouts.update("s-1", output_schema=self._FakeModel)
@@ -381,9 +322,7 @@ class TestAsyncPydanticSchemaIntegration:
                 assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_update_with_model_instance(self):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 await client.scouts.update("s-1", output_schema=self._FakeModel())

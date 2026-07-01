@@ -40,11 +40,16 @@ USAGE_RESPONSE = {
 }
 
 
-def make_mock_usage_response(period: str = "24h") -> MagicMock:
-    """Build a mocked 200 OK :class:`httpx.Response` for ``GET /usage``."""
-    data = {**USAGE_RESPONSE, "activity": {**USAGE_RESPONSE["activity"], "period": period}}
+def make_json_response(data: dict, *, status_code: int = 200) -> MagicMock:
+    """Build a mocked :class:`httpx.Response` whose ``.content`` and ``.json()`` both reflect `data`."""
     mock_response = MagicMock(spec=httpx.Response)
-    mock_response.status_code = 200
+    mock_response.status_code = status_code
     mock_response.content = json.dumps(data).encode()
     mock_response.json.return_value = data
     return mock_response
+
+
+def make_mock_usage_response(period: str = "24h") -> MagicMock:
+    """Build a mocked 200 OK :class:`httpx.Response` for ``GET /usage``."""
+    data = {**USAGE_RESPONSE, "activity": {**USAGE_RESPONSE["activity"], "period": period}}
+    return make_json_response(data)

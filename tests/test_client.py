@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
 
-from ._usage_fixtures import make_mock_usage_response
+from ._usage_fixtures import make_json_response, make_mock_usage_response
 
 
 class TestYutoriClientInit:
@@ -98,10 +98,7 @@ class TestYutoriClientGetUsage:
 
 class TestScoutsNamespace:
     def test_scouts_list(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"scouts": []}'
-        mock_response.json.return_value = {"scouts": []}
+        mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             result = client.scouts.list(limit=10, status="active")
@@ -113,10 +110,7 @@ class TestScoutsNamespace:
             assert params["status"] == "active"
 
     def test_scouts_list_forwards_cursor(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"scouts": []}'
-        mock_response.json.return_value = {"scouts": []}
+        mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             client.scouts.list(cursor="next-page")
@@ -125,10 +119,7 @@ class TestScoutsNamespace:
             assert "page_size" not in params
 
     def test_scouts_get(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "query": "test"}'
-        mock_response.json.return_value = {"id": "scout-123", "query": "test"}
+        mock_response = make_json_response({"id": "scout-123", "query": "test"})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             result = client.scouts.get("scout-123")
@@ -136,10 +127,7 @@ class TestScoutsNamespace:
             mock_get.assert_called_once()
 
     def test_scouts_create(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "new-scout", "query": "Monitor site"}'
-        mock_response.json.return_value = {"id": "new-scout", "query": "Monitor site"}
+        mock_response = make_json_response({"id": "new-scout", "query": "Monitor site"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             result = client.scouts.create(
@@ -156,10 +144,7 @@ class TestScoutsNamespace:
             assert payload["webhook_url"] == "https://webhook.test"
 
     def test_scouts_update_status(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "status": "paused"}'
-        mock_response.json.return_value = {"id": "scout-123", "status": "paused"}
+        mock_response = make_json_response({"id": "scout-123", "status": "paused"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             result = client.scouts.update("scout-123", status="paused")
@@ -168,10 +153,7 @@ class TestScoutsNamespace:
             assert "/pause" in mock_post.call_args[0][0]
 
     def test_scouts_update_fields(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "query": "new query"}'
-        mock_response.json.return_value = {"id": "scout-123", "query": "new query"}
+        mock_response = make_json_response({"id": "scout-123", "query": "new query"})
 
         with patch.object(httpx.Client, "patch", return_value=mock_response) as mock_patch:
             result = client.scouts.update("scout-123", query="new query")
@@ -179,10 +161,7 @@ class TestScoutsNamespace:
             mock_patch.assert_called_once()
 
     def test_scouts_update_is_public(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"id": "scout-123", "is_public": false}'
-        mock_response.json.return_value = {"id": "scout-123", "is_public": False}
+        mock_response = make_json_response({"id": "scout-123", "is_public": False})
 
         with patch.object(httpx.Client, "patch", return_value=mock_response) as mock_patch:
             client.scouts.update("scout-123", is_public=False)
@@ -208,10 +187,7 @@ class TestScoutsNamespace:
             mock_delete.assert_called_once()
 
     def test_scouts_get_updates(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"updates": [], "cursor": null}'
-        mock_response.json.return_value = {"updates": [], "cursor": None}
+        mock_response = make_json_response({"updates": [], "cursor": None})
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.scouts.get_updates("scout-123", limit=5)
@@ -220,10 +196,7 @@ class TestScoutsNamespace:
 
 class TestBrowsingNamespace:
     def test_browsing_list(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": [], "total": 0}'
-        mock_response.json.return_value = {"tasks": [], "total": 0}
+        mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             result = client.browsing.list(limit=20, status="succeeded", cursor="cur-1")
@@ -237,20 +210,14 @@ class TestBrowsingNamespace:
             assert params["cursor"] == "cur-1"
 
     def test_browsing_list_no_args_sends_empty_params(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": []}'
-        mock_response.json.return_value = {"tasks": []}
+        mock_response = make_json_response({"tasks": []})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             client.browsing.list()
             assert mock_get.call_args[1]["params"] == {}
 
     def test_browsing_create(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-123", "status": "queued"}'
-        mock_response.json.return_value = {"task_id": "task-123", "status": "queued"}
+        mock_response = make_json_response({"task_id": "task-123", "status": "queued"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             result = client.browsing.create(
@@ -265,10 +232,7 @@ class TestBrowsingNamespace:
             assert payload["max_steps"] == 10
 
     def test_browsing_create_with_local_browser_and_auth(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-456", "status": "queued"}'
-        mock_response.json.return_value = {"task_id": "task-456", "status": "queued"}
+        mock_response = make_json_response({"task_id": "task-456", "status": "queued"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             result = client.browsing.create(
@@ -285,26 +249,20 @@ class TestBrowsingNamespace:
             assert payload["webhook_format"] == "zapier"
 
     def test_browsing_get(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "task-123", "status": "succeeded"}'
-        mock_response.json.return_value = {"task_id": "task-123", "status": "succeeded"}
+        mock_response = make_json_response({"task_id": "task-123", "status": "succeeded"})
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.browsing.get("task-123")
             assert result["status"] == "succeeded"
 
     def test_browsing_get_with_rejection_reason(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = (
-            b'{"task_id": "task-123", "status": "failed", "rejection_reason": "billing_limit_reached"}'
+        mock_response = make_json_response(
+            {
+                "task_id": "task-123",
+                "status": "failed",
+                "rejection_reason": "billing_limit_reached",
+            }
         )
-        mock_response.json.return_value = {
-            "task_id": "task-123",
-            "status": "failed",
-            "rejection_reason": "billing_limit_reached",
-        }
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.browsing.get("task-123")
@@ -314,10 +272,7 @@ class TestBrowsingNamespace:
 
 class TestResearchNamespace:
     def test_research_list(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": [], "total": 0}'
-        mock_response.json.return_value = {"tasks": [], "total": 0}
+        mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             result = client.research.list(limit=20, status="succeeded", cursor="cur-1")
@@ -331,20 +286,14 @@ class TestResearchNamespace:
             assert params["cursor"] == "cur-1"
 
     def test_research_list_no_args_sends_empty_params(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"tasks": []}'
-        mock_response.json.return_value = {"tasks": []}
+        mock_response = make_json_response({"tasks": []})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             client.research.list()
             assert mock_get.call_args[1]["params"] == {}
 
     def test_research_create(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-123", "status": "queued"}'
-        mock_response.json.return_value = {"task_id": "research-123", "status": "queued"}
+        mock_response = make_json_response({"task_id": "research-123", "status": "queued"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             result = client.research.create(
@@ -356,26 +305,20 @@ class TestResearchNamespace:
             assert payload["query"] == "Find AI startup funding"
 
     def test_research_get(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b'{"task_id": "research-123", "status": "succeeded"}'
-        mock_response.json.return_value = {"task_id": "research-123", "status": "succeeded"}
+        mock_response = make_json_response({"task_id": "research-123", "status": "succeeded"})
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.research.get("research-123")
             assert result["status"] == "succeeded"
 
     def test_research_get_with_rejection_reason(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = (
-            b'{"task_id": "research-123", "status": "failed", "rejection_reason": "rate_limit_exceeded"}'
+        mock_response = make_json_response(
+            {
+                "task_id": "research-123",
+                "status": "failed",
+                "rejection_reason": "rate_limit_exceeded",
+            }
         )
-        mock_response.json.return_value = {
-            "task_id": "research-123",
-            "status": "failed",
-            "rejection_reason": "rate_limit_exceeded",
-        }
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             result = client.research.get("research-123")
@@ -387,11 +330,7 @@ class TestPydanticSchemaIntegration:
     """Test that Pydantic models are resolved to JSON schema dicts in payloads."""
 
     def _make_mock_response(self):
-        mock = MagicMock(spec=httpx.Response)
-        mock.status_code = 200
-        mock.content = b'{"task_id": "t-1"}'
-        mock.json.return_value = {"task_id": "t-1"}
-        return mock
+        return make_json_response({"task_id": "t-1"})
 
     class _FakeModel:
         @classmethod
@@ -417,27 +356,21 @@ class TestPydanticSchemaIntegration:
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     def test_scouts_create_with_model_class(self, client):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.Client, "post", return_value=mock) as mock_post:
             client.scouts.create(query="q", output_schema=self._FakeModel)
             payload = mock_post.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     def test_scouts_update_with_model_class(self, client):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.Client, "patch", return_value=mock) as mock_patch:
             client.scouts.update("s-1", output_schema=self._FakeModel)
             payload = mock_patch.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     def test_scouts_update_with_model_instance(self, client):
-        mock = self._make_mock_response()
-        mock.content = b'{"id": "s-1"}'
-        mock.json.return_value = {"id": "s-1"}
+        mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.Client, "patch", return_value=mock) as mock_patch:
             client.scouts.update("s-1", output_schema=self._FakeModel())
             payload = mock_patch.call_args[1]["json"]
