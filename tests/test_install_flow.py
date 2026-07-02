@@ -37,6 +37,22 @@ from yutori.cli.main import app
 runner = CliRunner()
 
 
+def _completed_process(
+    returncode: int = 0,
+    stdout: str | None = "",
+    stderr: str | None = "",
+    *,
+    args: tuple[str, ...] = (),
+) -> subprocess.CompletedProcess[str]:
+    """Build a `subprocess.CompletedProcess` for mocking `run_command`/`run_interactive_command`.
+
+    `args` defaults to `()` since almost every call site only cares about
+    `returncode`/`stdout`/`stderr` -- pass `args` explicitly when a test
+    asserts on the command that was recorded (see `_ok_completed_process`).
+    """
+    return subprocess.CompletedProcess(args=list(args), returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_mcp_installs():
     """Safety net: tests in this file must never run real `npx` installs.
@@ -428,17 +444,9 @@ def _cli_state(cli_path: Path, *, on_path: bool = True) -> CLIInstallState:
 def test_run_verification_succeeds_via_cli(tmp_path: Path):
     cli_path = tmp_path / "yutori"
     responses = [
-        subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="\nBrowsing task submitted.\n  Task ID: task-123\n  Status: queued\n",
-            stderr="",
-        ),
-        subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="\nBrowsing Task: task-123\n\n  Status: succeeded\n\nResult:\nFound 5 team members.\n",
-            stderr="",
+        _completed_process(0, "\nBrowsing task submitted.\n  Task ID: task-123\n  Status: queued\n", ""),
+        _completed_process(
+            0, "\nBrowsing Task: task-123\n\n  Status: succeeded\n\nResult:\nFound 5 team members.\n", ""
         ),
     ]
 
@@ -470,12 +478,7 @@ def test_run_verification_uses_absolute_path_when_not_on_path(tmp_path: Path):
     """When `yutori` is not on PATH, bare `yutori` would fail — fall back to
     the absolute cli_path for both display and execution."""
     cli_path = tmp_path / "yutori"
-    response = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="\nBrowsing task submitted.\n  Task ID: task-xyz\n  Status: succeeded\n",
-        stderr="",
-    )
+    response = _completed_process(0, "\nBrowsing task submitted.\n  Task ID: task-xyz\n  Status: succeeded\n", "")
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_flow.run_command", return_value=response) as mock_run,
@@ -491,12 +494,7 @@ def test_run_verification_uses_absolute_path_when_not_on_path(tmp_path: Path):
 
 def test_run_verification_classifies_auth_error_as_auth_failure(tmp_path: Path):
     cli_path = tmp_path / "yutori"
-    failure = subprocess.CompletedProcess(
-        args=[],
-        returncode=1,
-        stdout="",
-        stderr="AuthenticationError: Invalid or missing API key",
-    )
+    failure = _completed_process(1, "", "AuthenticationError: Invalid or missing API key")
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
@@ -510,7 +508,7 @@ def test_run_verification_classifies_auth_error_as_auth_failure(tmp_path: Path):
 
 def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path: Path):
     cli_path = tmp_path / "yutori"
-    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="502: Bad gateway")
+    failure = _completed_process(1, "", "502: Bad gateway")
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_flow.run_command", return_value=failure),
@@ -670,10 +668,7 @@ def test_inspect_cli_install_fails_when_bin_dir_missing_cli(tmp_path: Path):
     uv_dir_stdout = f"{tmp_path}\n"
     with (
         patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/usr/bin/uv"),
-        patch(
-            "yutori.cli.commands.install_flow.run_command",
-            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=uv_dir_stdout, stderr=""),
-        ),
+        patch("yutori.cli.commands.install_flow.run_command", return_value=_completed_process(0, uv_dir_stdout, "")),
     ):
         state, result = inspect_cli_install()
 
@@ -689,9 +684,9 @@ def test_inspect_cli_install_success_when_shell_resolves_to_install(tmp_path: Pa
 
     responses = [
         # uv tool dir --bin
-        subprocess.CompletedProcess(args=[], returncode=0, stdout=f"{tmp_path}\n", stderr=""),
+        _completed_process(0, f"{tmp_path}\n", ""),
         # yutori --version
-        subprocess.CompletedProcess(args=[], returncode=0, stdout="yutori 0.7.0\n", stderr=""),
+        _completed_process(0, "yutori 0.7.0\n", ""),
     ]
     with (
         patch("yutori.cli.commands.install_flow.resolve_uv_path", return_value="/usr/bin/uv"),
@@ -713,7 +708,7 @@ def test_inspect_cli_install_success_when_shell_resolves_to_install(tmp_path: Pa
 
 def test_maybe_install_sdk_success_path():
     plan = SDKInstallPlan(reason="Detected pyproject.toml", command=("/tmp/uv", "add", "yutori"), default=True)
-    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="Installed.\n", stderr="")
+    success = _completed_process(0, "Installed.\n", "")
 
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
@@ -728,7 +723,7 @@ def test_maybe_install_sdk_success_path():
 
 def test_maybe_install_sdk_propagates_command_failure():
     plan = SDKInstallPlan(reason="ok", command=("/tmp/uv", "add", "yutori"), default=True)
-    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="network down")
+    failure = _completed_process(1, "", "network down")
 
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
@@ -793,7 +788,7 @@ def test_maybe_install_mcp_server_skips_when_npx_missing():
 
 
 def test_maybe_install_mcp_server_runs_add_mcp_on_consent():
-    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    success = _completed_process(0, "", "")
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -810,7 +805,7 @@ def test_maybe_install_mcp_server_failure_includes_retry_hint():
     # run_interactive_command inherits stdio so stdout/stderr are None in
     # production. The failure detail should still be useful — a retry hint
     # with the original (npx-prefixed) command.
-    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
+    failure = _completed_process(1, None, None)
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -829,7 +824,7 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
     # _run_npx_step is almost always npx's own exit code (e.g. package's bin
     # entry resolved to a missing executable). Don't claim "Could not execute
     # 'npx'" — that's misleading when npx itself ran fine.
-    failure = subprocess.CompletedProcess(args=[], returncode=127, stdout=None, stderr=None)
+    failure = _completed_process(127, None, None)
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -845,7 +840,7 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
 
 
 def test_maybe_install_mcp_server_failure_surfaces_timeout():
-    timed_out = subprocess.CompletedProcess(args=[], returncode=124, stdout=None, stderr=None)
+    timed_out = _completed_process(124, None, None)
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -860,7 +855,7 @@ def test_maybe_install_mcp_server_failure_surfaces_timeout():
 
 
 def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
-    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    success = _completed_process(0, "", "")
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -886,7 +881,7 @@ def test_maybe_install_mcp_skills_user_declines():
 
 
 def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
-    failure = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
+    failure = _completed_process(1, None, None)
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -900,7 +895,7 @@ def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
 
 
 def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
-    cancelled = subprocess.CompletedProcess(args=[], returncode=130, stdout=None, stderr=None)
+    cancelled = _completed_process(130, None, None)
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
@@ -1047,7 +1042,7 @@ def test_maybe_repair_path_runs_update_shell_on_consent():
         on_path=False,
         shell_cli_path=None,
     )
-    success = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok\n", stderr="")
+    success = _completed_process(0, "ok\n", "")
 
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
@@ -1103,7 +1098,7 @@ def test_looks_like_auth_failure_ignores_non_auth_errors(output: str) -> None:
 
 
 def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
+    return _completed_process(args=args)
 
 
 def test_run_command_catches_keyboardinterrupt_and_returns_cancelled():
@@ -1180,8 +1175,20 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(
 
     assert result.status == "success"
     assert captured["argv"] == (
-        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori",
-        "-a", "claude-code", "-a", "codex", "-a", "cursor", "-a", "gemini-cli",
+        "/opt/npx",
+        "add-mcp",
+        "-y",
+        "-g",
+        "-n",
+        "yutori",
+        "-a",
+        "claude-code",
+        "-a",
+        "codex",
+        "-a",
+        "cursor",
+        "-a",
+        "gemini-cli",
         "uvx yutori-mcp",
     )
     # Success detail should name the defaults and tell the user how to scope.
@@ -1210,7 +1217,15 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
 
     assert result.status == "success"
     assert captured["argv"] == (
-        "/opt/npx", "add-mcp", "-y", "-g", "-n", "yutori", "-a", "codex", "uvx yutori-mcp",
+        "/opt/npx",
+        "add-mcp",
+        "-y",
+        "-g",
+        "-n",
+        "yutori",
+        "-a",
+        "codex",
+        "uvx yutori-mcp",
     )
 
 
@@ -1222,12 +1237,7 @@ def test_maybe_install_mcp_server_noninteractive_failure_surfaces_captured_outpu
     # error message into the captured buffer.
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
 
-    failure = subprocess.CompletedProcess(
-        args=[],
-        returncode=1,
-        stdout="",
-        stderr="add-mcp: ENOTFOUND registry.npmjs.org",
-    )
+    failure = _completed_process(1, "", "add-mcp: ENOTFOUND registry.npmjs.org")
 
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
@@ -1264,12 +1274,7 @@ def test_run_verification_ctrl_c_during_poll_returns_cancelled_result(tmp_path: 
     produce a normal failed-verification result (summary renders, non-auth
     verification failures exit 0) instead of bubbling to click's Aborted!."""
     cli_path = tmp_path / "yutori"
-    submission = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="\nBrowsing task submitted.\n  Task ID: task-123\n  Status: queued\n",
-        stderr="",
-    )
+    submission = _completed_process(0, "\nBrowsing task submitted.\n  Task ID: task-123\n  Status: queued\n", "")
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_flow.run_command", return_value=submission),
@@ -1287,12 +1292,7 @@ def test_run_verification_treats_na_task_id_as_missing(tmp_path: Path):
     """The CLI prints `Task ID: N/A` when the create response lacks an id;
     the poller must not run `yutori browse get N/A`."""
     cli_path = tmp_path / "yutori"
-    submission = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="\nBrowsing task failed to start.\n  Task ID: N/A\n  Status: queued\n",
-        stderr="",
-    )
+    submission = _completed_process(0, "\nBrowsing task failed to start.\n  Task ID: N/A\n  Status: queued\n", "")
     with (
         patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
         patch("yutori.cli.commands.install_flow.run_command", return_value=submission) as mock_run,
