@@ -51,10 +51,21 @@ INTERVAL_PRESETS: dict[str, int] = {
 _console = Console()
 
 
-def truncate_for_display(text: str, max_len: int = 47) -> str:
-    """Truncate ``text`` to ``max_len`` chars, appending ``...`` when truncated."""
+def truncate_for_display(text: str, max_len: int = 47, *, budget_includes_ellipsis: bool = False) -> str:
+    """Truncate ``text`` to ``max_len`` chars, appending ``...`` when truncated.
+
+    By default the ``...`` is appended after the ``max_len``-char prefix, so a
+    truncated result can be up to 3 characters longer than ``max_len`` (this
+    matches the table/field truncation used by ``browse``/``research``/``scouts``
+    list output). Pass ``budget_includes_ellipsis=True`` when the caller needs a
+    hard cap — the ellipsis is then counted against the budget, so the result
+    never exceeds ``max_len`` characters (used for the install flow's one-line
+    command-output summaries).
+    """
     if len(text) <= max_len:
         return text
+    if budget_includes_ellipsis:
+        return f"{text[: max_len - 3]}..."
     return text[:max_len] + "..."
 
 

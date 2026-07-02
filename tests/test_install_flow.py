@@ -1326,6 +1326,15 @@ def test_summarize_results_survives_markup_shaped_subprocess_output():
     assert "[/x]" in out
 
 
+def test_truncate_summary_caps_at_summary_max_len():
+    from yutori.cli.commands.install_flow import _SUMMARY_MAX_LEN, _truncate_summary
+
+    result = _truncate_summary("x" * (_SUMMARY_MAX_LEN + 20))
+    assert len(result) == _SUMMARY_MAX_LEN
+    assert result.endswith("...")
+    assert _truncate_summary("short output") == "short output"
+
+
 def test_detect_sdk_install_plan_windows_venv_uses_scripts_python(tmp_path: Path, monkeypatch):
     import os as real_os
 
