@@ -5,9 +5,30 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from yutori import __version__
+from yutori.cli.commands import truncate_for_display
 from yutori.cli.main import app
 
 runner = CliRunner()
+
+
+def test_truncate_for_display_default_ellipsis_extends_length():
+    # Default mode (used by browse/research/scouts list output) appends "..."
+    # after the max_len-char prefix, so the result can exceed max_len by 3.
+    result = truncate_for_display("a" * 100, 47)
+    assert result == "a" * 47 + "..."
+    assert len(result) == 50
+
+
+def test_truncate_for_display_budget_includes_ellipsis_is_a_hard_cap():
+    # Install-flow summaries need a hard cap: the ellipsis counts against the budget.
+    result = truncate_for_display("a" * 200, 180, budget_includes_ellipsis=True)
+    assert result == "a" * 177 + "..."
+    assert len(result) == 180
+
+
+def test_truncate_for_display_no_truncation_when_within_max_len():
+    assert truncate_for_display("short", 47) == "short"
+    assert truncate_for_display("short", 47, budget_includes_ellipsis=True) == "short"
 
 
 def _make_client_mock() -> MagicMock:

@@ -40,6 +40,7 @@ from rich.table import Table
 from yutori.auth.credentials import resolve_api_key
 from yutori.auth.flow import get_auth_status, run_login_flow
 from yutori.auth.types import AuthStatus
+from yutori.cli.commands import truncate_for_display
 
 BRAND_MINT = "#1DCD98"
 MINT_HIGHLIGHT = "#5AE8BD"
@@ -849,9 +850,7 @@ def _truncate_summary(text: str) -> str:
     The trailing ellipsis is included in the budget, so the returned string
     never exceeds ``_SUMMARY_MAX_LEN`` characters.
     """
-    if len(text) <= _SUMMARY_MAX_LEN:
-        return text
-    return f"{text[: _SUMMARY_MAX_LEN - 3]}..."
+    return truncate_for_display(text, _SUMMARY_MAX_LEN, budget_includes_ellipsis=True)
 
 
 def _summarize_cli_output(output: str) -> str:
