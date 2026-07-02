@@ -49,6 +49,26 @@ def make_json_response(data: dict, *, status_code: int = 200) -> MagicMock:
     return mock_response
 
 
+def make_status_response(status_code: int, text: str = "") -> MagicMock:
+    """Build a mocked :class:`httpx.Response` with only ``status_code``/``text`` set.
+
+    Used for error-path tests (401/403/400/500, ...) that only need
+    ``handle_response`` to see a non-2xx status and body text, not a JSON payload.
+    """
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = status_code
+    mock_response.text = text
+    return mock_response
+
+
+def make_empty_response(status_code: int = 200) -> MagicMock:
+    """Build a mocked :class:`httpx.Response` with empty ``.content`` (e.g. a 200 DELETE with no body)."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = status_code
+    mock_response.content = b""
+    return mock_response
+
+
 def make_mock_usage_response(period: str = "24h") -> MagicMock:
     """Build a mocked 200 OK :class:`httpx.Response` for ``GET /usage``."""
     data = {**USAGE_RESPONSE, "activity": {**USAGE_RESPONSE["activity"], "period": period}}

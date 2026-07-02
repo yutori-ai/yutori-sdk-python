@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
 
-from ._usage_fixtures import make_json_response, make_mock_usage_response
+from ._usage_fixtures import make_empty_response, make_json_response, make_mock_usage_response, make_status_response
 
 
 class TestYutoriClientInit:
@@ -74,9 +74,7 @@ class TestYutoriClientGetUsage:
             client.close()
 
     def test_get_usage_auth_error(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 401
-        mock_response.text = "Unauthorized"
+        mock_response = make_status_response(401, "Unauthorized")
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-invalid")
@@ -85,9 +83,7 @@ class TestYutoriClientGetUsage:
             client.close()
 
     def test_get_usage_forbidden_auth_error(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 403
-        mock_response.text = "Forbidden"
+        mock_response = make_status_response(403, "Forbidden")
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-invalid")
@@ -177,9 +173,7 @@ class TestScoutsNamespace:
             client.scouts.update("scout-123", status="paused", is_public=False)
 
     def test_scouts_delete(self, client):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b""
+        mock_response = make_empty_response()
 
         with patch.object(httpx.Client, "delete", return_value=mock_response) as mock_delete:
             result = client.scouts.delete("scout-123")
@@ -584,9 +578,7 @@ class TestChatNamespace:
 
 class TestErrorHandling:
     def test_api_error_on_400(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 400
-        mock_response.text = "Bad request"
+        mock_response = make_status_response(400, "Bad request")
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-test")
@@ -596,9 +588,7 @@ class TestErrorHandling:
             client.close()
 
     def test_api_error_on_500(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
-        mock_response.text = "Internal server error"
+        mock_response = make_status_response(500, "Internal server error")
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-test")
