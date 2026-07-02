@@ -26,12 +26,16 @@ app.add_typer(scouts.app, name="scouts")
 app.add_typer(usage.app, name="usage")
 
 
+def _print_version() -> None:
+    from yutori import __version__
+
+    typer.echo(f"yutori {__version__}")
+
+
 def _version_callback(value: bool) -> None:
     """Handle --version and exit early."""
     if value:
-        from yutori import __version__
-
-        typer.echo(f"yutori {__version__}")
+        _print_version()
         raise typer.Exit()
 
 
@@ -51,9 +55,7 @@ def main(
 @app.command()
 def version() -> None:
     """Show the CLI version."""
-    from yutori import __version__
-
-    typer.echo(f"yutori {__version__}")
+    _print_version()
 
 
 app.command("__install_flow", hidden=True)(install_flow_command)
