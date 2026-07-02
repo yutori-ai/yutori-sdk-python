@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AsyncYutoriClient, AuthenticationError
 
-from ._usage_fixtures import make_json_response, make_mock_usage_response
+from ._usage_fixtures import make_empty_response, make_json_response, make_mock_usage_response, make_status_response
 
 
 class TestAsyncYutoriClientInit:
@@ -130,9 +130,7 @@ class TestAsyncScoutsNamespace:
                 await client.scouts.update("scout-123", status="paused", query="new query")
 
     async def test_scouts_delete(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.content = b""
+        mock_response = make_empty_response()
 
         with patch.object(httpx.AsyncClient, "delete", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
@@ -536,9 +534,7 @@ class TestAsyncChatNamespace:
 @pytest.mark.asyncio
 class TestAsyncErrorHandling:
     async def test_auth_error(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 401
-        mock_response.text = "Unauthorized"
+        mock_response = make_status_response(401, "Unauthorized")
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-invalid") as client:
@@ -546,9 +542,7 @@ class TestAsyncErrorHandling:
                     await client.get_usage()
 
     async def test_auth_error_forbidden(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 403
-        mock_response.text = "Forbidden"
+        mock_response = make_status_response(403, "Forbidden")
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-invalid") as client:
@@ -556,9 +550,7 @@ class TestAsyncErrorHandling:
                     await client.get_usage()
 
     async def test_api_error(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
-        mock_response.text = "Server error"
+        mock_response = make_status_response(500, "Server error")
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
