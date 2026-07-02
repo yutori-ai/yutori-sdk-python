@@ -1,21 +1,11 @@
 """Tests for shared HTTP helpers in yutori._http."""
 
-from unittest.mock import MagicMock
-
-import httpx
 import pytest
 
 from yutori._http import apply_chat_extra_body, handle_response, resolve_scout_status_endpoint
 from yutori.exceptions import APIError, AuthenticationError
 
-
-def make_response(status_code: int, text: str = "", content: bytes = b"") -> MagicMock:
-    response = MagicMock(spec=httpx.Response)
-    response.status_code = status_code
-    response.text = text
-    response.content = content
-    response.headers = {}
-    return response
+from ._usage_fixtures import make_status_response as make_response
 
 
 class TestHandleResponse:
@@ -43,8 +33,7 @@ class TestHandleResponse:
             handle_response(response)
 
     def test_redirect_message_names_the_location(self):
-        response = make_response(301)
-        response.headers = {"location": "https://elsewhere.example/login"}
+        response = make_response(301, headers={"location": "https://elsewhere.example/login"})
         with pytest.raises(APIError, match="elsewhere.example"):
             handle_response(response)
 

@@ -49,15 +49,21 @@ def make_json_response(data: dict, *, status_code: int = 200) -> MagicMock:
     return mock_response
 
 
-def make_status_response(status_code: int, text: str = "") -> MagicMock:
-    """Build a mocked :class:`httpx.Response` with only ``status_code``/``text`` set.
+def make_status_response(
+    status_code: int, text: str = "", *, content: bytes = b"", headers: dict | None = None
+) -> MagicMock:
+    """Build a mocked :class:`httpx.Response` with ``status_code``/``text`` set.
 
     Used for error-path tests (401/403/400/500, ...) that only need
     ``handle_response`` to see a non-2xx status and body text, not a JSON payload.
+    ``content``/``headers`` are only needed by callers exercising the redirect
+    (3xx) or 2xx-non-JSON-body paths of ``handle_response``.
     """
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = status_code
     mock_response.text = text
+    mock_response.content = content
+    mock_response.headers = headers if headers is not None else {}
     return mock_response
 
 
