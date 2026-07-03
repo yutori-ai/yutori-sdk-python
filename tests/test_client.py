@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
 
-from ._usage_fixtures import make_empty_response, make_json_response, make_mock_usage_response, make_status_response
+from ._usage_fixtures import make_json_response, make_mock_usage_response, make_status_response
 
 
 class TestYutoriClientInit:
@@ -173,7 +173,7 @@ class TestScoutsNamespace:
             client.scouts.update("scout-123", status="paused", is_public=False)
 
     def test_scouts_delete(self, client):
-        mock_response = make_empty_response()
+        mock_response = make_status_response(200)
 
         with patch.object(httpx.Client, "delete", return_value=mock_response) as mock_delete:
             result = client.scouts.delete("scout-123")
