@@ -1,12 +1,15 @@
-"""Shared usage-endpoint response fixtures for sync/async client tests."""
+"""Shared response fixtures for sync/async client tests."""
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import httpx
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletion
 
 # Mirrors the current server dual-emit: both navigator_* and n1_* keys
 # are present with equal values (n1_* is the deprecated alias).
@@ -77,3 +80,32 @@ def make_mock_usage_response(period: str = "24h") -> MagicMock:
     """Build a mocked 200 OK :class:`httpx.Response` for ``GET /usage``."""
     data = {**USAGE_RESPONSE, "activity": {**USAGE_RESPONSE["activity"], "period": period}}
     return make_json_response(data)
+
+
+def make_mock_chat_completion(
+    *, content: str = "click", model: str = "n1-latest", completion_id: str = "chatcmpl-123"
+) -> ChatCompletion:
+    """Build a minimal :class:`openai.types.chat.ChatCompletion` for mocking chat.completions.create.
+
+    Every Navigator chat-completions test only cares about ``choices[0].message.content``
+    (and sometimes ``model``); the rest of the ChatCompletion fields are fixed
+    boilerplate required by the pydantic model. Centralizing them here keeps the
+    sync/async client test suites from re-declaring the same
+    ChatCompletion/Choice/ChatCompletionMessage construction in every test.
+    """
+    from openai.types.chat import ChatCompletion, ChatCompletionMessage
+    from openai.types.chat.chat_completion import Choice
+
+    return ChatCompletion(
+        id=completion_id,
+        choices=[
+            Choice(
+                finish_reason="stop",
+                index=0,
+                message=ChatCompletionMessage(role="assistant", content=content),
+            )
+        ],
+        created=1234567890,
+        model=model,
+        object="chat.completion",
+    )

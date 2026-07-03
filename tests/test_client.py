@@ -7,7 +7,12 @@ import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
 
-from ._usage_fixtures import make_json_response, make_mock_usage_response, make_status_response
+from ._usage_fixtures import (
+    make_json_response,
+    make_mock_chat_completion,
+    make_mock_usage_response,
+    make_status_response,
+)
 
 
 class TestYutoriClientInit:
@@ -373,22 +378,7 @@ class TestPydanticSchemaIntegration:
 
 class TestChatNamespace:
     def test_chat_completions(self):
-        from openai.types.chat import ChatCompletion, ChatCompletionMessage
-        from openai.types.chat.chat_completion import Choice
-
-        mock_completion = ChatCompletion(
-            id="chatcmpl-123",
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(role="assistant", content="click"),
-                )
-            ],
-            created=1234567890,
-            model="n1-latest",
-            object="chat.completion",
-        )
+        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
         with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
             mock_openai_client = MagicMock()
@@ -407,9 +397,6 @@ class TestChatNamespace:
             client.close()
 
     def test_chat_completions_n1_5_forwards_extra_body_options(self):
-        from openai.types.chat import ChatCompletion, ChatCompletionMessage
-        from openai.types.chat.chat_completion import Choice
-
         from yutori.navigator import TOOL_SET_CORE
 
         json_schema = {
@@ -418,19 +405,7 @@ class TestChatNamespace:
             "required": ["status"],
             "additionalProperties": False,
         }
-        mock_completion = ChatCompletion(
-            id="chatcmpl-123",
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(role="assistant", content='{"status":"ok"}'),
-                )
-            ],
-            created=1234567890,
-            model="n1.5-latest",
-            object="chat.completion",
-        )
+        mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
 
         with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
             mock_openai_client = MagicMock()
@@ -460,25 +435,10 @@ class TestChatNamespace:
     def test_n1_helper_create_trimmed_public_helper_uses_trimmed_copy(self):
         from copy import deepcopy
 
-        from openai.types.chat import ChatCompletion, ChatCompletionMessage
-        from openai.types.chat.chat_completion import Choice
-
         from yutori.navigator import create_trimmed
         from yutori.navigator.payload import trimmed_messages_to_fit
 
-        mock_completion = ChatCompletion(
-            id="chatcmpl-123",
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(role="assistant", content="click"),
-                )
-            ],
-            created=1234567890,
-            model="n1-latest",
-            object="chat.completion",
-        )
+        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
         original_messages = [
             {
                 "role": "user",
@@ -521,24 +481,9 @@ class TestChatNamespace:
     def test_n1_payload_helper_supports_standard_create_pattern(self):
         from copy import deepcopy
 
-        from openai.types.chat import ChatCompletion, ChatCompletionMessage
-        from openai.types.chat.chat_completion import Choice
-
         from yutori.navigator import trimmed_messages_to_fit
 
-        mock_completion = ChatCompletion(
-            id="chatcmpl-123",
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(role="assistant", content="click"),
-                )
-            ],
-            created=1234567890,
-            model="n1-latest",
-            object="chat.completion",
-        )
+        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
         original_messages = [
             {
                 "role": "user",
