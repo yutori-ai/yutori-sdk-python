@@ -42,6 +42,8 @@ from yutori.auth.flow import (
 )
 from yutori.auth.types import AuthStatus, LoginResult
 
+from ._usage_fixtures import make_json_response, make_status_response
+
 # ---------------------------------------------------------------------------
 # PKCE
 # ---------------------------------------------------------------------------
@@ -349,9 +351,7 @@ class TestCallbackHandler:
 
 class TestTokenExchange:
     def test_exchange_code_for_token_success(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {"access_token": "jwt_token_123"}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = make_json_response({"access_token": "jwt_token_123"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             token = exchange_code_for_token("auth_code", "verifier")
@@ -362,7 +362,7 @@ class TestTokenExchange:
             assert call_kwargs[1]["data"]["code_verifier"] == "verifier"
 
     def test_exchange_code_raises_on_error(self):
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_response = make_status_response(401)
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
             "401", request=MagicMock(), response=MagicMock(status_code=401)
         )
@@ -374,9 +374,7 @@ class TestTokenExchange:
 
 class TestGenerateApiKey:
     def test_generate_api_key_success(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {"key": "yt-generated-key"}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = make_json_response({"key": "yt-generated-key"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             key = generate_api_key("jwt_token", key_name="2026-02-09-yutori-cli")
@@ -386,9 +384,7 @@ class TestGenerateApiKey:
             assert call_kwargs[1]["json"] == {"name": "2026-02-09-yutori-cli"}
 
     def test_generate_api_key_uses_build_auth_api_url(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {"key": "yt-key"}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = make_json_response({"key": "yt-key"})
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             generate_api_key("jwt")
@@ -399,9 +395,7 @@ class TestGenerateApiKey:
 
 class TestRegistrationHelpers:
     def test_check_registration_status_true(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"is_registered": True}
+        mock_response = make_json_response({"is_registered": True})
 
         with patch.object(httpx.Client, "get", return_value=mock_response) as mock_get:
             assert check_registration_status("jwt_token") is True
@@ -416,25 +410,19 @@ class TestRegistrationHelpers:
         # returning `[]` or `"ok"`) must return None, not propagate
         # AttributeError through run_login_flow and fail the whole login.
         for bad_body in ([], "ok", 42, None):
-            mock_response = MagicMock(spec=httpx.Response)
-            mock_response.status_code = 200
-            mock_response.json.return_value = bad_body
+            mock_response = make_json_response(bad_body)
             with patch.object(httpx.Client, "get", return_value=mock_response):
                 assert check_registration_status("jwt_token") is None, (
                     f"non-dict body {bad_body!r} should return None, not raise"
                 )
 
     def test_check_registration_status_returns_none_when_key_missing(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"some_other_field": True}
+        mock_response = make_json_response({"some_other_field": True})
         with patch.object(httpx.Client, "get", return_value=mock_response):
             assert check_registration_status("jwt_token") is None
 
     def test_register_user_posts_cli_source(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.raise_for_status = MagicMock()
+        mock_response = make_status_response(200)
 
         with patch.object(httpx.Client, "post", return_value=mock_response) as mock_post:
             register_user("jwt_token")
@@ -444,8 +432,7 @@ class TestRegistrationHelpers:
             assert "Bearer jwt_token" in call_kwargs[1]["headers"]["Authorization"]
 
     def test_register_user_raises_httpstatuserror_on_bad_status(self):
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
+        mock_response = make_status_response(500)
         mock_response.raise_for_status = MagicMock(
             side_effect=httpx.HTTPStatusError("500", request=MagicMock(), response=mock_response)
         )

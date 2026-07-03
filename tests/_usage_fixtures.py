@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
@@ -40,8 +41,13 @@ USAGE_RESPONSE = {
 }
 
 
-def make_json_response(data: dict, *, status_code: int = 200) -> MagicMock:
-    """Build a mocked :class:`httpx.Response` whose ``.content`` and ``.json()`` both reflect `data`."""
+def make_json_response(data: Any, *, status_code: int = 200) -> MagicMock:
+    """Build a mocked :class:`httpx.Response` whose ``.content`` and ``.json()`` both reflect `data`.
+
+    ``data`` is usually a dict, but any JSON-serializable value works — some
+    callers use this to simulate a 2xx response with a non-dict body (e.g. a
+    backend bug returning a bare list or string).
+    """
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = status_code
     mock_response.content = json.dumps(data).encode()
