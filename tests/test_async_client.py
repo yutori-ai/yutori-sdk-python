@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AsyncYutoriClient, AuthenticationError
 
-from ._usage_fixtures import make_empty_response, make_json_response, make_mock_usage_response, make_status_response
+from ._usage_fixtures import make_json_response, make_mock_usage_response, make_status_response
 
 
 class TestAsyncYutoriClientInit:
@@ -130,7 +130,7 @@ class TestAsyncScoutsNamespace:
                 await client.scouts.update("scout-123", status="paused", query="new query")
 
     async def test_scouts_delete(self):
-        mock_response = make_empty_response()
+        mock_response = make_status_response(200)
 
         with patch.object(httpx.AsyncClient, "delete", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-test") as client:
