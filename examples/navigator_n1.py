@@ -189,24 +189,6 @@ class Agent(BrowserAgentMixin):
 
         return final_response
 
-    def _format_message_for_log(self, message: dict) -> dict:
-        result = {}
-        for key, value in message.items():
-            if key == "content" and isinstance(value, list):
-                clipped_content = []
-                for item in value:
-                    if isinstance(item, dict) and item.get("type") == "image_url":
-                        clipped_item = dict(item)
-                        if "image_url" in clipped_item and "url" in clipped_item["image_url"]:
-                            clipped_item["image_url"] = {"url": self._clip_image_url(clipped_item["image_url"]["url"])}
-                        clipped_content.append(clipped_item)
-                    else:
-                        clipped_content.append(item)
-                result[key] = clipped_content
-            else:
-                result[key] = value
-        return result
-
     @retry(
         retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
         stop=stop_after_attempt(3),
