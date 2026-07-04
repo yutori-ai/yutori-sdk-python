@@ -131,6 +131,24 @@ class TestBuildKeyName:
         assert key_name == "2026-02-09-yutori-mcp"
 
 
+def _redirect_config_path(tmp_path, monkeypatch, *, patch_flow: bool = False, clear_env: bool = False):
+    """Redirect ``get_config_path()`` to a temp path and return it.
+
+    Always patches ``yutori.auth.credentials.get_config_path``. Pass
+    ``patch_flow=True`` to also patch the separate import in ``flow.py``, and
+    ``clear_env=True`` to delete ``YUTORI_API_KEY`` so it can't leak into the
+    test from the surrounding environment.
+    """
+    config_path = tmp_path / ".yutori" / "config.json"
+    monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
+    if patch_flow:
+        # Also patch the import in flow.py which imports _get_config_path
+        monkeypatch.setattr("yutori.auth.flow.get_config_path", lambda: config_path)
+    if clear_env:
+        monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+    return config_path
+
+
 # ---------------------------------------------------------------------------
 # Credentials: save / load / clear / resolve
 # ---------------------------------------------------------------------------
@@ -140,12 +158,8 @@ class TestCredentials:
     @pytest.fixture(autouse=True)
     def _use_tmp_config(self, tmp_path, monkeypatch):
         """Redirect config path to a temp directory for all credential tests."""
-        config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
-        # Also patch the import in flow.py which imports _get_config_path
-        monkeypatch.setattr("yutori.auth.flow.get_config_path", lambda: config_path)
-        self.config_path = config_path
-        self.config_dir = config_path.parent
+        self.config_path = _redirect_config_path(tmp_path, monkeypatch, patch_flow=True)
+        self.config_dir = self.config_path.parent
 
     def test_save_and_load_round_trip(self):
         save_config("yt-test-key-12345")
@@ -206,10 +220,7 @@ class TestCredentials:
 class TestResolveApiKey:
     @pytest.fixture(autouse=True)
     def _use_tmp_config(self, tmp_path, monkeypatch):
-        config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
-        self.config_path = config_path
-        monkeypatch.delenv("YUTORI_API_KEY", raising=False)
+        self.config_path = _redirect_config_path(tmp_path, monkeypatch, clear_env=True)
 
     def test_explicit_param_wins(self, monkeypatch):
         monkeypatch.setenv("YUTORI_API_KEY", "yt-env")
@@ -728,11 +739,7 @@ class TestRunLoginFlow:
 class TestGetAuthStatus:
     @pytest.fixture(autouse=True)
     def _use_tmp_config(self, tmp_path, monkeypatch):
-        config_path = tmp_path / ".yutori" / "config.json"
-        monkeypatch.setattr("yutori.auth.credentials.get_config_path", lambda: config_path)
-        monkeypatch.setattr("yutori.auth.flow.get_config_path", lambda: config_path)
-        monkeypatch.delenv("YUTORI_API_KEY", raising=False)
-        self.config_path = config_path
+        self.config_path = _redirect_config_path(tmp_path, monkeypatch, patch_flow=True, clear_env=True)
 
     def test_authenticated_from_config_file(self):
         save_config("yt-test-key-12345")
