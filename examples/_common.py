@@ -104,11 +104,16 @@ class BrowserAgentMixin:
     Every ``examples/navigator_*.py`` script defines its own ``Agent`` class
     because the action-execution logic differs meaningfully per Navigator
     version (that divergence is the point of having separate examples).
-    These six methods, however, are identical boilerplate across all of
+    These methods, however, are identical boilerplate across all of
     them -- launching/closing the browser, taking a screenshot, waiting for
-    page readiness, clipping image URLs for log output, and persisting
-    optional replay artifacts -- so they live here once instead of being
-    copy-pasted into every script.
+    page readiness, clipping image URLs for log output, formatting messages
+    for log output, and persisting optional replay artifacts -- so they live
+    here once instead of being copy-pasted into every script.
+
+    ``navigator_n1_5.py`` defines its own ``_format_message_for_log`` (a
+    differently-styled but behaviorally-equivalent implementation) and so
+    overrides this mixin's version via normal MRO -- it is intentionally not
+    part of this mechanical extraction.
     """
 
     async def _init_browser(self: SupportsBrowserAgentState, playwright) -> None:
@@ -141,6 +146,24 @@ class BrowserAgentMixin:
             if prefix_end > 0 and len(url) > prefix_end + max_len:
                 return url[: prefix_end + 20] + "...[clipped]"
         return url if len(url) <= max_len else url[:max_len] + "..."
+
+    def _format_message_for_log(self, message: dict) -> dict:
+        result = {}
+        for key, value in message.items():
+            if key == "content" and isinstance(value, list):
+                clipped_content = []
+                for item in value:
+                    if isinstance(item, dict) and item.get("type") == "image_url":
+                        clipped_item = dict(item)
+                        if "image_url" in clipped_item and "url" in clipped_item["image_url"]:
+                            clipped_item["image_url"] = {"url": self._clip_image_url(clipped_item["image_url"]["url"])}
+                        clipped_content.append(clipped_item)
+                    else:
+                        clipped_content.append(item)
+                result[key] = clipped_content
+            else:
+                result[key] = value
+        return result
 
     async def _persist_replay(self: SupportsBrowserAgentState) -> None:
         # Replay persistence is best-effort and not part of the agent loop itself.
