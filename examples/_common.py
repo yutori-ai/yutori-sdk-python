@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
+from typing import Any, Protocol
 
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+
+from yutori.navigator import aplaywright_screenshot_to_data_url
+from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.replay import TrajectoryRecorder
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -72,3 +78,77 @@ def add_replay_arguments(parser: argparse.ArgumentParser, default_config) -> Non
         help="Optional directory for replay artifacts",
     )
     parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+
+
+class SupportsBrowserAgentState(Protocol):
+    """Instance attributes :class:`BrowserAgentMixin` methods expect from ``self``.
+
+    Each example ``Agent.__init__`` sets these before the browser lifecycle
+    or replay-persistence methods below are called.
+    """
+
+    headless: bool
+    viewport_width: int
+    viewport_height: int
+    _browser: Any
+    _page: Any
+    _page_ready_checker: PageReadyChecker
+    _replay: TrajectoryRecorder | None
+    _messages: list
+    _step_payloads: list[dict]
+
+
+class BrowserAgentMixin:
+    """Playwright lifecycle, screenshot, and replay-persistence helpers shared by the example agents.
+
+    Every ``examples/navigator_*.py`` script defines its own ``Agent`` class
+    because the action-execution logic differs meaningfully per Navigator
+    version (that divergence is the point of having separate examples).
+    These six methods, however, are identical boilerplate across all of
+    them -- launching/closing the browser, taking a screenshot, waiting for
+    page readiness, clipping image URLs for log output, and persisting
+    optional replay artifacts -- so they live here once instead of being
+    copy-pasted into every script.
+    """
+
+    async def _init_browser(self: SupportsBrowserAgentState, playwright) -> None:
+        self._browser = await playwright.chromium.launch(headless=self.headless)
+        context = await self._browser.new_context(
+            viewport={"width": self.viewport_width, "height": self.viewport_height}
+        )
+        self._page = await context.new_page()
+        await asyncio.sleep(1)
+
+    async def _close_browser(self: SupportsBrowserAgentState) -> None:
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+
+    async def _take_screenshot(self: SupportsBrowserAgentState) -> str:
+        await self._wait_for_page_ready(fast_mode=True)
+        return await aplaywright_screenshot_to_data_url(
+            self._page,
+            resize_to=(self.viewport_width, self.viewport_height),
+        )
+
+    async def _wait_for_page_ready(self: SupportsBrowserAgentState, fast_mode: bool = False) -> None:
+        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
+            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
+
+    def _clip_image_url(self, url: str, max_len: int = 50) -> str:
+        if url.startswith("data:image"):
+            prefix_end = url.find(",") + 1
+            if prefix_end > 0 and len(url) > prefix_end + max_len:
+                return url[: prefix_end + 20] + "...[clipped]"
+        return url if len(url) <= max_len else url[:max_len] + "..."
+
+    async def _persist_replay(self: SupportsBrowserAgentState) -> None:
+        # Replay persistence is best-effort and not part of the agent loop itself.
+        if self._replay is None:
+            return
+        try:
+            await self._replay.save_messages(self._messages)
+            await self._replay.save_step_payloads(self._step_payloads)
+            await self._replay.save_html(self._messages, step_payloads=self._step_payloads)
+        except Exception:
+            logger.opt(exception=True).warning("Failed to write replay artifacts")

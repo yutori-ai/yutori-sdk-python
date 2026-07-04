@@ -30,6 +30,7 @@ from functools import cached_property
 
 from _common import (
     RETRYABLE_EXCEPTIONS,
+    BrowserAgentMixin,
     add_agent_arguments,
     add_browser_arguments,
     add_model_arguments,
@@ -46,7 +47,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
-from yutori.navigator import NAVIGATOR_N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.navigator import NAVIGATOR_N1_MODEL, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
@@ -137,7 +138,7 @@ class ExtractContentAndLinksTool:
         return result
 
 
-class Agent:
+class Agent(BrowserAgentMixin):
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
@@ -248,37 +249,6 @@ class Agent:
                 await self._close_browser()
 
         return final_response
-
-    async def _init_browser(self, playwright) -> None:
-        self._browser = await playwright.chromium.launch(headless=self.headless)
-        context = await self._browser.new_context(
-            viewport={"width": self.viewport_width, "height": self.viewport_height}
-        )
-        self._page = await context.new_page()
-        await asyncio.sleep(1)
-
-    async def _close_browser(self) -> None:
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-
-    async def _take_screenshot(self) -> str:
-        await self._wait_for_page_ready(fast_mode=True)
-        return await aplaywright_screenshot_to_data_url(
-            self._page,
-            resize_to=(self.viewport_width, self.viewport_height),
-        )
-
-    async def _wait_for_page_ready(self, fast_mode: bool = False) -> None:
-        if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
-            logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
-
-    def _clip_image_url(self, url: str, max_len: int = 50) -> str:
-        if url.startswith("data:image"):
-            prefix_end = url.find(",") + 1
-            if prefix_end > 0 and len(url) > prefix_end + max_len:
-                return url[: prefix_end + 20] + "...[clipped]"
-        return url if len(url) <= max_len else url[:max_len] + "..."
 
     def _format_message_for_log(self, message: dict) -> dict:
         result = {}
@@ -480,17 +450,6 @@ class Agent:
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
             return f"[ERROR] Error executing {action_name}: {e}"
-
-    async def _persist_replay(self) -> None:
-        # Replay persistence is best-effort and not part of the agent loop itself.
-        if self._replay is None:
-            return
-        try:
-            await self._replay.save_messages(self._messages)
-            await self._replay.save_step_payloads(self._step_payloads)
-            await self._replay.save_html(self._messages, step_payloads=self._step_payloads)
-        except Exception:
-            logger.opt(exception=True).warning("Failed to write replay artifacts")
 
 
 async def main():
