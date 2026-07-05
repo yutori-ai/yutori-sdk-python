@@ -633,7 +633,7 @@ def _format_action_details(action: dict[str, Any]) -> str:
             details.append(f"{key}={_format_value(action[key])}")
             seen.add(key)
 
-    for key in sorted(action.keys()):
+    for key in sorted(action):
         if key in seen:
             continue
         details.append(f"{key}={_format_value(action[key])}")
