@@ -27,7 +27,6 @@ import json
 import sys
 
 from _common import (
-    RETRYABLE_EXCEPTIONS,
     BrowserAgentMixin,
     add_agent_arguments,
     add_browser_arguments,
@@ -36,13 +35,13 @@ from _common import (
     add_replay_arguments,
     add_task_arguments,
     configure_example_logging,
+    llm_retry,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from playwright.async_api import Browser, Page, async_playwright
 from pydantic import BaseModel, Field
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
@@ -189,12 +188,7 @@ class Agent(BrowserAgentMixin):
 
         return final_response
 
-    @retry(
-        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
+    @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
         self._request_messages, size_bytes, removed = update_trimmed_history(
             self._messages,
