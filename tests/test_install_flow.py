@@ -53,6 +53,11 @@ def _completed_process(
     return subprocess.CompletedProcess(args=list(args), returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+def _which_python_only(command: str, path: str | None = None) -> str | None:
+    """`shutil.which` stub that only resolves `python` (used by active-virtualenv detection tests)."""
+    return "/usr/bin/python" if command == "python" else None
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_mcp_installs():
     """Safety net: tests in this file must never run real `npx` installs.
@@ -158,10 +163,7 @@ def test_detect_sdk_install_plan_uses_active_virtualenv(tmp_path: Path, monkeypa
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / ".venv"))
 
-    def fake_which(command: str, path: str | None = None) -> str | None:
-        return "/usr/bin/python" if command == "python" else None
-
-    with patch("yutori.cli.commands.install_flow.shutil.which", side_effect=fake_which):
+    with patch("yutori.cli.commands.install_flow.shutil.which", side_effect=_which_python_only):
         plan = detect_sdk_install_plan()
 
     assert plan.command == ("/usr/bin/python", "-m", "pip", "install", "yutori")
@@ -203,11 +205,8 @@ def test_detect_sdk_install_plan_flags_missing_pip(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / ".venv"))
 
-    def fake_which(command: str, path: str | None = None) -> str | None:
-        return "/usr/bin/python" if command == "python" else None
-
     with (
-        patch("yutori.cli.commands.install_flow.shutil.which", side_effect=fake_which),
+        patch("yutori.cli.commands.install_flow.shutil.which", side_effect=_which_python_only),
         patch("yutori.cli.commands.install_flow.python_has_pip", return_value=False),
     ):
         plan = detect_sdk_install_plan()
@@ -1101,6 +1100,16 @@ def _ok_completed_process(args: tuple[str, ...]) -> subprocess.CompletedProcess[
     return _completed_process(args=args)
 
 
+def _capturing_run_command(captured: dict[str, tuple[str, ...]]):
+    """`run_command` stub that records the argv it was called with into `captured["argv"]`."""
+
+    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
+        captured["argv"] = tuple(command)
+        return _ok_completed_process(tuple(command))
+
+    return fake_run_command
+
+
 def test_run_command_catches_keyboardinterrupt_and_returns_cancelled():
     # Mirror parity with run_interactive_command. Without this, Ctrl+C
     # during a long no-TTY npx run aborts the installer before the
@@ -1138,13 +1147,9 @@ def test_run_command_catches_generic_oserror_not_just_filenotfound():
 def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
     captured: dict[str, tuple[str, ...]] = {}
 
-    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
-        captured["argv"] = tuple(command)
-        return _ok_completed_process(tuple(command))
-
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=_capturing_run_command(captured)),
         patch("yutori.cli.commands.install_flow.run_interactive_command") as fake_interactive,
     ):
         result = maybe_install_mcp_skills(Console(), interactive=False)
@@ -1163,13 +1168,9 @@ def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(
     monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     captured: dict[str, tuple[str, ...]] = {}
 
-    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
-        captured["argv"] = tuple(command)
-        return _ok_completed_process(tuple(command))
-
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=_capturing_run_command(captured)),
     ):
         result = maybe_install_mcp_server(Console(), interactive=False)
 
@@ -1205,13 +1206,9 @@ def test_maybe_install_mcp_server_noninteractive_scopes_to_yutori_install_client
     monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
     captured: dict[str, tuple[str, ...]] = {}
 
-    def fake_run_command(command, *, env=None, timeout=None, **_kwargs):
-        captured["argv"] = tuple(command)
-        return _ok_completed_process(tuple(command))
-
     with (
         patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/opt/npx"),
-        patch("yutori.cli.commands.install_flow.run_command", side_effect=fake_run_command),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=_capturing_run_command(captured)),
     ):
         result = maybe_install_mcp_server(Console(), interactive=False)
 
