@@ -296,20 +296,18 @@ def run_interactive_command(
             check=False,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired as exc:
-        returncode = _synthetic_returncode_for_exception(exc)
-        return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
-    except KeyboardInterrupt as exc:
-        # Ctrl+C is forwarded to the child via the shared TTY; once it exits,
-        # the parent's default SIGINT handler raises here. Convert to a
-        # synthetic returncode so callers can render a "Cancelled" row
-        # instead of crashing the installer mid-summary.
-        returncode = _synthetic_returncode_for_exception(exc)
-        return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
-    except OSError as exc:
-        # Catches FileNotFoundError, PermissionError, and rarer fork/exec
-        # failures (ENOEXEC, EMFILE, ENOMEM). All map to "could not execute"
-        # from the user's perspective.
+    except (subprocess.TimeoutExpired, KeyboardInterrupt, OSError) as exc:
+        # All three failure modes map to the same synthetic-CompletedProcess
+        # shape, so one shared except body keeps them from drifting apart:
+        #   - TimeoutExpired: the child ran past `timeout`.
+        #   - KeyboardInterrupt: Ctrl+C is forwarded to the child via the
+        #     shared TTY; once it exits, the parent's default SIGINT handler
+        #     raises here.
+        #   - OSError: covers FileNotFoundError, PermissionError, and rarer
+        #     fork/exec failures (ENOEXEC, EMFILE, ENOMEM) — all "could not
+        #     execute" from the user's perspective.
+        # Converting each to a synthetic returncode lets callers render a
+        # status row instead of crashing the installer mid-summary.
         returncode = _synthetic_returncode_for_exception(exc)
         return subprocess.CompletedProcess(argv, returncode=returncode, stdout=None, stderr=None)
 
