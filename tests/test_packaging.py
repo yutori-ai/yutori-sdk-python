@@ -152,7 +152,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     for required in (
         "tests/conftest.py",
         "tests/__init__.py",
-        "tests/_usage_fixtures.py",
+        "tests/_client_fixtures.py",
         "yutori/py.typed",
     ):
         assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"

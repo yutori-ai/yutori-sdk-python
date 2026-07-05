@@ -477,7 +477,7 @@ def test_scouts_list_network_error_prints_message_not_traceback():
 
 
 def test_usage_renders_stats_from_api_response():
-    from ._usage_fixtures import USAGE_RESPONSE
+    from ._client_fixtures import USAGE_RESPONSE
 
     client = _make_client_mock()
     client.get_usage.return_value = USAGE_RESPONSE
