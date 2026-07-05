@@ -7,7 +7,7 @@ import pytest
 
 from yutori import APIError, AsyncYutoriClient, AuthenticationError
 
-from ._usage_fixtures import (
+from ._client_fixtures import (
     make_json_response,
     make_mock_chat_completion,
     make_mock_usage_response,

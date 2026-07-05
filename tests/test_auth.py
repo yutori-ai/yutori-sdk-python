@@ -42,7 +42,7 @@ from yutori.auth.flow import (
 )
 from yutori.auth.types import AuthStatus, LoginResult
 
-from ._usage_fixtures import make_json_response, make_status_response
+from ._client_fixtures import make_json_response, make_status_response
 
 # ---------------------------------------------------------------------------
 # PKCE

@@ -5,7 +5,7 @@ import pytest
 from yutori._http import apply_chat_extra_body, handle_response, resolve_scout_status_endpoint
 from yutori.exceptions import APIError, AuthenticationError
 
-from ._usage_fixtures import make_status_response as make_response
+from ._client_fixtures import make_status_response as make_response
 
 
 class TestHandleResponse:
