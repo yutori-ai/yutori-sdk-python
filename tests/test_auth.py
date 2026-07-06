@@ -7,6 +7,7 @@ import errno
 import hashlib
 import io
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -458,6 +459,38 @@ class TestRegistrationHelpers:
 # ---------------------------------------------------------------------------
 
 
+@contextmanager
+def _successful_oauth_callback():
+    """Patch the local callback server/thread so run_login_flow observes a browser
+    callback that delivers a matching auth code and state, without starting a
+    real server or thread."""
+
+    def fake_server_init(self, addr, handler):
+        pass
+
+    with (
+        patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
+        patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
+        patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
+        patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+        patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
+    ):
+        mock_thread = MagicMock()
+        mock_thread_cls.return_value = mock_thread
+
+        original_result = _CallbackResult()
+        with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
+            with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
+
+                def side_effect(*args, **kwargs):
+                    original_result.code = "auth_code"
+                    original_result.state = "fixed_state"
+                    original_result.received.set()
+
+                mock_thread.start.side_effect = side_effect
+                yield mock_thread
+
+
 class TestRunLoginFlow:
     @patch("yutori.auth.flow.webbrowser.open")
     @patch("yutori.auth.flow.generate_api_key", return_value="yt-new-key")
@@ -467,52 +500,19 @@ class TestRunLoginFlow:
     @patch("yutori.auth.flow.save_config")
     def test_successful_flow(self, mock_save, mock_exchange, mock_status, mock_register, mock_gen_key, mock_browser):
         """Mock the callback result to simulate a successful flow."""
-
-        def fake_server_init(self, addr, handler):
-            pass
-
-        def fake_serve_forever(self):
-            # Simulate the callback happening
-            _CallbackHandler.callback_result.code = "auth_code"
-            _CallbackHandler.callback_result.state = None  # Will be set by run_login_flow
-            _CallbackHandler.callback_result.received.set()
-
-        # We need a more targeted approach: patch the server and thread
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever", fake_serve_forever),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-
-            # Patch the _CallbackResult so we can control the state
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                # We need to make the state match — intercept secrets.token_urlsafe
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-                    # Simulate callback setting the right state before received.wait returns
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
-                    assert result.success is True
-                    assert result.api_key == "yt-new-key"
-                    assert result.auth_url is not None
-                    mock_save.assert_called_once_with("yt-new-key")
-                    mock_register.assert_called_once_with("jwt123")
-                    mock_gen_key.assert_called_once()
-                    assert mock_gen_key.call_args.args[0] == "jwt123"
-                    key_name = mock_gen_key.call_args.kwargs["key_name"]
-                    assert key_name.endswith("-yutori-cli")
-                    date_part = key_name[:10]
-                    datetime.strptime(date_part, "%Y-%m-%d")
+        with _successful_oauth_callback():
+            result = run_login_flow()
+            assert result.success is True
+            assert result.api_key == "yt-new-key"
+            assert result.auth_url is not None
+            mock_save.assert_called_once_with("yt-new-key")
+            mock_register.assert_called_once_with("jwt123")
+            mock_gen_key.assert_called_once()
+            assert mock_gen_key.call_args.args[0] == "jwt123"
+            key_name = mock_gen_key.call_args.kwargs["key_name"]
+            assert key_name.endswith("-yutori-cli")
+            date_part = key_name[:10]
+            datetime.strptime(date_part, "%Y-%m-%d")
 
     @patch("yutori.auth.flow.webbrowser.open")
     @patch("yutori.auth.flow.generate_api_key", return_value="yt-new-key")
@@ -525,30 +525,8 @@ class TestRunLoginFlow:
     ):
         # The key exists server-side by the time save_config runs; the error
         # must say so instead of surfacing a bare OSError.
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
+        with _successful_oauth_callback():
+            result = run_login_flow()
 
         assert result.success is False
         assert result.api_key == "yt-new-key"
@@ -572,30 +550,8 @@ class TestRunLoginFlow:
         mock_gen_key,
         mock_browser,
     ):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow(on_registration_state=lambda _: (_ for _ in ()).throw(RuntimeError("boom")))
+        with _successful_oauth_callback():
+            result = run_login_flow(on_registration_state=lambda _: (_ for _ in ()).throw(RuntimeError("boom")))
 
         assert result.success is True
         mock_warning.assert_called_once()
@@ -622,30 +578,8 @@ class TestRunLoginFlow:
         mock_gen_key,
         mock_browser,
     ):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
-
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "fixed_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
+        with _successful_oauth_callback():
+            result = run_login_flow()
 
         assert result.success is False
         # register_user raises httpx.HTTPStatusError per its docstring; the
