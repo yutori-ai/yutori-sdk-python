@@ -21,6 +21,14 @@ def _image_message(role: str, *, url: str = "data:image/png;base64,abc", text: s
     return {"role": role, "content": content}
 
 
+def _tool_call(name: str, arguments: str, *, call_id: str = "call_1") -> dict:
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+
+
+def _tool_call_message(*calls: dict, content: object = None) -> dict:
+    return {"role": "assistant", "content": content, "tool_calls": list(calls)}
+
+
 class FakeResult:
     score = 1.0
 
@@ -90,17 +98,10 @@ def test_sanitize_step_payload_clips_images_before_storage() -> None:
 def test_generate_visualization_html_includes_steps_and_result() -> None:
     messages = [
         _image_message("user", text="Open the page"),
-        {
-            "role": "assistant",
-            "content": [{"type": "text", "text": "Click the main CTA"}],
-            "tool_calls": [
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "left_click", "arguments": '{"coordinates":[250,500]}'},
-                }
-            ],
-        },
+        _tool_call_message(
+            _tool_call("left_click", '{"coordinates":[250,500]}'),
+            content=[{"type": "text", "text": "Click the main CTA"}],
+        ),
         _image_message("tool", text="Clicked button"),
         {"role": "assistant", "content": "The CTA is now open."},
     ]
@@ -121,17 +122,7 @@ def test_generate_visualization_html_renders_raw_request_and_response_json() -> 
     large_url = "data:image/png;base64," + ("A" * 400)
     messages = [
         _image_message("user", url=large_url, text="Inspect page"),
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "left_click", "arguments": '{"coordinates":[100,200]}'},
-                }
-            ],
-        },
+        _tool_call_message(_tool_call("left_click", '{"coordinates":[100,200]}')),
     ]
     step_payloads = [
         {
@@ -160,17 +151,7 @@ async def test_trajectory_recorder_writes_artifacts(tmp_path) -> None:
     recorder = TrajectoryRecorder(tmp_path, "run-123")
     messages = [
         _image_message("user", text="Inspect page"),
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "left_click", "arguments": '{"coordinates":[100,200]}'},
-                }
-            ],
-        },
+        _tool_call_message(_tool_call("left_click", '{"coordinates":[100,200]}')),
     ]
     large_url = "data:image/png;base64," + ("A" * 400)
     step_payloads = [
@@ -204,14 +185,10 @@ def test_generate_visualization_html_survives_non_object_tool_arguments() -> Non
     # Valid JSON that isn't an object must not crash the render.
     messages = [
         _image_message("user", text="Open the page"),
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {"id": "call_1", "type": "function", "function": {"name": "left_click", "arguments": "[1, 2]"}},
-                {"id": "call_2", "type": "function", "function": {"name": "type_text", "arguments": '"hello"'}},
-            ],
-        },
+        _tool_call_message(
+            _tool_call("left_click", "[1, 2]"),
+            _tool_call("type_text", '"hello"', call_id="call_2"),
+        ),
     ]
 
     html = generate_visualization_html("demo-task", messages)
@@ -239,13 +216,7 @@ def test_text_only_user_message_keeps_pending_tool_screenshot() -> None:
     # next step must not blank out the screenshot in the replay.
     messages = [
         _image_message("user", text="Open the page"),
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {"id": "call_1", "type": "function", "function": {"name": "left_click", "arguments": "{}"}},
-            ],
-        },
+        _tool_call_message(_tool_call("left_click", "{}")),
         _image_message("tool", url="data:image/png;base64,toolshot", text="Clicked"),
         {"role": "user", "content": "Looks good, continue with checkout"},
         {"role": "assistant", "content": "Proceeding."},
