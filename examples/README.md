@@ -19,7 +19,7 @@ The examples rely on the SDK's normal credential resolution. They do not expose 
 
 ## navigator_n1.py
 
-A complete browsing agent using the Navigator API with the Navigator n1 model. Launches a local Playwright browser, captures screenshots through `yutori.navigator.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.navigator.denormalize_coordinates(...)`, sends them to Navigator n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `estimate_messages_size_bytes(...)` plus `trimmed_messages_to_fit(...)`, then still ends with a standard `client.chat.completions.create(...)` call.
+A complete browsing agent using the Navigator API with the Navigator n1 model. Launches a local Playwright browser, captures screenshots through `yutori.navigator.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.navigator.denormalize_coordinates(...)`, sends them to Navigator n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `update_trimmed_history(...)` from `yutori.navigator.loop`, then still ends with a standard `client.chat.completions.create(...)` call.
 
 ```bash
 uv run python examples/navigator_n1.py --task "List the team member names" --start-url "https://www.yutori.com"
