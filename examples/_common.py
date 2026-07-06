@@ -14,6 +14,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from yutori.navigator import aplaywright_screenshot_to_data_url
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder
+from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
@@ -149,11 +150,9 @@ class BrowserAgentMixin:
             logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
-        if url.startswith("data:image"):
-            prefix_end = url.find(",") + 1
-            if prefix_end > 0 and len(url) > prefix_end + max_len:
-                return url[: prefix_end + 20] + "...[clipped]"
-        return url if len(url) <= max_len else url[:max_len] + "..."
+        # Delegates to the canonical implementation in yutori.navigator.replay, passing
+        # this call site's tighter length budget and plain (non-"[clipped]") suffix.
+        return _clip_image_url_impl(url, max_len=max_len, prefix_keep=20, plain_suffix="...")
 
     def _format_message_for_log(self, message: dict) -> dict:
         result = {}

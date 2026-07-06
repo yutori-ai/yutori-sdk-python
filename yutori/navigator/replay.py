@@ -690,14 +690,23 @@ def _sanitize_for_replay(value: Any) -> Any:
     return value
 
 
-def _clip_image_url(value: str, *, max_len: int = 96) -> str:
+def _clip_image_url(value: str, *, max_len: int = 96, prefix_keep: int = 24, plain_suffix: str = "...[clipped]") -> str:
+    """Clip a base64 data URL or other long string for display/logging.
+
+    Data URLs are clipped shortly after their comma-delimited prefix so the
+    small, informative prefix survives; other long strings are truncated at
+    ``max_len``. ``prefix_keep`` and ``plain_suffix`` are overridable so
+    callers with different display budgets (e.g. ``examples/_common.py``,
+    which uses a tighter length and a plain "..." for the non-data-URL case)
+    can share this implementation instead of re-deriving it.
+    """
     if value.startswith("data:image"):
         prefix_end = value.find(",") + 1
         if prefix_end > 0 and len(value) > prefix_end + max_len:
-            return value[: prefix_end + 24] + "...[clipped]"
+            return value[: prefix_end + prefix_keep] + "...[clipped]"
     if len(value) <= max_len:
         return value
-    return value[:max_len] + "...[clipped]"
+    return value[:max_len] + plain_suffix
 
 
 def _safe_json_dumps(payload: Any, *, fallback: Any = None) -> str:
