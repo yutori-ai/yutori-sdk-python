@@ -47,6 +47,16 @@ MINT_HIGHLIGHT = "#5AE8BD"
 SLATE_TEXT = "#94A3B8"
 ERROR_RED = "#FF5C5C"
 
+
+def _slate_line(text: str) -> str:
+    """Render `text` in the installer's slate-colored ``| `` step-line style.
+
+    Callers are responsible for escaping any dynamic content in `text` before
+    passing it in (see `print_prompt_block` for why).
+    """
+    return f"[{SLATE_TEXT}]| {text}[/]"
+
+
 # Canonical first-task example, mirroring docs.yutori.com.
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
@@ -394,7 +404,7 @@ def render_header(console: Console, *, interactive: bool) -> None:
     # from pyproject.toml at build time; here we read from installed
     # package metadata. In a `curl | bash` flow the two match.
     console.print(f"[bold {MINT_HIGHLIGHT}]> Yutori installer v{_yutori_version()}[/bold {MINT_HIGHLIGHT}]")
-    console.print(f"[{SLATE_TEXT}]| {mode}[/]")
+    console.print(_slate_line(mode))
 
 
 def print_prompt_block(console: Console, title: str, description: str, *, command: Sequence[str] | None = None) -> None:
@@ -403,9 +413,9 @@ def print_prompt_block(console: Console, title: str, description: str, *, comman
     # (which deletes them or, for "[/x]"-shaped tokens, raises MarkupError).
     console.print(f"\n[{SLATE_TEXT}]|[/]")
     console.print(f"[bold {MINT_HIGHLIGHT}]> {escape(title)}[/bold {MINT_HIGHLIGHT}]")
-    console.print(f"[{SLATE_TEXT}]| {escape(description)}[/]")
+    console.print(_slate_line(escape(description)))
     if command:
-        console.print(f"[{SLATE_TEXT}]| Command: {escape(format_command(command))}[/]")
+        console.print(_slate_line(f"Command: {escape(format_command(command))}"))
 
 
 def ask_confirm(console: Console, question: str, *, default: bool) -> bool:
@@ -607,7 +617,7 @@ def maybe_install_sdk(
     # simpleDots fits the `| `-prefixed aesthetic; the default "dots" spinner
     # renders as a rotating braille block that reads as a "box" on some terminals.
     with console.status(
-        f"[{SLATE_TEXT}]| Running {format_command(plan.command)}[/]",
+        _slate_line(f"Running {format_command(plan.command)}"),
         spinner="simpleDots",
         spinner_style=SLATE_TEXT,
     ):
@@ -789,11 +799,9 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
     if not resolve_api_key():
         if not interactive:
             print_prompt_block(console, "Authentication", "No interactive terminal detected.")
-            console.print(f"[{SLATE_TEXT}]| Skipping auth. To finish setting up:[/]")
-            console.print(f"[{SLATE_TEXT}]|   - Run `yutori auth login` on a machine with a browser[/]")
-            console.print(
-                f"[{SLATE_TEXT}]|   - Or set YUTORI_API_KEY (get one at https://platform.yutori.com/settings)[/]"
-            )
+            console.print(_slate_line("Skipping auth. To finish setting up:"))
+            console.print(_slate_line("  - Run `yutori auth login` on a machine with a browser"))
+            console.print(_slate_line("  - Or set YUTORI_API_KEY (get one at https://platform.yutori.com/settings)"))
             return (
                 StepResult(
                     "Auth",
@@ -814,13 +822,13 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
 
         def on_registration_state(state: str) -> None:
             message = messages.get(state, state)  # type: ignore[arg-type]
-            console.print(f"[{SLATE_TEXT}]| {message}[/]")
+            console.print(_slate_line(message))
 
         result = run_login_flow(on_registration_state=on_registration_state)
         if not result.success:
             # The callback server has already been torn down, so reprinting
             # auth_url here would be misleading — it can't produce a credential.
-            console.print(f"[{SLATE_TEXT}]| Run `yutori auth login` again from a terminal to retry.[/]")
+            console.print(_slate_line("Run `yutori auth login` again from a terminal to retry."))
             return StepResult("Auth", "failed", str(result.error or "Authentication failed.")), False
 
         return StepResult("Auth", "success", "Authenticated and saved credentials."), True
@@ -932,14 +940,14 @@ def run_verification(
     deadline = time.monotonic() + VERIFICATION_POLL_BUDGET_SECONDS
     status = parse_cli_field(submission.stdout, "Status") or "queued"
     last_output = submission.stdout
-    console.print(f"[{SLATE_TEXT}]| Task: {escape(task_url)}[/]")
+    console.print(_slate_line(f"Task: {escape(task_url)}"))
 
     # Live status line: updates in place so the user sees both the current
     # status and continuous dot-motion confirming the installer is alive
     # during queued/running phases that may last the full 180s poll budget.
     try:
         with console.status(
-            f"[{SLATE_TEXT}]| Status: {escape(status)}[/]",
+            _slate_line(f"Status: {escape(status)}"),
             spinner="simpleDots",
             spinner_style=SLATE_TEXT,
         ) as spinner:
@@ -961,7 +969,7 @@ def run_verification(
 
                 last_output = poll.stdout
                 status = parse_cli_field(poll.stdout, "Status") or "queued"
-                spinner.update(f"[{SLATE_TEXT}]| Status: {escape(status)}[/]")
+                spinner.update(_slate_line(f"Status: {escape(status)}"))
     except KeyboardInterrupt:
         # Most poll wall-time is spent in the parent-side sleep above, where
         # run_command's KeyboardInterrupt-to-130 mapping can't help. Without
@@ -974,7 +982,7 @@ def run_verification(
         )
 
     summary = _summarize_cli_output(last_output)
-    console.print(f"[{SLATE_TEXT}]| Result: {escape(summary)}[/]")
+    console.print(_slate_line(f"Result: {escape(summary)}"))
     if status in FINAL_SUCCESS_STATUSES:
         return StepResult("Verification", "success", f"Verification succeeded. View task: {task_url}"), False
 
