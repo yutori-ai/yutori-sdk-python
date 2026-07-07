@@ -181,6 +181,16 @@ async def test_trajectory_recorder_writes_artifacts(tmp_path) -> None:
     assert "Raw Request" in html
 
 
+@pytest.mark.asyncio
+async def test_trajectory_recorder_load_methods_handle_missing_artifacts(tmp_path) -> None:
+    recorder = TrajectoryRecorder(tmp_path, "run-456")
+
+    assert await recorder.load_json("result.json") is None
+    assert await recorder.load_jsonl("messages.jsonl") == []
+    assert await recorder.load_messages() == []
+    assert await recorder.load_step_payloads() == []
+
+
 def test_generate_visualization_html_survives_non_object_tool_arguments() -> None:
     # Valid JSON that isn't an object must not crash the render.
     messages = [
