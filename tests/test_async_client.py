@@ -1,6 +1,6 @@
 """Tests for the async AsyncYutoriClient."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -12,6 +12,7 @@ from ._client_fixtures import (
     make_mock_chat_completion,
     make_mock_usage_response,
     make_status_response,
+    mocked_async_openai_client,
 )
 
 
@@ -338,12 +339,7 @@ class TestAsyncChatNamespace:
     async def test_chat_completions(self):
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
-        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-            mock_openai_client.close = AsyncMock()
-            MockAsyncOpenAI.return_value = mock_openai_client
-
+        with mocked_async_openai_client(mock_completion):
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.chat.completions.create(
                     messages=[{"role": "user", "content": "Click login"}],
@@ -361,12 +357,7 @@ class TestAsyncChatNamespace:
         }
         mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
 
-        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-            mock_openai_client.close = AsyncMock()
-            MockAsyncOpenAI.return_value = mock_openai_client
-
+        with mocked_async_openai_client(mock_completion) as mock_openai_client:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.chat.completions.create(
                     messages=[{"role": "user", "content": "Reply with JSON."}],
@@ -412,12 +403,7 @@ class TestAsyncChatNamespace:
         ]
         original_snapshot = deepcopy(original_messages)
 
-        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-            mock_openai_client.close = AsyncMock()
-            MockAsyncOpenAI.return_value = mock_openai_client
-
+        with mocked_async_openai_client(mock_completion) as mock_openai_client:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await acreate_trimmed(
                     client.chat.completions,
@@ -458,12 +444,7 @@ class TestAsyncChatNamespace:
         original_snapshot = deepcopy(original_messages)
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
-        with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
-            mock_openai_client.close = AsyncMock()
-            MockAsyncOpenAI.return_value = mock_openai_client
-
+        with mocked_async_openai_client(mock_completion) as mock_openai_client:
             async with AsyncYutoriClient(api_key="yt-test") as client:
                 result = await client.chat.completions.create(
                     model="n1-latest",

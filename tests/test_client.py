@@ -1,6 +1,6 @@
 """Tests for the sync YutoriClient."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -12,6 +12,7 @@ from ._client_fixtures import (
     make_mock_chat_completion,
     make_mock_usage_response,
     make_status_response,
+    mocked_sync_openai_client,
 )
 
 
@@ -380,11 +381,7 @@ class TestChatNamespace:
     def test_chat_completions(self):
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
-        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create.return_value = mock_completion
-            MockOpenAI.return_value = mock_openai_client
-
+        with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Click login"}],
@@ -407,11 +404,7 @@ class TestChatNamespace:
         }
         mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
 
-        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create.return_value = mock_completion
-            MockOpenAI.return_value = mock_openai_client
-
+        with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Reply with JSON."}],
@@ -457,11 +450,7 @@ class TestChatNamespace:
         ]
         original_snapshot = deepcopy(original_messages)
 
-        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create.return_value = mock_completion
-            MockOpenAI.return_value = mock_openai_client
-
+        with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             client = YutoriClient(api_key="yt-test")
             result = create_trimmed(
                 client.chat.completions,
@@ -503,11 +492,7 @@ class TestChatNamespace:
         original_snapshot = deepcopy(original_messages)
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
-        with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
-            mock_openai_client = MagicMock()
-            mock_openai_client.chat.completions.create.return_value = mock_completion
-            MockOpenAI.return_value = mock_openai_client
-
+        with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 model="n1-latest",

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from openai.types.chat import ChatCompletion
 
 # Mirrors the current server dual-emit: both navigator_* and n1_* keys
@@ -109,3 +112,32 @@ def make_mock_chat_completion(
         model=model,
         object="chat.completion",
     )
+
+
+@contextmanager
+def mocked_sync_openai_client(mock_completion: ChatCompletion) -> Iterator[MagicMock]:
+    """Patch ``yutori._sync.chat.OpenAI`` so ``chat.completions.create()`` returns `mock_completion`.
+
+    Yields the mocked OpenAI client instance so callers can assert on
+    ``mock_openai_client.chat.completions.create.call_args``.
+    """
+    with patch("yutori._sync.chat.OpenAI") as MockOpenAI:
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create.return_value = mock_completion
+        MockOpenAI.return_value = mock_openai_client
+        yield mock_openai_client
+
+
+@contextmanager
+def mocked_async_openai_client(mock_completion: ChatCompletion) -> Iterator[MagicMock]:
+    """Patch ``yutori._async.chat.AsyncOpenAI`` so ``chat.completions.create()`` returns `mock_completion`.
+
+    Yields the mocked AsyncOpenAI client instance so callers can assert on
+    ``mock_openai_client.chat.completions.create.call_args``.
+    """
+    with patch("yutori._async.chat.AsyncOpenAI") as MockAsyncOpenAI:
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_completion)
+        mock_openai_client.close = AsyncMock()
+        MockAsyncOpenAI.return_value = mock_openai_client
+        yield mock_openai_client
