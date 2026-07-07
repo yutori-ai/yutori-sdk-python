@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -58,6 +59,34 @@ def _which_python_only(command: str, path: str | None = None) -> str | None:
     return "/usr/bin/python" if command == "python" else None
 
 
+def _default_cli_state(**overrides: Any) -> CLIInstallState:
+    """`CLIInstallState` for the common `/tmp/yutori`, on-PATH install-flow baseline.
+
+    Most tests only vary `on_path`/`shell_cli_path`; pass any field as a
+    keyword to override just that one from the shared baseline below.
+    """
+    kwargs: dict[str, Any] = {
+        "cli_path": Path("/tmp/yutori"),
+        "bin_dir": Path("/tmp"),
+        "uv_path": "/usr/bin/uv",
+        "version": "yutori 0.7.0",
+        "on_path": True,
+    }
+    kwargs.update(overrides)
+    return CLIInstallState(**kwargs)
+
+
+def _default_sdk_plan(**overrides: Any) -> SDKInstallPlan:
+    """`SDKInstallPlan` for the common `uv add yutori`, accepted-by-default baseline."""
+    kwargs: dict[str, Any] = {
+        "reason": "ok",
+        "command": ("uv", "add", "yutori"),
+        "default": True,
+    }
+    kwargs.update(overrides)
+    return SDKInstallPlan(**kwargs)
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_mcp_installs():
     """Safety net: tests in this file must never run real `npx` installs.
@@ -97,13 +126,7 @@ def test_hidden_install_ui_alias_dispatches_to_install_flow_command():
     # invoking the subcommand. Without this alias, a stale cached
     # install.sh paired with a freshly-upgraded CLI would fail. Pin
     # the alias so a future cleanup doesn't silently break those flows.
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
+    cli_state = _default_cli_state()
     with (
         patch(
             "yutori.cli.commands.install_flow.inspect_cli_install",
@@ -112,7 +135,7 @@ def test_hidden_install_ui_alias_dispatches_to_install_flow_command():
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
         patch(
             "yutori.cli.commands.install_flow.detect_sdk_install_plan",
-            return_value=SDKInstallPlan(reason="r", command=("uv", "add", "yutori"), default=True),
+            return_value=_default_sdk_plan(reason="r"),
         ),
         patch(
             "yutori.cli.commands.install_flow.maybe_authenticate",
@@ -248,18 +271,8 @@ def test_install_flow_noninteractive_runs_mcp_and_skills_even_without_auth():
     # callback, not "user declined." MCP / skills should still install --
     # they don't need an API key at registration time. Auth and verification
     # are the only steps that genuinely require a key/browser.
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(
-        reason="Detected pyproject.toml in the current directory.",
-        command=("uv", "add", "yutori"),
-        default=True,
-    )
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
         patch(
@@ -306,18 +319,8 @@ def test_install_flow_interactive_auth_decline_still_skips_mcp_and_skills():
     # Symmetric guard: when the *user* declines auth in interactive mode,
     # they've opted out of finishing setup, so MCP/skills should still skip.
     # The non-interactive carve-out above must not regress this case.
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(
-        reason="Detected pyproject.toml in the current directory.",
-        command=("uv", "add", "yutori"),
-        default=True,
-    )
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
         patch(
@@ -347,11 +350,7 @@ def test_install_flow_interactive_auth_decline_still_skips_mcp_and_skills():
 
 
 def test_install_flow_exits_nonzero_when_cli_verification_fails():
-    sdk_plan = SDKInstallPlan(
-        reason="Detected pyproject.toml in the current directory.",
-        command=("uv", "add", "yutori"),
-        default=True,
-    )
+    sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
         patch(
@@ -376,18 +375,8 @@ def test_install_flow_exits_nonzero_when_cli_verification_fails():
 
 
 def test_install_flow_marks_auth_failure_when_verification_rejects_credentials():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(
-        reason="Detected pyproject.toml in the current directory.",
-        command=("uv", "add", "yutori"),
-        default=True,
-    )
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
         patch(
@@ -414,14 +403,7 @@ def test_install_flow_marks_auth_failure_when_verification_rejects_credentials()
 
 
 def test_maybe_repair_path_reports_shadowed_binary():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=False,
-        shell_cli_path=Path("/usr/local/bin/yutori"),
-    )
+    cli_state = _default_cli_state(on_path=False, shell_cli_path=Path("/usr/local/bin/yutori"))
 
     result = maybe_repair_path(Console(), cli_state, interactive=True)
 
@@ -520,14 +502,8 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
 
 
 def test_install_flow_skips_header_when_bootstrap_already_rendered():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan()
 
     with (
         patch(
@@ -554,14 +530,8 @@ def test_install_flow_skips_header_when_bootstrap_already_rendered():
 
 
 def test_install_flow_exits_zero_when_verification_fails_for_non_auth_reason():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan()
 
     with (
         patch(
@@ -706,7 +676,7 @@ def test_inspect_cli_install_success_when_shell_resolves_to_install(tmp_path: Pa
 
 
 def test_maybe_install_sdk_success_path():
-    plan = SDKInstallPlan(reason="Detected pyproject.toml", command=("/tmp/uv", "add", "yutori"), default=True)
+    plan = _default_sdk_plan(reason="Detected pyproject.toml", command=("/tmp/uv", "add", "yutori"))
     success = _completed_process(0, "Installed.\n", "")
 
     with (
@@ -721,7 +691,7 @@ def test_maybe_install_sdk_success_path():
 
 
 def test_maybe_install_sdk_propagates_command_failure():
-    plan = SDKInstallPlan(reason="ok", command=("/tmp/uv", "add", "yutori"), default=True)
+    plan = _default_sdk_plan(command=("/tmp/uv", "add", "yutori"))
     failure = _completed_process(1, "", "network down")
 
     with (
@@ -735,8 +705,7 @@ def test_maybe_install_sdk_propagates_command_failure():
 
 
 def test_maybe_install_sdk_respects_availability_error():
-    plan = SDKInstallPlan(
-        reason="ok",
+    plan = _default_sdk_plan(
         command=("python3", "-m", "pip", "install", "--user", "yutori"),
         default=False,
         availability_error="`python3 -m pip` is required.",
@@ -757,8 +726,7 @@ def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive(
     # the non-interactive skip check, so CI installs without pip bumped the
     # whole installer's exit code to 1 even though nothing would have been
     # installed anyway. Non-interactive runs must always return `skipped`.
-    plan = SDKInstallPlan(
-        reason="ok",
+    plan = _default_sdk_plan(
         command=("python3", "-m", "pip", "install", "--user", "yutori"),
         default=False,
         availability_error="`python3 -m pip` is required.",
@@ -955,14 +923,8 @@ def test_run_interactive_command_maps_keyboard_interrupt_to_130():
 
 
 def test_install_flow_failed_mcp_does_not_bump_exit_code():
-    cli_state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
-    sdk_plan = SDKInstallPlan(reason="ok", command=("uv", "add", "yutori"), default=True)
+    cli_state = _default_cli_state()
+    sdk_plan = _default_sdk_plan()
 
     with (
         patch(
@@ -1004,13 +966,7 @@ def test_install_flow_failed_mcp_does_not_bump_exit_code():
 
 
 def test_maybe_repair_path_happy_path():
-    state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=True,
-    )
+    state = _default_cli_state()
 
     result = maybe_repair_path(Console(), state, interactive=True)
 
@@ -1018,14 +974,7 @@ def test_maybe_repair_path_happy_path():
 
 
 def test_maybe_repair_path_noninteractive_skips():
-    state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=False,
-        shell_cli_path=None,
-    )
+    state = _default_cli_state(on_path=False)
 
     result = maybe_repair_path(Console(), state, interactive=False)
 
@@ -1033,14 +982,7 @@ def test_maybe_repair_path_noninteractive_skips():
 
 
 def test_maybe_repair_path_runs_update_shell_on_consent():
-    state = CLIInstallState(
-        cli_path=Path("/tmp/yutori"),
-        bin_dir=Path("/tmp"),
-        uv_path="/usr/bin/uv",
-        version="yutori 0.7.0",
-        on_path=False,
-        shell_cli_path=None,
-    )
+    state = _default_cli_state(on_path=False)
     success = _completed_process(0, "ok\n", "")
 
     with (
