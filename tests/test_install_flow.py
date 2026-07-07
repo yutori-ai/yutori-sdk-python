@@ -412,11 +412,14 @@ def test_maybe_repair_path_reports_shadowed_binary():
 
 
 def _cli_state(cli_path: Path, *, on_path: bool = True) -> CLIInstallState:
-    return CLIInstallState(
+    """`CLIInstallState` for a caller-supplied `cli_path` (the run_verification
+    tests below need a distinct path per test, unlike `_default_cli_state`'s
+    fixed `/tmp/yutori` baseline). Delegates to `_default_cli_state` so the
+    two factories cannot drift into separately-maintained field lists.
+    """
+    return _default_cli_state(
         cli_path=cli_path,
         bin_dir=cli_path.parent,
-        uv_path="/tmp/uv",
-        version="yutori 0.7.3",
         on_path=on_path,
         shell_cli_path=cli_path if on_path else None,
     )
@@ -1287,7 +1290,6 @@ def test_detect_sdk_install_plan_windows_venv_uses_scripts_python(tmp_path: Path
     fake_python.chmod(0o755)
 
     # Patch only install_flow's view of os: setting the real os.name to "nt"
-    # would make pathlib instantiate WindowsPath on a POSIX host.
     class _NtOsProxy:
         name = "nt"
 
