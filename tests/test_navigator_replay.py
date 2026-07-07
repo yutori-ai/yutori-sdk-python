@@ -7,6 +7,8 @@ import pytest
 from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.replay import (
     TrajectoryRecorder,
+    _extract_observation_parts,
+    _extract_tool_result_parts,
     generate_visualization_html,
     make_run_id,
     sanitize_step_payload,
@@ -219,6 +221,95 @@ def test_generate_visualization_html_escapes_screenshot_url() -> None:
     assert "<script>alert(1)</script>" not in html
     # The URL must survive in escaped form — not merely be dropped from the render.
     assert "shot.png&quot;&gt;&lt;script&gt;" in html
+
+
+def test_extract_observation_parts_handles_falsy_observation() -> None:
+    assert _extract_observation_parts(None) == (None, [])
+    assert _extract_observation_parts([]) == (None, [])
+
+
+def test_extract_observation_parts_collects_image_and_text_blocks() -> None:
+    observation = [
+        {"type": "text", "text": "  hello  "},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+        {"type": "text", "text": "   "},
+    ]
+
+    url, texts = _extract_observation_parts(observation)
+
+    assert url == "data:image/png;base64,abc"
+    assert texts == ["hello"]
+
+
+def test_extract_observation_parts_last_nonempty_image_url_wins() -> None:
+    observation = [
+        {"type": "image_url", "image_url": {"url": "first"}},
+        {"type": "image_url", "image_url": {"url": ""}},
+        {"type": "image_url", "image_url": {"url": "second"}},
+    ]
+
+    url, _ = _extract_observation_parts(observation)
+
+    assert url == "second"
+
+
+def test_extract_observation_parts_recurses_into_tool_result_content() -> None:
+    observation = [
+        {
+            "type": "tool_result",
+            "content": [
+                {"type": "image_url", "image_url": {"url": "nested-url"}},
+                {"type": "text", "text": "nested text"},
+            ],
+        }
+    ]
+
+    url, texts = _extract_observation_parts(observation)
+
+    assert url == "nested-url"
+    assert texts == ["nested text"]
+
+
+def test_extract_observation_parts_ignores_non_list_tool_result_content() -> None:
+    observation = [{"type": "tool_result", "content": "not-a-list"}]
+
+    url, texts = _extract_observation_parts(observation)
+
+    assert url is None
+    assert texts == []
+
+
+def test_extract_tool_result_parts_handles_base64_image_source() -> None:
+    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "xyz"}}]
+
+    url, _ = _extract_tool_result_parts(content)
+
+    assert url == "data:image/jpeg;base64,xyz"
+
+
+def test_extract_tool_result_parts_defaults_media_type_to_png() -> None:
+    content = [{"type": "image", "source": {"type": "base64", "data": "xyz"}}]
+
+    url, _ = _extract_tool_result_parts(content)
+
+    assert url == "data:image/png;base64,xyz"
+
+
+def test_extract_tool_result_parts_ignores_non_base64_image_source() -> None:
+    content = [{"type": "image", "source": {"type": "url", "url": "https://example.com/x.png"}}]
+
+    url, _ = _extract_tool_result_parts(content)
+
+    assert url is None
+
+
+def test_extract_tool_result_parts_skips_non_dict_items() -> None:
+    content = ["not-a-dict", {"type": "text", "text": "keep"}]
+
+    url, texts = _extract_tool_result_parts(content)
+
+    assert url is None
+    assert texts == ["keep"]
 
 
 def test_text_only_user_message_keeps_pending_tool_screenshot() -> None:
