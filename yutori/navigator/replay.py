@@ -360,6 +360,16 @@ def _observation_has_image(observation: list[dict]) -> bool:
     return screenshot_url is not None
 
 
+def _image_url_from_block(block: dict[str, Any]) -> str | None:
+    """Return the ``image_url.url`` field of a content block, if present."""
+    return block.get("image_url", {}).get("url")
+
+
+def _stripped_text_from_block(block: dict[str, Any]) -> str:
+    """Return the stripped ``text`` field of a content block (``""`` if absent)."""
+    return block.get("text", "").strip()
+
+
 def _extract_observation_parts(observation: list[dict] | None) -> tuple[str | None, list[str]]:
     screenshot_url: str | None = None
     text_observations: list[str] = []
@@ -369,9 +379,9 @@ def _extract_observation_parts(observation: list[dict] | None) -> tuple[str | No
     for block in observation:
         block_type = block.get("type")
         if block_type == "image_url":
-            screenshot_url = block.get("image_url", {}).get("url") or screenshot_url
+            screenshot_url = _image_url_from_block(block) or screenshot_url
         elif block_type == "text":
-            text = block.get("text", "").strip()
+            text = _stripped_text_from_block(block)
             if text:
                 text_observations.append(text)
         elif block_type == "tool_result":
@@ -391,14 +401,14 @@ def _extract_tool_result_parts(content: list[Any]) -> tuple[str | None, list[str
             continue
         item_type = item.get("type")
         if item_type == "image_url":
-            screenshot_url = item.get("image_url", {}).get("url") or screenshot_url
+            screenshot_url = _image_url_from_block(item) or screenshot_url
         elif item_type == "image":
             source = item.get("source", {})
             if source.get("type") == "base64":
                 media_type = source.get("media_type", "image/png")
                 screenshot_url = f"data:{media_type};base64,{source.get('data', '')}"
         elif item_type == "text":
-            text = item.get("text", "").strip()
+            text = _stripped_text_from_block(item)
             if text:
                 texts.append(text)
     return screenshot_url, texts
