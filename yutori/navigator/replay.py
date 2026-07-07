@@ -99,6 +99,18 @@ class TrajectoryRecorder:
 
         return self.item_dir / name
 
+    async def _write_text(self, path: Path, text: str) -> None:
+        """Write *text* to *path* off the event loop thread."""
+
+        await asyncio.to_thread(path.write_text, text, encoding="utf-8")
+
+    async def _read_text_if_exists(self, path: Path) -> str | None:
+        """Read *path* off the event loop thread, or return ``None`` if it is missing."""
+
+        if not path.exists():
+            return None
+        return await asyncio.to_thread(path.read_text, encoding="utf-8")
+
     async def save_json(
         self,
         filename: str,
@@ -109,34 +121,28 @@ class TrajectoryRecorder:
     ) -> None:
         """Write one optional JSON artifact into the replay directory."""
 
-        path = self.artifact_path(filename)
         text = json.dumps(data, indent=indent, default=default or _json_default)
-        await asyncio.to_thread(path.write_text, text, encoding="utf-8")
+        await self._write_text(self.artifact_path(filename), text)
 
     async def load_json(self, filename: str) -> Any | None:
         """Read one optional JSON artifact if it exists."""
 
-        path = self.artifact_path(filename)
-        if not path.exists():
+        text = await self._read_text_if_exists(self.artifact_path(filename))
+        if text is None:
             return None
-        text = await asyncio.to_thread(path.read_text, encoding="utf-8")
         return json.loads(text)
 
     async def save_jsonl(self, filename: str, records: list[Any]) -> None:
         """Write one optional JSONL artifact into the replay directory."""
 
-        path = self.artifact_path(filename)
         lines = [json.dumps(record, default=_json_default) for record in records]
-        await asyncio.to_thread(path.write_text, "\n".join(lines), encoding="utf-8")
+        await self._write_text(self.artifact_path(filename), "\n".join(lines))
 
     async def load_jsonl(self, filename: str) -> list[Any]:
         """Read one optional JSONL artifact if it exists."""
 
-        path = self.artifact_path(filename)
-        if not path.exists():
-            return []
-        text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-        if not text.strip():
+        text = await self._read_text_if_exists(self.artifact_path(filename))
+        if not text or not text.strip():
             return []
         return [json.loads(line) for line in text.splitlines() if line.strip()]
 
@@ -172,7 +178,6 @@ class TrajectoryRecorder:
     ) -> None:
         """Render the optional static HTML replay viewer for one run."""
 
-        path = self.artifact_path("visualization.html")
         html = generate_visualization_html(
             task_id=self.run_id,
             messages=messages,
@@ -181,7 +186,7 @@ class TrajectoryRecorder:
             coord_space_width=coord_space_width,
             coord_space_height=coord_space_height,
         )
-        await asyncio.to_thread(path.write_text, html, encoding="utf-8")
+        await self._write_text(self.artifact_path("visualization.html"), html)
 
 
 def generate_visualization_html(
