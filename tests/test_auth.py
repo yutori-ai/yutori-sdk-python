@@ -460,10 +460,14 @@ class TestRegistrationHelpers:
 
 
 @contextmanager
-def _successful_oauth_callback():
-    """Patch the local callback server/thread so run_login_flow observes a browser
-    callback that delivers a matching auth code and state, without starting a
-    real server or thread."""
+def _patched_callback_server():
+    """Patch the local OAuth callback server/thread machinery (TCPServer, its
+    background Thread, and the browser launch) so tests can drive
+    run_login_flow's callback delivery without starting a real server or thread.
+
+    Yields (mock_thread, original_result) so callers can script how/whether the
+    callback delivers a code, state, and the `received` signal.
+    """
 
     def fake_server_init(self, addr, handler):
         pass
@@ -473,6 +477,7 @@ def _successful_oauth_callback():
         patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
         patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
         patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
+        patch("yutori.auth.flow.webbrowser.open"),
         patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
     ):
         mock_thread = MagicMock()
@@ -480,15 +485,25 @@ def _successful_oauth_callback():
 
         original_result = _CallbackResult()
         with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-            with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
+            yield mock_thread, original_result
 
-                def side_effect(*args, **kwargs):
-                    original_result.code = "auth_code"
-                    original_result.state = "fixed_state"
-                    original_result.received.set()
 
-                mock_thread.start.side_effect = side_effect
-                yield mock_thread
+@contextmanager
+def _successful_oauth_callback():
+    """Patch the local callback server/thread so run_login_flow observes a browser
+    callback that delivers a matching auth code and state, without starting a
+    real server or thread."""
+
+    with _patched_callback_server() as (mock_thread, original_result):
+        with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="fixed_state"):
+
+            def side_effect(*args, **kwargs):
+                original_result.code = "auth_code"
+                original_result.state = "fixed_state"
+                original_result.received.set()
+
+            mock_thread.start.side_effect = side_effect
+            yield mock_thread
 
 
 class TestRunLoginFlow:
@@ -610,59 +625,29 @@ class TestRunLoginFlow:
             assert "Permission denied" in result.error
 
     def test_timeout(self):
-        def fake_server_init(self, addr, handler):
-            pass
-
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.webbrowser.open"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                # Don't set received, so wait() returns False after timeout=0
-                with patch.object(original_result.received, "wait", return_value=False):
-                    result = run_login_flow()
-                    assert result.success is False
-                    assert "timed out" in result.error.lower()
-                    assert result.auth_url is not None
+        with _patched_callback_server() as (_, original_result):
+            # Don't set received, so wait() returns False after timeout=0
+            with patch.object(original_result.received, "wait", return_value=False):
+                result = run_login_flow()
+                assert result.success is False
+                assert "timed out" in result.error.lower()
+                assert result.auth_url is not None
 
     def test_state_mismatch(self):
-        def fake_server_init(self, addr, handler):
-            pass
+        with _patched_callback_server() as (mock_thread, original_result):
+            with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="expected_state"):
 
-        with (
-            patch("yutori.auth.flow.socketserver.TCPServer.__init__", fake_server_init),
-            patch("yutori.auth.flow.socketserver.TCPServer.serve_forever"),
-            patch("yutori.auth.flow.socketserver.TCPServer.shutdown"),
-            patch("yutori.auth.flow.socketserver.TCPServer.server_close"),
-            patch("yutori.auth.flow.webbrowser.open"),
-            patch("yutori.auth.flow.threading.Thread") as mock_thread_cls,
-        ):
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
+                def side_effect(*args, **kwargs):
+                    original_result.code = "auth_code"
+                    original_result.state = "wrong_state"
+                    original_result.received.set()
 
-            original_result = _CallbackResult()
-            with patch("yutori.auth.flow._CallbackResult", return_value=original_result):
-                with patch("yutori.auth.flow.secrets.token_urlsafe", return_value="expected_state"):
+                mock_thread.start.side_effect = side_effect
 
-                    def side_effect(*args, **kwargs):
-                        original_result.code = "auth_code"
-                        original_result.state = "wrong_state"
-                        original_result.received.set()
-
-                    mock_thread.start.side_effect = side_effect
-
-                    result = run_login_flow()
-                    assert result.success is False
-                    assert "state mismatch" in result.error.lower()
-                    assert result.auth_url is not None
+                result = run_login_flow()
+                assert result.success is False
+                assert "state mismatch" in result.error.lower()
+                assert result.auth_url is not None
 
 
 # ---------------------------------------------------------------------------
