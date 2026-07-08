@@ -719,24 +719,9 @@ async def main():
     args.tool_set = _TOOL_SET_ALIASES.get(args.tool_set, args.tool_set)
     config = Config.model_validate(vars(args))
 
-    agent = Agent(
-        base_url=config.base_url,
-        model=config.model,
-        temperature=config.temperature,
-        tool_set=config.tool_set,
-        disable_tools=config.disable_tools,
-        json_schema=config.json_schema,
-        user_timezone=config.user_timezone,
-        user_location=config.user_location,
-        max_steps=config.max_steps,
-        viewport_width=config.viewport_width,
-        viewport_height=config.viewport_height,
-        headless=config.headless,
-        max_request_bytes=config.max_request_bytes,
-        keep_recent_screenshots=config.keep_recent_screenshots,
-        replay_dir=config.replay_dir,
-        replay_id=config.replay_id,
-    )
+    # Config's fields (other than task/start_url, which go to agent.run()) map
+    # 1:1 onto Agent's constructor kwargs by name.
+    agent = Agent(**config.model_dump(exclude={"task", "start_url"}))
 
     result = await agent.run(config.task, config.start_url)
     logger.info(f"Final result: {result or '(No final response from model)'}")
