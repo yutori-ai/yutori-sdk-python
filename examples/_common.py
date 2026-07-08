@@ -90,6 +90,21 @@ def add_replay_arguments(parser: argparse.ArgumentParser, default_config) -> Non
     parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
 
 
+def _click_coordinates(
+    arguments: dict[str, Any],
+    viewport_width: int,
+    viewport_height: int,
+) -> tuple[int, int]:
+    """Resolve the ``coordinates`` argument (default ``[0, 0]``) to absolute pixel coordinates.
+
+    Shared by the pointer actions in :func:`execute_n1_primitive_action` (the click
+    variants and hover) that all read the same ``coordinates`` argument and denormalize
+    it the same way.
+    """
+    coords = arguments.get("coordinates", [0, 0])
+    return denormalize_coordinates(coords, viewport_width, viewport_height)
+
+
 async def execute_n1_primitive_action(
     page: Any,
     action_name: str,
@@ -113,26 +128,22 @@ async def execute_n1_primitive_action(
     execution in its own try/except.
     """
     if action_name == "left_click":
-        coords = arguments.get("coordinates", [0, 0])
-        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
         await page.mouse.click(abs_x, abs_y)
         await asyncio.sleep(0.5)
 
     elif action_name == "double_click":
-        coords = arguments.get("coordinates", [0, 0])
-        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
         await page.mouse.dblclick(abs_x, abs_y)
         await asyncio.sleep(0.5)
 
     elif action_name == "right_click":
-        coords = arguments.get("coordinates", [0, 0])
-        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
         await page.mouse.click(abs_x, abs_y, button="right")
         await asyncio.sleep(0.5)
 
     elif action_name == "triple_click":
-        coords = arguments.get("coordinates", [0, 0])
-        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
         await page.mouse.click(abs_x, abs_y, click_count=3)
         await asyncio.sleep(0.5)
 
@@ -173,8 +184,7 @@ async def execute_n1_primitive_action(
         await asyncio.sleep(0.5)
 
     elif action_name == "hover":
-        coords = arguments.get("coordinates", [0, 0])
-        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
         await page.mouse.move(abs_x, abs_y)
         await asyncio.sleep(0.3)
 
