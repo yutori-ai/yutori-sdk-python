@@ -41,6 +41,7 @@ from _common import (
     add_task_arguments,
     configure_example_logging,
     llm_retry,
+    run_example_agent,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
@@ -503,12 +504,7 @@ async def main():
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
-    # Config's fields (other than task/start_url, which go to agent.run()) map
-    # 1:1 onto Agent's constructor kwargs by name.
-    agent = Agent(**config.model_dump(exclude={"task", "start_url"}))
-
-    result = await agent.run(config.task, config.start_url)
-    logger.info(f"Final result: {result or '(No final response from model)'}")
+    await run_example_agent(Agent, config)
 
 
 if __name__ == "__main__":

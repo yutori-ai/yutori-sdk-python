@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from loguru import logger
@@ -87,6 +88,22 @@ def add_replay_arguments(parser: argparse.ArgumentParser, default_config) -> Non
         help="Optional directory for replay artifacts",
     )
     parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+
+
+class SupportsAgentRun(Protocol):
+    async def run(self, task: str, start_url: str) -> str: ...
+
+
+async def run_example_agent(agent_cls: Callable[..., SupportsAgentRun], config: Any) -> str:
+    """Build ``agent_cls`` from ``config`` and run it -- the shared tail of every example ``main()``.
+
+    Config's fields (other than task/start_url, which go to ``agent.run()``) map 1:1 onto the
+    agent's constructor kwargs by name.
+    """
+    agent = agent_cls(**config.model_dump(exclude={"task", "start_url"}))
+    result = await agent.run(config.task, config.start_url)
+    logger.info(f"Final result: {result or '(No final response from model)'}")
+    return result
 
 
 class SupportsBrowserAgentState(Protocol):
