@@ -28,7 +28,7 @@ import argparse
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import cached_property
 
 from _common import (
@@ -81,7 +81,7 @@ class MemoToolSuite:
     def __init__(self, file_path: str | None = None):
         super().__init__()
         if not file_path:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             file_path = os.path.join(os.path.dirname(__file__), f"memo_{timestamp}.jsonl")
         self.file_path = file_path
 
