@@ -115,11 +115,10 @@ async def execute_n1_primitive_action(
     """Execute one of Navigator n1's built-in browser actions on ``page``.
 
     Shared by the n1 example agents that expose the full, unmodified n1
-    action vocabulary (``navigator_n1.py`` and ``navigator_n1_memo.py``);
-    ``navigator_n1_custom_tools.py`` intentionally supports only a trimmed
-    subset for tutorial purposes and ``navigator_n1_5.py`` targets a
-    different model with a different action vocabulary, so neither uses
-    this helper.
+    action vocabulary (``navigator_n1.py``, ``navigator_n1_memo.py``, and
+    ``navigator_n1_custom_tools.py``, which layers its own custom tool on
+    top); ``navigator_n1_5.py`` targets a different model with a different
+    action vocabulary, so it does not use this helper.
 
     Returns True if ``action_name`` was recognized and executed, False
     otherwise -- callers should treat False as "unknown action" (after first

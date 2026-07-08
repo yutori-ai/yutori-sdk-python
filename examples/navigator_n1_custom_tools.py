@@ -25,7 +25,6 @@ import argparse
 import asyncio
 import json
 import re
-import sys
 from functools import cached_property
 
 from _common import (
@@ -36,6 +35,7 @@ from _common import (
     add_replay_arguments,
     add_task_arguments,
     configure_example_logging,
+    execute_n1_primitive_action,
     llm_retry,
     run_example_agent,
 )
@@ -47,7 +47,7 @@ from pydantic import BaseModel, Field
 
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
-from yutori.navigator import NAVIGATOR_N1_MODEL, denormalize_coordinates
+from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
 
@@ -310,110 +310,13 @@ class Agent(BrowserAgentMixin):
             return f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
 
         try:
-            if action_name == "left_click":
-                coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                await self._page.mouse.click(abs_x, abs_y)
-                await asyncio.sleep(0.5)
-
-            elif action_name == "double_click":
-                coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                await self._page.mouse.dblclick(abs_x, abs_y)
-                await asyncio.sleep(0.5)
-
-            elif action_name == "right_click":
-                coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                await self._page.mouse.click(abs_x, abs_y, button="right")
-                await asyncio.sleep(0.5)
-
-            elif action_name == "triple_click":
-                coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                await self._page.mouse.click(abs_x, abs_y, click_count=3)
-                await asyncio.sleep(0.5)
-
-            elif action_name == "type":
-                text = arguments.get("text", "")
-                press_enter = arguments.get("press_enter_after", True)
-                clear_first = arguments.get("clear_before_typing", True)
-
-                if clear_first:
-                    await self._page.keyboard.press("Control+a" if sys.platform != "darwin" else "Meta+a")
-                    await self._page.keyboard.press("Backspace")
-
-                await self._page.keyboard.type(text)
-
-                if press_enter:
-                    await self._page.keyboard.press("Enter")
-                await asyncio.sleep(0.5)
-
-            elif action_name in ("key", "key_press"):
-                key = arguments.get("key") or arguments.get("key_comb", "")
-                key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
-                await self._page.keyboard.press(key)
-                await asyncio.sleep(0.3)
-
-            elif action_name == "scroll":
-                coords = arguments.get("coordinates") or arguments.get("coordinate", [500, 500])
-                direction = arguments.get("direction", "down")
-                amount = arguments.get("amount", 3)
-
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                scroll_delta = amount * (self.viewport_height * 0.1)
-
-                delta_y = scroll_delta if direction == "down" else (-scroll_delta if direction == "up" else 0)
-                delta_x = scroll_delta if direction == "right" else (-scroll_delta if direction == "left" else 0)
-
-                await self._page.mouse.move(abs_x, abs_y)
-                await self._page.mouse.wheel(delta_x, delta_y)
-                await asyncio.sleep(0.5)
-
-            elif action_name == "hover":
-                coords = arguments.get("coordinates", [0, 0])
-                abs_x, abs_y = denormalize_coordinates(coords, self.viewport_width, self.viewport_height)
-                await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.3)
-
-            elif action_name == "drag":
-                start_coords = arguments.get("start_coordinates") or arguments.get("startCoordinates", [0, 0])
-                end_coords = arguments.get("coordinates") or arguments.get("endCoordinates", [0, 0])
-
-                start_x, start_y = denormalize_coordinates(start_coords, self.viewport_width, self.viewport_height)
-                end_x, end_y = denormalize_coordinates(end_coords, self.viewport_width, self.viewport_height)
-
-                await self._page.mouse.move(start_x, start_y)
-                await self._page.mouse.down()
-                await self._page.mouse.move(end_x, end_y)
-                await self._page.mouse.up()
-                await asyncio.sleep(0.5)
-
-            elif action_name in ("goto", "goto_url"):
-                url = arguments.get("url", "")
-                await self._page.goto(url)
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
-
-            elif action_name in ("back", "go_back"):
-                await self._page.go_back()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
-
-            elif action_name == "refresh":
-                await self._page.reload()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
-
-            elif action_name == "wait":
-                await asyncio.sleep(5)
-
-            elif action_name == "extract_content_and_links":
+            if action_name == "extract_content_and_links":
                 await self._wait_for_page_ready()
-                result = await self._extract_content_and_links_tool(self._page)
-                return result
+                return await self._extract_content_and_links_tool(self._page)
 
-            else:
+            if not await execute_n1_primitive_action(
+                self._page, action_name, arguments, self.viewport_width, self.viewport_height
+            ):
                 logger.warning(f"Unknown action: {action_name}")
                 return f"[ERROR] Unknown action: {action_name}"
 
