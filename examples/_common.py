@@ -12,7 +12,7 @@ from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from yutori.navigator import aplaywright_screenshot_to_data_url
+from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
@@ -88,6 +88,132 @@ def add_replay_arguments(parser: argparse.ArgumentParser, default_config) -> Non
         help="Optional directory for replay artifacts",
     )
     parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
+
+
+async def execute_n1_primitive_action(
+    page: Any,
+    action_name: str,
+    arguments: dict[str, Any],
+    viewport_width: int,
+    viewport_height: int,
+) -> bool:
+    """Execute one of Navigator n1's built-in browser actions on ``page``.
+
+    Shared by the n1 example agents that expose the full, unmodified n1
+    action vocabulary (``navigator_n1.py`` and ``navigator_n1_memo.py``);
+    ``navigator_n1_custom_tools.py`` intentionally supports only a trimmed
+    subset for tutorial purposes and ``navigator_n1_5.py`` targets a
+    different model with a different action vocabulary, so neither uses
+    this helper.
+
+    Returns True if ``action_name`` was recognized and executed, False
+    otherwise -- callers should treat False as "unknown action" (after first
+    checking their own custom tool names, if any). Exceptions raised by
+    Playwright calls propagate to the caller, which already wraps action
+    execution in its own try/except.
+    """
+    if action_name == "left_click":
+        coords = arguments.get("coordinates", [0, 0])
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        await page.mouse.click(abs_x, abs_y)
+        await asyncio.sleep(0.5)
+
+    elif action_name == "double_click":
+        coords = arguments.get("coordinates", [0, 0])
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        await page.mouse.dblclick(abs_x, abs_y)
+        await asyncio.sleep(0.5)
+
+    elif action_name == "right_click":
+        coords = arguments.get("coordinates", [0, 0])
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        await page.mouse.click(abs_x, abs_y, button="right")
+        await asyncio.sleep(0.5)
+
+    elif action_name == "triple_click":
+        coords = arguments.get("coordinates", [0, 0])
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        await page.mouse.click(abs_x, abs_y, click_count=3)
+        await asyncio.sleep(0.5)
+
+    elif action_name == "type":
+        text = arguments.get("text", "")
+        press_enter = arguments.get("press_enter_after", True)
+        clear_first = arguments.get("clear_before_typing", True)
+
+        if clear_first:
+            await page.keyboard.press("Control+a" if sys.platform != "darwin" else "Meta+a")
+            await page.keyboard.press("Backspace")
+
+        await page.keyboard.type(text)
+
+        if press_enter:
+            await page.keyboard.press("Enter")
+        await asyncio.sleep(0.5)
+
+    elif action_name in ("key", "key_press"):
+        key = arguments.get("key") or arguments.get("key_comb", "")
+        key = "+".join("ControlOrMeta" if k == "Meta" else k for k in key.split("+"))
+        await page.keyboard.press(key)
+        await asyncio.sleep(0.3)
+
+    elif action_name == "scroll":
+        coords = arguments.get("coordinates") or arguments.get("coordinate", [500, 500])
+        direction = arguments.get("direction", "down")
+        amount = arguments.get("amount", 3)
+
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        scroll_delta = amount * (viewport_height * 0.1)
+
+        delta_y = scroll_delta if direction == "down" else (-scroll_delta if direction == "up" else 0)
+        delta_x = scroll_delta if direction == "right" else (-scroll_delta if direction == "left" else 0)
+
+        await page.mouse.move(abs_x, abs_y)
+        await page.mouse.wheel(delta_x, delta_y)
+        await asyncio.sleep(0.5)
+
+    elif action_name == "hover":
+        coords = arguments.get("coordinates", [0, 0])
+        abs_x, abs_y = denormalize_coordinates(coords, viewport_width, viewport_height)
+        await page.mouse.move(abs_x, abs_y)
+        await asyncio.sleep(0.3)
+
+    elif action_name == "drag":
+        start_coords = arguments.get("start_coordinates") or arguments.get("startCoordinates", [0, 0])
+        end_coords = arguments.get("coordinates") or arguments.get("endCoordinates", [0, 0])
+
+        start_x, start_y = denormalize_coordinates(start_coords, viewport_width, viewport_height)
+        end_x, end_y = denormalize_coordinates(end_coords, viewport_width, viewport_height)
+
+        await page.mouse.move(start_x, start_y)
+        await page.mouse.down()
+        await page.mouse.move(end_x, end_y)
+        await page.mouse.up()
+        await asyncio.sleep(0.5)
+
+    elif action_name in ("goto", "goto_url"):
+        url = arguments.get("url", "")
+        await page.goto(url)
+        await page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(1)
+
+    elif action_name in ("back", "go_back"):
+        await page.go_back()
+        await page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(0.5)
+
+    elif action_name == "refresh":
+        await page.reload()
+        await page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(1)
+
+    elif action_name == "wait":
+        await asyncio.sleep(5)
+
+    else:
+        return False
+
+    return True
 
 
 class SupportsAgentRun(Protocol):
