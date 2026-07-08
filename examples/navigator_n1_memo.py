@@ -503,17 +503,9 @@ async def main():
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
-    agent = Agent(
-        base_url=config.base_url,
-        model=config.model,
-        temperature=config.temperature,
-        max_steps=config.max_steps,
-        viewport_width=config.viewport_width,
-        viewport_height=config.viewport_height,
-        headless=config.headless,
-        replay_dir=config.replay_dir,
-        replay_id=config.replay_id,
-    )
+    # Config's fields (other than task/start_url, which go to agent.run()) map
+    # 1:1 onto Agent's constructor kwargs by name.
+    agent = Agent(**config.model_dump(exclude={"task", "start_url"}))
 
     result = await agent.run(config.task, config.start_url)
     logger.info(f"Final result: {result or '(No final response from model)'}")
