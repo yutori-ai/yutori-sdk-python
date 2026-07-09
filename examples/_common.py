@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+from openai.types.chat import ChatCompletion
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
@@ -256,7 +257,10 @@ class SupportsBrowserAgentState(Protocol):
     _page_ready_checker: PageReadyChecker
     _replay: TrajectoryRecorder | None
     _messages: list
+    _message_index: int
     _step_payloads: list[dict]
+
+    async def _call_llm_with_retries(self) -> ChatCompletion: ...
 
 
 class BrowserAgentMixin:
@@ -268,13 +272,15 @@ class BrowserAgentMixin:
     These methods, however, are identical boilerplate across all of
     them -- launching/closing the browser, taking a screenshot, waiting for
     page readiness, clipping image URLs for log output, formatting messages
-    for log output, and persisting optional replay artifacts -- so they live
+    for log output, building the next model request from the latest
+    screenshot, and persisting optional replay artifacts -- so they live
     here once instead of being copy-pasted into every script.
 
-    ``navigator_n1_5.py`` defines its own ``_format_message_for_log`` (a
-    differently-styled but behaviorally-equivalent implementation) and so
-    overrides this mixin's version via normal MRO -- it is intentionally not
-    part of this mechanical extraction.
+    ``navigator_n1_5.py`` defines its own ``_format_message_for_log`` and
+    ``_predict`` (differently-styled/shaped implementations, since it targets
+    a different model with a different action vocabulary) and so overrides
+    this mixin's versions via normal MRO -- it is intentionally not part of
+    this mechanical extraction.
     """
 
     async def _init_browser(self: SupportsBrowserAgentState, playwright) -> None:
@@ -300,6 +306,26 @@ class BrowserAgentMixin:
     async def _wait_for_page_ready(self: SupportsBrowserAgentState, fast_mode: bool = False) -> None:
         if not await self._page_ready_checker.wait_until_ready(self._page, fast_mode=fast_mode):
             logger.warning(f"Page did not fully stabilize before continuing: {self._page.url}")
+
+    async def _predict(self: SupportsBrowserAgentState) -> ChatCompletion:
+        screenshot_url = await self._take_screenshot()
+        current_url = self._page.url
+
+        last_content = self._messages[-1]["content"]
+        if len(last_content) == 0:
+            last_content.append({"type": "text", "text": f"Current URL: {current_url}"})
+        last_content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": screenshot_url, "detail": "high"},
+            }
+        )
+
+        for i in range(self._message_index, len(self._messages)):
+            logger.info(f"Message: {self._format_message_for_log(self._messages[i])}")
+
+        response = await self._call_llm_with_retries()
+        return response.choices[0].message
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         # Delegates to the canonical implementation in yutori.navigator.replay, passing

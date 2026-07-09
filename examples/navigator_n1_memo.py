@@ -330,25 +330,7 @@ class Agent(BrowserAgentMixin):
         )
         return response
 
-    async def _predict(self) -> ChatCompletion:
-        screenshot_url = await self._take_screenshot()
-        current_url = self._page.url
-
-        last_content = self._messages[-1]["content"]
-        if len(last_content) == 0:
-            last_content.append({"type": "text", "text": f"Current URL: {current_url}"})
-        last_content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": screenshot_url, "detail": "high"},
-            }
-        )
-
-        for i in range(self._message_index, len(self._messages)):
-            logger.info(f"Message: {self._format_message_for_log(self._messages[i])}")
-
-        response = await self._call_llm_with_retries()
-        return response.choices[0].message
+    # _predict() is inherited from BrowserAgentMixin (identical across the n1 examples).
 
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
         # Returns (should_exit, result)
