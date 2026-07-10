@@ -11,12 +11,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
+from .conftest import require_examples_extra
 
-# examples/_common.py pulls in the optional "examples" extra (loguru, openai, tenacity)
-# which isn't installed by the `.[dev]`-only CI test job; skip cleanly rather than
-# erroring on collection when it's unavailable.
-pytest.importorskip("loguru")
+require_examples_extra()
 from examples._common import BrowserAgentMixin  # noqa: E402
 
 

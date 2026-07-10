@@ -17,10 +17,9 @@ import pytest
 
 from yutori.navigator.replay import _clip_image_url as replay_clip_image_url
 
-# examples/_common.py pulls in the optional "examples" extra (loguru, openai, tenacity)
-# which isn't installed by the `.[dev]`-only CI test job; skip cleanly rather than
-# erroring on collection when it's unavailable.
-pytest.importorskip("loguru")
+from .conftest import require_examples_extra
+
+require_examples_extra()
 from examples._common import BrowserAgentMixin  # noqa: E402
 
 _mixin = BrowserAgentMixin()
