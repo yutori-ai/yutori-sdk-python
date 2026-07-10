@@ -9,6 +9,7 @@ from rich.console import Console
 
 from yutori.auth.credentials import _is_real_key, clear_config, get_stored_api_key, load_config
 from yutori.auth.flow import get_auth_status, run_login_flow
+from yutori.auth.types import REGISTRATION_STATE_MESSAGES
 from yutori.cli.commands import safe_str
 
 app = typer.Typer(help="Manage authentication")
@@ -16,10 +17,9 @@ console = Console()
 
 
 def _print_registration_state(state: str) -> None:
-    if state == "creating_account":
-        console.print("[dim]Creating account...[/dim]")
-    else:
-        console.print("[dim]Logging in...[/dim]")
+    # Unrecognized states fall back to "Logging in..." (matches prior behavior).
+    message = REGISTRATION_STATE_MESSAGES.get(state, REGISTRATION_STATE_MESSAGES["logging_in"])  # type: ignore[arg-type]
+    console.print(f"[dim]{message}[/dim]")
 
 
 @app.command()
