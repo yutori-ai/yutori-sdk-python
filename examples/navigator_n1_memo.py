@@ -24,7 +24,6 @@ Usage:
         --start-url "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
 """
 
-import argparse
 import asyncio
 import json
 import os
@@ -33,11 +32,7 @@ from functools import cached_property
 
 from _common import (
     BrowserAgentMixin,
-    add_agent_arguments,
-    add_browser_arguments,
-    add_model_arguments,
-    add_replay_arguments,
-    add_task_arguments,
+    build_agent_arg_parser,
     configure_example_logging,
     execute_n1_primitive_action,
     llm_retry,
@@ -379,14 +374,11 @@ async def main():
     configure_example_logging()
 
     default_config = Config()
-    parser = argparse.ArgumentParser(
-        description="Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task"
+    parser = build_agent_arg_parser(
+        "Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task",
+        default_config,
+        api_label="Yutori Navigator n1",
     )
-    add_task_arguments(parser, default_config)
-    add_model_arguments(parser, default_config, api_label="Yutori Navigator n1")
-    add_agent_arguments(parser, default_config)
-    add_browser_arguments(parser, default_config)
-    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
