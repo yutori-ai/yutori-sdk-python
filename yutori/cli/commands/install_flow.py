@@ -39,7 +39,7 @@ from rich.table import Table
 
 from yutori.auth.credentials import resolve_api_key
 from yutori.auth.flow import get_auth_status, run_login_flow
-from yutori.auth.types import AuthStatus
+from yutori.auth.types import REGISTRATION_STATE_MESSAGES, AuthStatus
 from yutori.cli.commands import truncate_for_display
 
 BRAND_MINT = "#1DCD98"
@@ -131,7 +131,7 @@ RETURNCODE_EXEC_FAILED = 127  # POSIX "command not found"
 RETURNCODE_CANCELLED = 130  # POSIX SIGINT (128 + 2)
 
 StepStatus = Literal["success", "skipped", "failed"]
-RegistrationState = Literal["creating_account", "logging_in"]
+# RegistrationState is imported from yutori.auth.types, shared with yutori/cli/commands/auth.py.
 
 STATUS_LABELS: dict[StepStatus, tuple[str, str]] = {
     "success": ("OK", BRAND_MINT),
@@ -815,13 +815,8 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
         if not ask_confirm(console, "Log in to Yutori now?", default=True):
             return StepResult("Auth", "skipped", "Authentication was skipped."), False
 
-        messages: dict[RegistrationState, str] = {
-            "creating_account": "Creating account...",
-            "logging_in": "Logging in...",
-        }
-
         def on_registration_state(state: str) -> None:
-            message = messages.get(state, state)  # type: ignore[arg-type]
+            message = REGISTRATION_STATE_MESSAGES.get(state, state)  # type: ignore[arg-type]
             console.print(_slate_line(message))
 
         result = run_login_flow(on_registration_state=on_registration_state)

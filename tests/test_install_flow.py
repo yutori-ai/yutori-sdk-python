@@ -622,6 +622,46 @@ def test_maybe_authenticate_noninteractive_skips_without_calling_flow():
     mock_flow.assert_not_called()
 
 
+def test_maybe_authenticate_prints_creating_account_message():
+    # Characterizes the on_registration_state callback wired up inside
+    # maybe_authenticate, which shares its message text with
+    # yutori/cli/commands/auth.py::_print_registration_state via
+    # yutori.auth.types.REGISTRATION_STATE_MESSAGES.
+    def fake_run_login_flow(*args, **kwargs):
+        kwargs["on_registration_state"]("creating_account")
+        return LoginResult(success=True, api_key="yt-new-key")
+
+    console = Console(record=True, width=120)
+    with (
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_login_flow", side_effect=fake_run_login_flow),
+    ):
+        result, authenticated = maybe_authenticate(console, interactive=True)
+
+    assert authenticated is True
+    assert result.status == "success"
+    assert "Creating account..." in console.export_text()
+
+
+def test_maybe_authenticate_prints_logging_in_message():
+    def fake_run_login_flow(*args, **kwargs):
+        kwargs["on_registration_state"]("logging_in")
+        return LoginResult(success=True, api_key="yt-existing-key")
+
+    console = Console(record=True, width=120)
+    with (
+        patch("yutori.cli.commands.install_flow.resolve_api_key", return_value=None),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
+        patch("yutori.cli.commands.install_flow.run_login_flow", side_effect=fake_run_login_flow),
+    ):
+        result, authenticated = maybe_authenticate(console, interactive=True)
+
+    assert authenticated is True
+    assert result.status == "success"
+    assert "Logging in..." in console.export_text()
+
+
 # ---------------------------------------------------------------------------
 # inspect_cli_install direct tests
 # ---------------------------------------------------------------------------
