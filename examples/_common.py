@@ -91,6 +91,32 @@ def add_replay_arguments(parser: argparse.ArgumentParser, default_config) -> Non
     parser.add_argument("--replay-id", default=default_config.replay_id, help="Optional replay run id")
 
 
+def build_agent_arg_parser(
+    description: str,
+    default_config: Any,
+    *,
+    api_label: str,
+    include_payload_trim: bool = False,
+) -> argparse.ArgumentParser:
+    """Build the task/model/agent/browser/replay parser shared by the n1 example scripts' ``main()``.
+
+    ``navigator_n1.py``, ``navigator_n1_memo.py``, and ``navigator_n1_custom_tools.py``
+    previously each assembled this same argument list by hand (identical except for
+    ``navigator_n1.py``'s extra payload-trim arguments, toggled here via
+    ``include_payload_trim``). ``navigator_n1_5.py`` adds its own tool-set/json-schema
+    arguments on top of a differently-ordered base set and builds its parser directly.
+    """
+    parser = argparse.ArgumentParser(description=description)
+    add_task_arguments(parser, default_config)
+    add_model_arguments(parser, default_config, api_label=api_label)
+    add_agent_arguments(parser, default_config)
+    add_browser_arguments(parser, default_config)
+    if include_payload_trim:
+        add_payload_trim_arguments(parser, default_config)
+    add_replay_arguments(parser, default_config)
+    return parser
+
+
 def _click_coordinates(
     arguments: dict[str, Any],
     viewport_width: int,

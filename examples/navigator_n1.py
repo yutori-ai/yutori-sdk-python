@@ -21,18 +21,12 @@ Usage:
     uv run python examples/navigator_n1.py --task "List the team member names" --start-url "https://www.yutori.com"
 """
 
-import argparse
 import asyncio
 import json
 
 from _common import (
     BrowserAgentMixin,
-    add_agent_arguments,
-    add_browser_arguments,
-    add_model_arguments,
-    add_payload_trim_arguments,
-    add_replay_arguments,
-    add_task_arguments,
+    build_agent_arg_parser,
     configure_example_logging,
     execute_n1_primitive_action,
     llm_retry,
@@ -260,15 +254,12 @@ async def main():
     configure_example_logging()
 
     default_config = Config()
-    parser = argparse.ArgumentParser(
-        description="Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task"
+    parser = build_agent_arg_parser(
+        "Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task",
+        default_config,
+        api_label="Yutori Navigator n1",
+        include_payload_trim=True,
     )
-    add_task_arguments(parser, default_config)
-    add_model_arguments(parser, default_config, api_label="Yutori Navigator n1")
-    add_agent_arguments(parser, default_config)
-    add_browser_arguments(parser, default_config)
-    add_payload_trim_arguments(parser, default_config)
-    add_replay_arguments(parser, default_config)
     args = parser.parse_args()
     config = Config.model_validate(vars(args))
 
