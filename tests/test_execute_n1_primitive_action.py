@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, call
 
-import pytest
+from .conftest import require_examples_extra
 
-pytest.importorskip("loguru")
+require_examples_extra()
 from examples._common import execute_n1_primitive_action  # noqa: E402
 from yutori.navigator import denormalize_coordinates  # noqa: E402
 
