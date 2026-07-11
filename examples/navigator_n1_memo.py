@@ -29,16 +29,15 @@ import json
 import os
 from datetime import datetime, timezone
 from functools import cached_property
+from typing import Any
 
 from _common import (
     BrowserAgentMixin,
-    execute_n1_primitive_action,
     llm_retry,
     run_example_main,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
-from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from pydantic import BaseModel, Field
 
 from yutori.config import DEFAULT_BASE_URL
@@ -235,50 +234,26 @@ class Agent(BrowserAgentMixin):
         )
         return response
 
-    # _predict() is inherited from BrowserAgentMixin (identical across the n1 examples).
+    # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
+    # n1 examples).
 
-    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
-        # Returns (should_exit, result)
-        action_name = tool_call.function.name
+    async def _dispatch_custom_tool(
+        self, action_name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, str | None] | None:
+        if action_name == "add_question":
+            result = await self._memo_tool_suite.add_question(**arguments)
+            return False, result
 
-        try:
-            arguments = json.loads(tool_call.function.arguments)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
-            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+        if action_name == "add_options":
+            result = await self._memo_tool_suite.add_options(**arguments)
+            return False, result
 
-        try:
-            if action_name == "add_question":
-                result = await self._memo_tool_suite.add_question(**arguments)
-                return False, result
+        if action_name == "list_records":
+            result = await self._memo_tool_suite.list_records()
+            logger.info("Task completed (`list_records` tool called)")
+            return True, result
 
-            elif action_name == "add_options":
-                result = await self._memo_tool_suite.add_options(**arguments)
-                return False, result
-
-            elif action_name == "list_records":
-                result = await self._memo_tool_suite.list_records()
-                logger.info("Task completed (`list_records` tool called)")
-                return True, result
-
-            if not await execute_n1_primitive_action(
-                self._page, action_name, arguments, self.viewport_width, self.viewport_height
-            ):
-                logger.warning(f"Unknown action: {action_name}")
-                return False, f"[ERROR] Unknown action: {action_name}"
-
-            # Wait for any navigation or dynamic content
-            try:
-                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except Exception:
-                pass
-            await self._wait_for_page_ready()
-
-        except Exception as e:
-            logger.error(f"Error executing {action_name}: {e}")
-            return False, f"[ERROR] Error executing {action_name}: {e}"
-
-        return False, None
+        return None
 
 
 async def main():
