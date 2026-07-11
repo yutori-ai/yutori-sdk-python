@@ -33,7 +33,6 @@ from typing import Any
 
 from _common import (
     BrowserAgentMixin,
-    llm_retry,
     run_example_main,
 )
 from loguru import logger
@@ -42,7 +41,6 @@ from pydantic import BaseModel, Field
 
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
-from yutori.navigator.replay import sanitize_step_payload  # Optional replay helpers.
 
 
 class Config(BaseModel):
@@ -204,35 +202,8 @@ class Agent(BrowserAgentMixin):
     async def run(self, task: str, start_url: str) -> str:
         return await self._run_with_browser_lifecycle(task, start_url, replay_prefix="navigator_memo")
 
-    @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        # This copy is only for replay output; the request itself just uses the same fields directly.
-        request_payload = {
-            "model": self.model,
-            "messages": self._messages,
-            "temperature": self.temperature,
-            "tools": self._memo_tool_suite.input_schemas,
-        }
-        response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model,
-                messages=self._messages,
-                temperature=self.temperature,
-                tools=self._memo_tool_suite.input_schemas,  # add custom tools here
-            ),
-            timeout=120.0,  # 2 minutes
-        )
-        # Replay output records the sanitized raw request/response pair for this step.
-        self._step_payloads.append(
-            sanitize_step_payload(
-                {
-                    "step_num": self._step_count,
-                    "request": request_payload,
-                    "response": response.model_dump(exclude_none=True),
-                }
-            )
-        )
-        return response
+        return await self._call_llm_with_tools(self._memo_tool_suite.input_schemas)
 
     # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
     # n1 examples).
