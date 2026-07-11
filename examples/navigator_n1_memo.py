@@ -222,41 +222,7 @@ class Agent(BrowserAgentMixin):
                 await self._page.wait_for_load_state("domcontentloaded")
                 await self._wait_for_page_ready()
 
-                while self._step_count < self.max_steps:
-                    self._step_count += 1
-                    logger.debug(f"Step {self._step_count}, URL: {self._page.url}")
-
-                    response = await self._predict()
-
-                    # Log raw model prediction
-                    logger.info(f"Response: {response}")
-
-                    # Store the assistant's response
-                    self._messages.append(response.model_dump(exclude_none=True))
-                    self._message_index = len(self._messages)
-                    await self._persist_replay()
-
-                    if response.content:
-                        final_response = response.content
-
-                    # Stop when there are no tool calls
-                    if not response.tool_calls:
-                        logger.info("Task completed (no more tool calls)")
-                        break
-
-                    # Execute the action(s)
-                    for tool_call in response.tool_calls:
-                        should_exit, result = await self._execute(tool_call)
-                        if should_exit:
-                            await self._persist_replay()
-                            logger.info("Task completed (`list_records` tool called)")
-                            return result
-                        content = [{"type": "text", "text": result}] if result else []
-                        self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
-                    await self._persist_replay()
-
-                if self._step_count >= self.max_steps:
-                    logger.warning(f"Reached maximum steps ({self.max_steps})")
+                final_response = await self._run_agent_loop()
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
@@ -319,6 +285,7 @@ class Agent(BrowserAgentMixin):
 
             elif action_name == "list_records":
                 result = await self._memo_tool_suite.list_records()
+                logger.info("Task completed (`list_records` tool called)")
                 return True, result
 
             if not await execute_n1_primitive_action(

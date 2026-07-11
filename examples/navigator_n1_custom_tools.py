@@ -176,37 +176,7 @@ class Agent(BrowserAgentMixin):
                 await self._page.wait_for_load_state("domcontentloaded")
                 await self._wait_for_page_ready()
 
-                while self._step_count < self.max_steps:
-                    self._step_count += 1
-                    logger.debug(f"Step {self._step_count}, URL: {self._page.url}")
-
-                    response = await self._predict()
-
-                    # Log raw model prediction
-                    logger.info(f"Response: {response}")
-
-                    # Store the assistant's response
-                    self._messages.append(response.model_dump(exclude_none=True))
-                    self._message_index = len(self._messages)
-                    await self._persist_replay()
-
-                    if response.content:
-                        final_response = response.content
-
-                    # Stop when there are no tool calls
-                    if not response.tool_calls:
-                        logger.info("Task completed (no more tool calls)")
-                        break
-
-                    # Execute the action(s)
-                    for tool_call in response.tool_calls:
-                        result = await self._execute(tool_call)
-                        content = [{"type": "text", "text": result}] if result else []
-                        self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
-                    await self._persist_replay()
-
-                if self._step_count >= self.max_steps:
-                    logger.warning(f"Reached maximum steps ({self.max_steps})")
+                final_response = await self._run_agent_loop()
 
             except KeyboardInterrupt:
                 logger.info("Interrupted by user")
@@ -248,25 +218,25 @@ class Agent(BrowserAgentMixin):
 
     # _predict() is inherited from BrowserAgentMixin (identical across the n1 examples).
 
-    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
+    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
         action_name = tool_call.function.name
 
         try:
             arguments = json.loads(tool_call.function.arguments)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
-            return f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
 
         try:
             if action_name == "extract_content_and_links":
                 await self._wait_for_page_ready()
-                return await self._extract_content_and_links_tool(self._page)
+                return False, await self._extract_content_and_links_tool(self._page)
 
             if not await execute_n1_primitive_action(
                 self._page, action_name, arguments, self.viewport_width, self.viewport_height
             ):
                 logger.warning(f"Unknown action: {action_name}")
-                return f"[ERROR] Unknown action: {action_name}"
+                return False, f"[ERROR] Unknown action: {action_name}"
 
             # Wait for any navigation or dynamic content
             try:
@@ -277,7 +247,9 @@ class Agent(BrowserAgentMixin):
 
         except Exception as e:
             logger.error(f"Error executing {action_name}: {e}")
-            return f"[ERROR] Error executing {action_name}: {e}"
+            return False, f"[ERROR] Error executing {action_name}: {e}"
+
+        return False, None
 
 
 async def main():
