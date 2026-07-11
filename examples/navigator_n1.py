@@ -35,15 +35,14 @@ from _common import (
 from loguru import logger
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-from playwright.async_api import Browser, Page, async_playwright
+from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
 
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.loop import update_trimmed_history
-from yutori.navigator.page_ready import PageReadyChecker
-from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload  # Optional replay helpers.
+from yutori.navigator.replay import sanitize_step_payload  # Optional replay helpers.
 
 
 class Config(BaseModel):
@@ -95,42 +94,14 @@ class Agent(BrowserAgentMixin):
         self.replay_dir = replay_dir
         self.replay_id = replay_id
 
-        self._client: AsyncYutoriClient | None = None
-        self._browser: Browser | None = None
-        self._page: Page | None = None
-        self._page_ready_checker = PageReadyChecker(
-            timeout=30,
-            initial_wait=2.0,
-            wait_after_ready=1.0,
-            replace_native_select_dropdown=True,
-            disable_new_tabs=True,
-            disable_printing=True,
-        )
-        # Replay bookkeeping is optional and only used when writing local artifacts.
-        self._replay: TrajectoryRecorder | None = None
-        self._messages: list = []
+        self._init_agent_state()
         self._request_messages: list | None = None
-        # Stored only so the replay viewer can show raw request/response JSON per step.
-        self._step_payloads: list[dict] = []
-        self._step_count = 0
 
     async def run(self, task: str, start_url: str) -> str:
-        logger.info(f"Task: {task}")
-        logger.info(f"Starting URL: {start_url}")
-
-        self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
-        self._message_index = 0
-        self._step_count = 0
+        self._start_run(task, start_url, replay_prefix="n1")
         self._request_messages = None
-        self._step_payloads = []
-        self._replay = None
 
         final_response = ""
-        # Replay output is opt-in; the loop still works without any of this.
-        if self.replay_dir:
-            replay_id = self.replay_id or make_run_id(prefix="n1", label=task)
-            self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
-            logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
         async with (
             AsyncYutoriClient(base_url=self.base_url) as client,
