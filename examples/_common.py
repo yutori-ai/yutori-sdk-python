@@ -18,7 +18,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from yutori import AsyncYutoriClient
 from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
-from yutori.navigator.replay import TrajectoryRecorder, make_run_id
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
@@ -317,6 +317,8 @@ class SupportsBrowserAgentState(Protocol):
     replay_dir: str | None
     replay_id: str | None
     max_steps: int
+    model: str
+    temperature: float
     _client: Any
     _browser: Any
     _page: Any
@@ -574,6 +576,46 @@ class BrowserAgentMixin:
 
         response = await self._call_llm_with_retries()
         return response.choices[0].message
+
+    @llm_retry
+    async def _call_llm_with_tools(self: SupportsBrowserAgentState, tools: list[dict]) -> ChatCompletion:
+        """Call the model with a fixed ``tools`` list -- the shared body of ``_call_llm_with_retries``.
+
+        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` each defined a
+        ``_call_llm_with_retries`` that was byte-for-byte identical to this one, differing
+        only in the (fixed, non-trimmed) ``tools`` list passed to the chat completions call.
+        Each now delegates here with its own tool-schema list. ``navigator_n1.py`` and
+        ``navigator_n1_5.py`` additionally trim message history and pass model-specific
+        fields (``tool_set``/``disable_tools``/``json_schema``), so they keep their own
+        ``_call_llm_with_retries`` instead of using this helper.
+        """
+        # This copy is only for replay output; the request itself just uses the same fields directly.
+        request_payload = {
+            "model": self.model,
+            "messages": self._messages,
+            "temperature": self.temperature,
+            "tools": tools,
+        }
+        response = await asyncio.wait_for(
+            self._client.chat.completions.create(
+                model=self.model,
+                messages=self._messages,
+                temperature=self.temperature,
+                tools=tools,
+            ),
+            timeout=120.0,  # 2 minutes
+        )
+        # Replay output records the sanitized raw request/response pair for this step.
+        self._step_payloads.append(
+            sanitize_step_payload(
+                {
+                    "step_num": self._step_count,
+                    "request": request_payload,
+                    "response": response.model_dump(exclude_none=True),
+                }
+            )
+        )
+        return response
 
     async def _dispatch_custom_tool(
         self, action_name: str, arguments: dict[str, Any]
