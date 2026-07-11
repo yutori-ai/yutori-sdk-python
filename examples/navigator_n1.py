@@ -26,11 +26,9 @@ import json
 
 from _common import (
     BrowserAgentMixin,
-    build_agent_arg_parser,
-    configure_example_logging,
     execute_n1_primitive_action,
     llm_retry,
-    run_example_agent,
+    run_example_main,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
@@ -194,19 +192,13 @@ class Agent(BrowserAgentMixin):
 
 
 async def main():
-    configure_example_logging()
-
-    default_config = Config()
-    parser = build_agent_arg_parser(
+    await run_example_main(
+        Config,
         "Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task",
-        default_config,
         api_label="Yutori Navigator n1",
+        agent_cls=Agent,
         include_payload_trim=True,
     )
-    args = parser.parse_args()
-    config = Config.model_validate(vars(args))
-
-    await run_example_agent(Agent, config)
 
 
 if __name__ == "__main__":

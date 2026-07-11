@@ -268,6 +268,38 @@ async def run_example_agent(agent_cls: Callable[..., SupportsAgentRun], config: 
     return result
 
 
+async def run_example_main(
+    config_cls: Callable[[], Any],
+    description: str,
+    *,
+    api_label: str,
+    agent_cls: Callable[..., SupportsAgentRun],
+    include_payload_trim: bool = False,
+) -> None:
+    """Configure logging, parse CLI args, and run ``agent_cls`` -- the shared ``main()`` body.
+
+    ``navigator_n1.py``, ``navigator_n1_custom_tools.py``, and ``navigator_n1_memo.py`` each
+    defined this same configure/build-parser/parse/validate/run sequence in their own
+    ``main()`` (``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` were
+    byte-for-byte identical; ``navigator_n1.py`` differs only by passing
+    ``include_payload_trim=True``). ``navigator_n1_5.py`` builds its parser directly with
+    extra tool-set/json-schema/timezone/location arguments, so it keeps its own ``main()``.
+    """
+    configure_example_logging()
+
+    default_config = config_cls()
+    parser = build_agent_arg_parser(
+        description,
+        default_config,
+        api_label=api_label,
+        include_payload_trim=include_payload_trim,
+    )
+    args = parser.parse_args()
+    config = config_cls.model_validate(vars(args))
+
+    await run_example_agent(agent_cls, config)
+
+
 class SupportsBrowserAgentState(Protocol):
     """Instance attributes :class:`BrowserAgentMixin` methods expect from ``self``.
 
