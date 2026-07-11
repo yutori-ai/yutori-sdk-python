@@ -11,8 +11,10 @@ from typing import Any, Protocol
 from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
+from playwright.async_api import async_playwright
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from yutori import AsyncYutoriClient
 from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id
@@ -307,6 +309,7 @@ class SupportsBrowserAgentState(Protocol):
     or replay-persistence methods below are called.
     """
 
+    base_url: str
     headless: bool
     viewport_width: int
     viewport_height: int
@@ -352,6 +355,11 @@ class BrowserAgentMixin:
     (browser handles, the ``PageReadyChecker``, and per-run message/replay
     setup); every ``Agent.__init__``/``run()`` still has its own model- and
     tool-specific setup around these calls.
+
+    ``_run_with_browser_lifecycle`` covers the entire ``run()`` body -- opening
+    the client/browser, navigating, running :meth:`_run_agent_loop`, and
+    cleanup -- shared verbatim by ``navigator_n1.py``, ``navigator_n1_custom_tools.py``,
+    and ``navigator_n1_memo.py``; ``navigator_n1_5.py`` keeps its own ``run()``.
     """
 
     def _init_agent_state(self: SupportsBrowserAgentState) -> None:
@@ -466,6 +474,50 @@ class BrowserAgentMixin:
 
         if self._step_count >= self.max_steps:
             logger.warning(f"Reached maximum steps ({self.max_steps})")
+
+        return final_response
+
+    async def _run_with_browser_lifecycle(
+        self: SupportsBrowserAgentState,
+        task: str,
+        start_url: str,
+        *,
+        replay_prefix: str,
+    ) -> str:
+        """Run a full task: start the run, open the client/browser, and loop until done.
+
+        ``navigator_n1.py``, ``navigator_n1_custom_tools.py``, and ``navigator_n1_memo.py``
+        each carried a byte-for-byte identical ``run()`` body (open ``AsyncYutoriClient`` +
+        Playwright, launch the browser, navigate to ``start_url``, run
+        :meth:`_run_agent_loop`, and clean up in ``finally``), differing only in the
+        ``replay_prefix`` passed to :meth:`_start_run`. ``navigator_n1.py`` additionally
+        resets ``self._request_messages`` for payload trimming -- callers that need that
+        do so themselves before calling this. ``navigator_n1_5.py`` diverges right after
+        page-ready (stop-and-summarize handling, an extra ``except Exception`` branch,
+        URL-suffixed tool results) and keeps its own ``run()``.
+        """
+        self._start_run(task, start_url, replay_prefix=replay_prefix)
+
+        final_response = ""
+
+        async with (
+            AsyncYutoriClient(base_url=self.base_url) as client,
+            async_playwright() as playwright,
+        ):
+            try:
+                self._client = client
+                await self._init_browser(playwright)
+                await self._page.goto(start_url)
+                await self._page.wait_for_load_state("domcontentloaded")
+                await self._wait_for_page_ready()
+
+                final_response = await self._run_agent_loop()
+
+            except KeyboardInterrupt:
+                logger.info("Interrupted by user")
+            finally:
+                await self._persist_replay()
+                await self._close_browser()
 
         return final_response
 

@@ -35,10 +35,9 @@ from _common import (
 from loguru import logger
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
 from pydantic import BaseModel, Field
 
-from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.replay import sanitize_step_payload  # Optional replay helpers.
@@ -159,30 +158,7 @@ class Agent(BrowserAgentMixin):
         self._extract_content_and_links_tool = ExtractContentAndLinksTool()
 
     async def run(self, task: str, start_url: str) -> str:
-        self._start_run(task, start_url, replay_prefix="n1_custom")
-
-        final_response = ""
-
-        async with (
-            AsyncYutoriClient(base_url=self.base_url) as client,
-            async_playwright() as playwright,
-        ):
-            try:
-                self._client = client
-                await self._init_browser(playwright)
-                await self._page.goto(start_url)
-                await self._page.wait_for_load_state("domcontentloaded")
-                await self._wait_for_page_ready()
-
-                final_response = await self._run_agent_loop()
-
-            except KeyboardInterrupt:
-                logger.info("Interrupted by user")
-            finally:
-                await self._persist_replay()
-                await self._close_browser()
-
-        return final_response
+        return await self._run_with_browser_lifecycle(task, start_url, replay_prefix="n1_custom")
 
     @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
