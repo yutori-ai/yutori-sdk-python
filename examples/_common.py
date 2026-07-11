@@ -280,6 +280,7 @@ class SupportsBrowserAgentState(Protocol):
     viewport_height: int
     replay_dir: str | None
     replay_id: str | None
+    max_steps: int
     _client: Any
     _browser: Any
     _page: Any
@@ -291,6 +292,8 @@ class SupportsBrowserAgentState(Protocol):
     _step_payloads: list[dict]
 
     async def _call_llm_with_retries(self) -> ChatCompletion: ...
+
+    async def _execute(self, tool_call: Any) -> tuple[bool, str | None]: ...
 
 
 class BrowserAgentMixin:
@@ -381,6 +384,58 @@ class BrowserAgentMixin:
             replay_id = self.replay_id or make_run_id(prefix=replay_prefix, label=task)
             self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
             logger.info(f"Replay artifacts: {self._replay.item_dir}")
+
+    async def _run_agent_loop(self: SupportsBrowserAgentState) -> str:
+        """Run the predict -> execute step loop shared by every example ``Agent.run()``.
+
+        ``navigator_n1.py``, ``navigator_n1_custom_tools.py``, and ``navigator_n1_memo.py``
+        each carried a byte-for-byte identical version of this loop; only ``navigator_n1_5.py``
+        diverges (it stop-and-summarizes on interruption/exception/step-limit and appends a URL
+        suffix to each tool result), so it keeps its own ``run()`` loop instead of using this.
+
+        Every caller's ``_execute(tool_call)`` must return ``(should_exit, result)``:
+        ``should_exit=True`` ends the run immediately with ``result`` as the final response
+        (used by ``navigator_n1_memo.py``'s ``list_records`` tool); the other two scripts'
+        ``_execute`` always return ``should_exit=False``.
+        """
+        final_response = ""
+
+        while self._step_count < self.max_steps:
+            self._step_count += 1
+            logger.debug(f"Step {self._step_count}, URL: {self._page.url}")
+
+            response = await self._predict()
+
+            # Log raw model prediction
+            logger.info(f"Response: {response}")
+
+            # Store the assistant's response
+            self._messages.append(response.model_dump(exclude_none=True))
+            self._message_index = len(self._messages)
+            await self._persist_replay()
+
+            if response.content:
+                final_response = response.content
+
+            # Stop when there are no tool calls
+            if not response.tool_calls:
+                logger.info("Task completed (no more tool calls)")
+                break
+
+            # Execute the action(s)
+            for tool_call in response.tool_calls:
+                should_exit, result = await self._execute(tool_call)
+                if should_exit:
+                    await self._persist_replay()
+                    return result
+                content = [{"type": "text", "text": result}] if result else []
+                self._messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
+            await self._persist_replay()
+
+        if self._step_count >= self.max_steps:
+            logger.warning(f"Reached maximum steps ({self.max_steps})")
+
+        return final_response
 
     async def _init_browser(self: SupportsBrowserAgentState, playwright) -> None:
         self._browser = await playwright.chromium.launch(headless=self.headless)
