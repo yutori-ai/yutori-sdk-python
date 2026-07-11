@@ -15,7 +15,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
-from yutori.navigator.replay import TrajectoryRecorder
+from yutori.navigator.replay import TrajectoryRecorder, make_run_id
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
@@ -278,12 +278,16 @@ class SupportsBrowserAgentState(Protocol):
     headless: bool
     viewport_width: int
     viewport_height: int
+    replay_dir: str | None
+    replay_id: str | None
+    _client: Any
     _browser: Any
     _page: Any
     _page_ready_checker: PageReadyChecker
     _replay: TrajectoryRecorder | None
     _messages: list
     _message_index: int
+    _step_count: int
     _step_payloads: list[dict]
 
     async def _call_llm_with_retries(self) -> ChatCompletion: ...
@@ -307,7 +311,76 @@ class BrowserAgentMixin:
     a different model with a different action vocabulary) and so overrides
     this mixin's versions via normal MRO -- it is intentionally not part of
     this mechanical extraction.
+
+    ``_init_agent_state`` and ``_start_run`` cover the ``__init__``/``run()``
+    bookkeeping that was also duplicated verbatim across all four scripts
+    (browser handles, the ``PageReadyChecker``, and per-run message/replay
+    setup); every ``Agent.__init__``/``run()`` still has its own model- and
+    tool-specific setup around these calls.
     """
+
+    def _init_agent_state(self: SupportsBrowserAgentState) -> None:
+        """Initialize the browser/replay/message bookkeeping shared by every example ``Agent.__init__``.
+
+        Each script's ``__init__`` set this same block of instance state --
+        browser/page handles, the ``PageReadyChecker``, and replay/message
+        bookkeeping -- verbatim after assigning its own constructor kwargs.
+        ``navigator_n1.py`` and ``navigator_n1_5.py`` additionally set
+        ``self._request_messages = None`` for payload trimming right after
+        calling this; that attribute isn't part of the shared state since
+        ``navigator_n1_custom_tools.py``/``navigator_n1_memo.py`` never read it.
+        """
+        self._client = None
+        self._browser = None
+        self._page = None
+        self._page_ready_checker = PageReadyChecker(
+            timeout=30,
+            initial_wait=2.0,
+            wait_after_ready=1.0,
+            replace_native_select_dropdown=True,
+            disable_new_tabs=True,
+            disable_printing=True,
+        )
+        # Replay bookkeeping is optional and only used when writing local artifacts.
+        self._replay = None
+        self._messages = []
+        # Stored only so the replay viewer can show raw request/response JSON per step.
+        self._step_payloads = []
+        self._step_count = 0
+
+    def _start_run(
+        self: SupportsBrowserAgentState,
+        task: str,
+        start_url: str,
+        *,
+        replay_prefix: str,
+    ) -> None:
+        """Reset per-run message/replay state and log the run header -- the shared prologue of every example ``run()``.
+
+        Resets message/step bookkeeping for a fresh run and starts a replay
+        recorder when ``self.replay_dir`` is set. ``replay_prefix`` is the
+        ``make_run_id`` prefix each script previously hardcoded inline
+        (``"n1"``, ``"n1_custom"``, ``"navigator_memo"``, ``"navigator_1_5"``).
+        ``navigator_n1_5.py`` calls this after reformatting ``task`` with
+        timezone/location context, so it logs and labels the replay with the
+        reformatted task, matching its existing behavior. Callers that reset
+        additional per-run state (``navigator_n1.py`` and ``navigator_n1_5.py``
+        also clear ``self._request_messages``) do so themselves.
+        """
+        logger.info(f"Task: {task}")
+        logger.info(f"Starting URL: {start_url}")
+
+        self._messages = [{"role": "user", "content": [{"type": "text", "text": task}]}]
+        self._message_index = 0
+        self._step_count = 0
+        self._step_payloads = []
+        self._replay = None
+
+        # Replay output is opt-in; the loop still works without any of this.
+        if self.replay_dir:
+            replay_id = self.replay_id or make_run_id(prefix=replay_prefix, label=task)
+            self._replay = TrajectoryRecorder(self.replay_dir, replay_id)
+            logger.info(f"Replay artifacts: {self._replay.item_dir}")
 
     async def _init_browser(self: SupportsBrowserAgentState, playwright) -> None:
         self._browser = await playwright.chromium.launch(headless=self.headless)
