@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -328,7 +329,9 @@ class SupportsBrowserAgentState(Protocol):
 
     async def _call_llm_with_retries(self) -> ChatCompletion: ...
 
-    async def _execute(self, tool_call: Any) -> tuple[bool, str | None]: ...
+    async def _dispatch_custom_tool(
+        self, action_name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, str | None] | None: ...
 
 
 class BrowserAgentMixin:
@@ -360,6 +363,13 @@ class BrowserAgentMixin:
     the client/browser, navigating, running :meth:`_run_agent_loop`, and
     cleanup -- shared verbatim by ``navigator_n1.py``, ``navigator_n1_custom_tools.py``,
     and ``navigator_n1_memo.py``; ``navigator_n1_5.py`` keeps its own ``run()``.
+
+    ``_execute`` covers the argument-parsing / n1-primitive-fallback / page-ready-wait /
+    catch-all-error structure that was also duplicated verbatim across those same three
+    scripts' ``_execute()`` methods; each only differed in which custom tools (if any) it
+    checked first. Scripts with custom tools now override :meth:`_dispatch_custom_tool`
+    instead of ``_execute`` itself; ``navigator_n1.py`` has no custom tools and uses the
+    default. ``navigator_n1_5.py`` keeps its own differently-shaped ``_execute``.
     """
 
     def _init_agent_state(self: SupportsBrowserAgentState) -> None:
@@ -564,6 +574,64 @@ class BrowserAgentMixin:
 
         response = await self._call_llm_with_retries()
         return response.choices[0].message
+
+    async def _dispatch_custom_tool(
+        self, action_name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, str | None] | None:
+        """Handle an example-specific custom tool call, or decline it.
+
+        Overridden by ``navigator_n1_custom_tools.py`` (``extract_content_and_links``)
+        and ``navigator_n1_memo.py`` (``add_question``/``add_options``/``list_records``)
+        to handle their own tools before :meth:`_execute` falls back to
+        :func:`execute_n1_primitive_action`. The default (used by ``navigator_n1.py``,
+        which defines no custom tools) always declines by returning ``None``.
+
+        Return ``None`` if ``action_name`` isn't recognized, so ``_execute`` falls
+        through to the n1 primitive-action dispatch. Return ``(should_exit, result)``
+        directly to handle it and skip the primitive-action path entirely.
+        """
+        return None
+
+    async def _execute(self: SupportsBrowserAgentState, tool_call: Any) -> tuple[bool, str | None]:
+        """Parse a tool call's arguments and execute it -- the shared body of every example ``_execute()``.
+
+        ``navigator_n1.py``, ``navigator_n1_custom_tools.py``, and ``navigator_n1_memo.py``
+        each defined this same argument-parsing / custom-tool-dispatch / n1-primitive-fallback
+        / page-ready-wait / catch-all-error structure verbatim, differing only in which custom
+        tools (if any) :meth:`_dispatch_custom_tool` recognizes. ``navigator_n1_5.py`` targets a
+        different model and action vocabulary and keeps its own differently-shaped ``_execute``.
+        """
+        action_name = tool_call.function.name
+
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
+            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
+
+        try:
+            custom_result = await self._dispatch_custom_tool(action_name, arguments)
+            if custom_result is not None:
+                return custom_result
+
+            if not await execute_n1_primitive_action(
+                self._page, action_name, arguments, self.viewport_width, self.viewport_height
+            ):
+                logger.warning(f"Unknown action: {action_name}")
+                return False, f"[ERROR] Unknown action: {action_name}"
+
+            # Wait for any navigation or dynamic content
+            try:
+                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
+            except Exception:
+                pass
+            await self._wait_for_page_ready()
+
+        except Exception as e:
+            logger.error(f"Error executing {action_name}: {e}")
+            return False, f"[ERROR] Error executing {action_name}: {e}"
+
+        return False, None
 
     def _clip_image_url(self, url: str, max_len: int = 50) -> str:
         # Delegates to the canonical implementation in yutori.navigator.replay, passing

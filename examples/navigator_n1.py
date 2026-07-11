@@ -22,17 +22,14 @@ Usage:
 """
 
 import asyncio
-import json
 
 from _common import (
     BrowserAgentMixin,
-    execute_n1_primitive_action,
     llm_retry,
     run_example_main,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
-from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 from pydantic import BaseModel, Field
 
 from yutori.config import DEFAULT_BASE_URL
@@ -134,36 +131,9 @@ class Agent(BrowserAgentMixin):
         )
         return response
 
-    # _predict() is inherited from BrowserAgentMixin (identical across the n1 examples).
-
-    async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> tuple[bool, str | None]:
-        action_name = tool_call.function.name
-
-        try:
-            arguments = json.loads(tool_call.function.arguments)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse arguments: {tool_call.function.arguments}")
-            return False, f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
-
-        try:
-            if not await execute_n1_primitive_action(
-                self._page, action_name, arguments, self.viewport_width, self.viewport_height
-            ):
-                logger.warning(f"Unknown action: {action_name}")
-                return False, f"[ERROR] Unknown action: {action_name}"
-
-            # Wait for any navigation or dynamic content
-            try:
-                await self._page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except Exception:
-                pass
-            await self._wait_for_page_ready()
-
-        except Exception as e:
-            logger.error(f"Error executing {action_name}: {e}")
-            return False, f"[ERROR] Error executing {action_name}: {e}"
-
-        return False, None
+    # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
+    # n1 examples); this script has no custom tools, so it also uses the default
+    # _dispatch_custom_tool() (always declines, falling through to the n1 primitive actions).
 
 
 async def main():
