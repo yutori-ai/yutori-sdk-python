@@ -75,19 +75,19 @@ class Agent(BrowserAgentMixin):
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.base_url = base_url
-        self.model = model
-        self.temperature = temperature
-        self.max_steps = max_steps
-        self.viewport_width = viewport_width
-        self.viewport_height = viewport_height
-        self.headless = headless
+        self._init_common_agent_config(
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            max_steps=max_steps,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            headless=headless,
+            replay_dir=replay_dir,
+            replay_id=replay_id,
+        )
         self.max_request_bytes = max_request_bytes
         self.keep_recent_screenshots = keep_recent_screenshots
-        self.replay_dir = replay_dir
-        self.replay_id = replay_id
-
-        self._init_agent_state()
         self._request_messages: list | None = None
 
     async def run(self, task: str, start_url: str) -> str:

@@ -137,17 +137,17 @@ class Agent(BrowserAgentMixin):
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
-        self.base_url = base_url
-        self.model = model
-        self.temperature = temperature
-        self.max_steps = max_steps
-        self.viewport_width = viewport_width
-        self.viewport_height = viewport_height
-        self.headless = headless
-        self.replay_dir = replay_dir
-        self.replay_id = replay_id
-
-        self._init_agent_state()
+        self._init_common_agent_config(
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            max_steps=max_steps,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            headless=headless,
+            replay_dir=replay_dir,
+            replay_id=replay_id,
+        )
 
         # Custom tools
         self._extract_content_and_links_tool = ExtractContentAndLinksTool()

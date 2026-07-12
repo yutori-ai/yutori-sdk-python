@@ -359,7 +359,12 @@ class BrowserAgentMixin:
     bookkeeping that was also duplicated verbatim across all four scripts
     (browser handles, the ``PageReadyChecker``, and per-run message/replay
     setup); every ``Agent.__init__``/``run()`` still has its own model- and
-    tool-specific setup around these calls.
+    tool-specific setup around these calls. ``_init_common_agent_config``
+    additionally covers the shared constructor-kwarg assignment (plus the
+    ``_init_agent_state`` call) that ``navigator_n1.py``, ``navigator_n1_custom_tools.py``,
+    and ``navigator_n1_memo.py`` all build from the same nine kwargs;
+    ``navigator_n1_5.py`` interleaves several more model-specific kwargs among
+    those same nine and keeps its own inline assignment.
 
     ``_run_with_browser_lifecycle`` covers the entire ``run()`` body -- opening
     the client/browser, navigating, running :meth:`_run_agent_loop`, and
@@ -373,6 +378,40 @@ class BrowserAgentMixin:
     instead of ``_execute`` itself; ``navigator_n1.py`` has no custom tools and uses the
     default. ``navigator_n1_5.py`` keeps its own differently-shaped ``_execute``.
     """
+
+    def _init_common_agent_config(
+        self: SupportsBrowserAgentState,
+        *,
+        base_url: str,
+        model: str,
+        temperature: float,
+        max_steps: int,
+        viewport_width: int,
+        viewport_height: int,
+        headless: bool,
+        replay_dir: str | None,
+        replay_id: str | None,
+    ) -> None:
+        """Assign the constructor kwargs shared by every example ``Agent.__init__`` and init agent state.
+
+        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` had byte-for-byte
+        identical ``__init__`` bodies built from exactly these nine kwargs plus a call to
+        :meth:`_init_agent_state` -- only their trailing custom-tool setup line differed.
+        ``navigator_n1.py`` sets the same nine kwargs (plus its own payload-trim fields set
+        separately around this call); ``navigator_n1_5.py`` interleaves several more
+        model-specific kwargs among these same nine and keeps its own inline assignment.
+        """
+        self.base_url = base_url
+        self.model = model
+        self.temperature = temperature
+        self.max_steps = max_steps
+        self.viewport_width = viewport_width
+        self.viewport_height = viewport_height
+        self.headless = headless
+        self.replay_dir = replay_dir
+        self.replay_id = replay_id
+
+        self._init_agent_state()
 
     def _init_agent_state(self: SupportsBrowserAgentState) -> None:
         """Initialize the browser/replay/message bookkeeping shared by every example ``Agent.__init__``.
