@@ -923,41 +923,26 @@ def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
 # ---------------------------------------------------------------------------
 
 
-def test_run_interactive_command_maps_timeout_to_124():
-    expired = subprocess.TimeoutExpired(cmd="npx", timeout=1)
-    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=expired):
+@pytest.mark.parametrize(
+    "side_effect,expected_returncode",
+    [
+        (subprocess.TimeoutExpired(cmd="npx", timeout=1), 124),
+        (FileNotFoundError("no such file: 'npx'"), 127),
+        # Bare OSError covers ENOEXEC, EMFILE, ENOMEM, etc. — fork/exec failures
+        # that aren't FileNotFoundError or PermissionError. They all collapse to
+        # "could not start the child" from the user's perspective.
+        (OSError("ENOMEM"), 127),
+        (KeyboardInterrupt(), 130),
+    ],
+)
+def test_run_interactive_command_maps_exceptions_to_returncode(side_effect, expected_returncode):
+    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=side_effect):
         result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"), timeout=1)
 
-    assert result.returncode == 124
-    assert result.stdout is None
-    assert result.stderr is None
-
-
-def test_run_interactive_command_maps_missing_binary_to_127():
-    with patch(
-        "yutori.cli.commands.install_flow.subprocess.run",
-        side_effect=FileNotFoundError("no such file: 'npx'"),
-    ):
-        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
-
-    assert result.returncode == 127
-
-
-def test_run_interactive_command_maps_oserror_to_127():
-    # Bare OSError covers ENOEXEC, EMFILE, ENOMEM, etc. — fork/exec failures
-    # that aren't FileNotFoundError or PermissionError. They all collapse to
-    # "could not start the child" from the user's perspective.
-    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=OSError("ENOMEM")):
-        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
-
-    assert result.returncode == 127
-
-
-def test_run_interactive_command_maps_keyboard_interrupt_to_130():
-    with patch("yutori.cli.commands.install_flow.subprocess.run", side_effect=KeyboardInterrupt()):
-        result = run_interactive_command(("npx", "add-mcp", "uvx yutori-mcp"))
-
-    assert result.returncode == 130
+    assert result.returncode == expected_returncode
+    if expected_returncode == 124:
+        assert result.stdout is None
+        assert result.stderr is None
 
 
 # ---------------------------------------------------------------------------
