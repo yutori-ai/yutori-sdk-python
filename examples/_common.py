@@ -13,15 +13,47 @@ from loguru import logger
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion
 from playwright.async_api import async_playwright
+from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from yutori import AsyncYutoriClient
-from yutori.navigator import aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.config import DEFAULT_BASE_URL
+from yutori.navigator import NAVIGATOR_N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
 
 RETRYABLE_EXCEPTIONS = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+
+
+class BaseAgentConfig(BaseModel):
+    """Shared task/model/agent/browser/replay fields for the n1 example scripts' ``Config``.
+
+    ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` previously each defined a
+    byte-for-byte identical ``Config`` with exactly these nine fields (differing only in their
+    ``task``/``start_url`` defaults, which subclasses override). ``navigator_n1.py`` subclasses
+    this and adds two payload-trim fields. ``navigator_n1_5.py`` interleaves several more
+    model-specific fields among a differently-ordered version of this same set, so it keeps its
+    own standalone ``Config`` instead of subclassing.
+    """
+
+    # task
+    task: str = Field(default="List the team member names")
+    start_url: str = "https://www.yutori.com"
+    # model
+    base_url: str = DEFAULT_BASE_URL
+    model: str = NAVIGATOR_N1_MODEL
+    temperature: float = 0.3
+    # agent
+    max_steps: int = 100
+    # browser
+    viewport_width: int = 1280
+    viewport_height: int = 800
+    headless: bool = False
+    # optional local replay artifacts
+    replay_dir: str | None = None
+    replay_id: str | None = None
+
 
 llm_retry = retry(
     retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
