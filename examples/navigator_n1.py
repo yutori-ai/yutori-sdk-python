@@ -35,7 +35,6 @@ from pydantic import BaseModel, Field
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.loop import update_trimmed_history
-from yutori.navigator.replay import sanitize_step_payload  # Optional replay helpers.
 
 
 class Config(BaseModel):
@@ -105,31 +104,7 @@ class Agent(BrowserAgentMixin):
         if removed:
             logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
 
-        # This copy is only for replay output; the request itself just uses the same fields directly.
-        request_payload = {
-            "model": self.model,
-            "messages": self._request_messages,
-            "temperature": self.temperature,
-        }
-        response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model,
-                messages=self._request_messages,
-                temperature=self.temperature,
-            ),
-            timeout=120.0,  # 2 minutes
-        )
-        # Replay output records the sanitized raw request/response pair for this step.
-        self._step_payloads.append(
-            sanitize_step_payload(
-                {
-                    "step_num": self._step_count,
-                    "request": request_payload,
-                    "response": response.model_dump(exclude_none=True),
-                }
-            )
-        )
-        return response
+        return await self._call_llm(self._request_messages)
 
     # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
     # n1 examples); this script has no custom tools, so it also uses the default

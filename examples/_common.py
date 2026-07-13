@@ -616,32 +616,31 @@ class BrowserAgentMixin:
         response = await self._call_llm_with_retries()
         return response.choices[0].message
 
-    @llm_retry
-    async def _call_llm_with_tools(self: SupportsBrowserAgentState, tools: list[dict]) -> ChatCompletion:
-        """Call the model with a fixed ``tools`` list -- the shared body of ``_call_llm_with_retries``.
+    async def _call_llm(
+        self: SupportsBrowserAgentState,
+        messages: list,
+        *,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> ChatCompletion:
+        """Call the model with ``messages`` and record a sanitized request/response pair for replay.
 
-        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` each defined a
-        ``_call_llm_with_retries`` that was byte-for-byte identical to this one, differing
-        only in the (fixed, non-trimmed) ``tools`` list passed to the chat completions call.
-        Each now delegates here with its own tool-schema list. ``navigator_n1.py`` and
-        ``navigator_n1_5.py`` additionally trim message history and pass model-specific
-        fields (``tool_set``/``disable_tools``/``json_schema``), so they keep their own
-        ``_call_llm_with_retries`` instead of using this helper.
+        Shared by :meth:`_call_llm_with_tools` (fixed ``tools`` list, untrimmed
+        ``self._messages``) and the trimmed-history ``_call_llm_with_retries`` overrides in
+        ``navigator_n1.py`` and ``navigator_n1_5.py`` (which pass ``self._request_messages``
+        plus their own model-specific ``extra_fields``, e.g. ``tool_set``/``disable_tools``/
+        ``json_schema``). All three previously built this same request-payload-dict /
+        timeout-guarded-create / sanitized-step-payload body independently; ``extra_fields``
+        is merged into the payload dict, which then doubles as the ``create()`` kwargs, so the
+        logged request and the actual call can no longer drift apart.
         """
-        # This copy is only for replay output; the request itself just uses the same fields directly.
         request_payload = {
             "model": self.model,
-            "messages": self._messages,
+            "messages": messages,
             "temperature": self.temperature,
-            "tools": tools,
+            **(extra_fields or {}),
         }
         response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model,
-                messages=self._messages,
-                temperature=self.temperature,
-                tools=tools,
-            ),
+            self._client.chat.completions.create(**request_payload),
             timeout=120.0,  # 2 minutes
         )
         # Replay output records the sanitized raw request/response pair for this step.
@@ -655,6 +654,20 @@ class BrowserAgentMixin:
             )
         )
         return response
+
+    @llm_retry
+    async def _call_llm_with_tools(self: SupportsBrowserAgentState, tools: list[dict]) -> ChatCompletion:
+        """Call the model with a fixed ``tools`` list -- the shared body of ``_call_llm_with_retries``.
+
+        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` each defined a
+        ``_call_llm_with_retries`` that was byte-for-byte identical to this one, differing
+        only in the (fixed, non-trimmed) ``tools`` list passed to the chat completions call.
+        Each now delegates here with its own tool-schema list. ``navigator_n1.py`` and
+        ``navigator_n1_5.py`` additionally trim message history and pass model-specific
+        fields (``tool_set``/``disable_tools``/``json_schema``), so they keep their own
+        ``_call_llm_with_retries`` instead of using this helper.
+        """
+        return await self._call_llm(self._messages, extra_fields={"tools": tools})
 
     async def _dispatch_custom_tool(
         self, action_name: str, arguments: dict[str, Any]
