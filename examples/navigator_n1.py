@@ -24,39 +24,23 @@ Usage:
 import asyncio
 
 from _common import (
+    BaseAgentConfig,
     BrowserAgentMixin,
     llm_retry,
     run_example_main,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
-from pydantic import BaseModel, Field
 
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.loop import update_trimmed_history
 
 
-class Config(BaseModel):
-    # task
-    task: str = Field(default="List the team member names")
-    start_url: str = "https://www.yutori.com"
-    # model
-    base_url: str = DEFAULT_BASE_URL
-    model: str = NAVIGATOR_N1_MODEL
-    temperature: float = 0.3
-    # agent
-    max_steps: int = 100
-    # browser
-    viewport_width: int = 1280
-    viewport_height: int = 800
-    headless: bool = False
+class Config(BaseAgentConfig):
     # payload management
     max_request_bytes: int = 9_500_000
     keep_recent_screenshots: int = 6
-    # optional local replay artifacts
-    replay_dir: str | None = None
-    replay_id: str | None = None
 
 
 class Agent(BrowserAgentMixin):

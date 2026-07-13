@@ -32,36 +32,23 @@ from functools import cached_property
 from typing import Any
 
 from _common import (
+    BaseAgentConfig,
     BrowserAgentMixin,
     run_example_main,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletion
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
 
 
-class Config(BaseModel):
-    # task
+class Config(BaseAgentConfig):
     task: str = Field(
         default="Take the quiz and record every question, description, and all the options along the way",
     )
     start_url: str = "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
-    # model
-    base_url: str = DEFAULT_BASE_URL
-    model: str = NAVIGATOR_N1_MODEL
-    temperature: float = 0.3
-    # agent
-    max_steps: int = 100
-    # browser
-    viewport_width: int = 1280
-    viewport_height: int = 800
-    headless: bool = False
-    # optional local replay artifacts
-    replay_dir: str | None = None
-    replay_id: str | None = None
 
 
 class MemoToolSuite:
