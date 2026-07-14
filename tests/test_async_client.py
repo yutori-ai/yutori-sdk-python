@@ -12,6 +12,7 @@ from ._client_fixtures import (
     make_mock_chat_completion,
     make_mock_usage_response,
     make_status_response,
+    make_trimmable_messages,
     mocked_async_openai_client,
 )
 
@@ -385,22 +386,7 @@ class TestAsyncChatNamespace:
         from yutori.navigator.payload import trimmed_messages_to_fit
 
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
-        original_messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Check the page"},
-                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
-                ],
-            },
-            {
-                "role": "tool",
-                "content": [
-                    {"type": "text", "text": "Tool output"},
-                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
-                ],
-            },
-        ]
+        original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
@@ -425,22 +411,7 @@ class TestAsyncChatNamespace:
         from yutori.navigator import trimmed_messages_to_fit
 
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
-        original_messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Check the page"},
-                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
-                ],
-            },
-            {
-                "role": "tool",
-                "content": [
-                    {"type": "text", "text": "Tool output"},
-                    {"type": "image_url", "image_url": {"url": "A" * 5000}},
-                ],
-            },
-        ]
+        original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 

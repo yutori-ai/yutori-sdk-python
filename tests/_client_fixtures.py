@@ -85,6 +85,33 @@ def make_mock_usage_response(period: str = "24h") -> MagicMock:
     return make_json_response(data)
 
 
+def make_trimmable_messages() -> list[dict[str, Any]]:
+    """Build a fresh two-message list with an oversized ``image_url`` block in each message.
+
+    Used by the payload-trimming tests in the sync/async client suites (``create_trimmed``/
+    ``acreate_trimmed`` and the standalone ``trimmed_messages_to_fit`` pattern), which each need
+    a messages list big enough that trimming with ``max_bytes=100`` actually removes an image.
+    Returns a new list on every call so callers can safely mutate or ``deepcopy`` the result
+    without affecting other tests.
+    """
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Check the page"},
+                {"type": "image_url", "image_url": {"url": "A" * 5000}},
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "Tool output"},
+                {"type": "image_url", "image_url": {"url": "A" * 5000}},
+            ],
+        },
+    ]
+
+
 def make_mock_chat_completion(
     *, content: str = "click", model: str = "n1-latest", completion_id: str = "chatcmpl-123"
 ) -> ChatCompletion:
