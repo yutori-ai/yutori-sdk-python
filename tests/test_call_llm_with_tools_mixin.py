@@ -10,26 +10,17 @@ they keep their own ``_call_llm_with_retries`` and are out of scope here.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 from .conftest import require_examples_extra
 
 require_examples_extra()
 from examples._common import BrowserAgentMixin  # noqa: E402
 
+from ._call_llm_agent_fixtures import make_call_llm_agent  # noqa: E402
+
 
 def _make_agent() -> BrowserAgentMixin:
-    agent = BrowserAgentMixin()
-    agent.model = "n1-latest"
-    agent.temperature = 0.3
+    agent = make_call_llm_agent()
     agent._messages = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
-    agent._step_count = 3
-    agent._step_payloads = []
-
-    response = MagicMock()
-    response.model_dump.return_value = {"role": "assistant", "content": "done"}
-    agent._client = MagicMock()
-    agent._client.chat.completions.create = AsyncMock(return_value=response)
     return agent
 
 
