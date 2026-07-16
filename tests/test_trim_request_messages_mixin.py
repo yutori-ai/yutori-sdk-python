@@ -9,11 +9,11 @@ count" preamble inside their own ``_call_llm_with_retries``, differing only in t
 
 from __future__ import annotations
 
-from loguru import logger
-
 from .conftest import require_examples_extra
 
 require_examples_extra()
+from loguru import logger  # noqa: E402
+
 from examples._common import BrowserAgentMixin  # noqa: E402
 
 
