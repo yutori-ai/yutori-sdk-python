@@ -872,6 +872,16 @@ def _summarize_cli_output(output: str) -> str:
     return _truncate_summary(compact)
 
 
+def _verification_failure(
+    result: subprocess.CompletedProcess[str], output: str, *, task_url: str | None = None
+) -> tuple[StepResult, bool]:
+    auth_failed = looks_like_auth_failure(output)
+    detail = output or describe_completed_process(result)
+    if task_url:
+        detail = f"{detail} View task: {task_url}"
+    return StepResult("Verification", "failed", detail), auth_failed
+
+
 def run_verification(
     console: Console,
     *,
@@ -919,9 +929,7 @@ def run_verification(
     submission = run_command(submit_command, timeout=INSTALL_CMD_TIMEOUT)
     submission_output = collect_process_output(submission)
     if submission.returncode != 0:
-        auth_failed = looks_like_auth_failure(submission_output)
-        detail = submission_output or describe_completed_process(submission)
-        return StepResult("Verification", "failed", detail), auth_failed
+        return _verification_failure(submission, submission_output)
 
     task_id = parse_cli_field(submission.stdout, "Task ID")
     # Older CLI versions print the literal placeholder "N/A" (and exit 0)
@@ -958,9 +966,7 @@ def run_verification(
                 poll = run_command((cli_invocation, "browse", "get", task_id))
                 poll_output = collect_process_output(poll)
                 if poll.returncode != 0:
-                    auth_failed = looks_like_auth_failure(poll_output)
-                    detail = poll_output or describe_completed_process(poll)
-                    return StepResult("Verification", "failed", f"{detail} View task: {task_url}"), auth_failed
+                    return _verification_failure(poll, poll_output, task_url=task_url)
 
                 last_output = poll.stdout
                 status = parse_cli_field(poll.stdout, "Status") or "queued"
