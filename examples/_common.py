@@ -19,6 +19,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from yutori import AsyncYutoriClient
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL, aplaywright_screenshot_to_data_url, denormalize_coordinates
+from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.page_ready import PageReadyChecker
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
@@ -686,6 +687,27 @@ class BrowserAgentMixin:
             )
         )
         return response
+
+    def _trim_request_messages(self) -> list:
+        """Trim ``self._request_messages`` against ``self._messages`` and log any removed screenshots.
+
+        Shared by ``navigator_n1.py``'s and ``navigator_n1_5.py``'s ``_call_llm_with_retries``,
+        which each independently built this same "call :func:`update_trimmed_history`, then log
+        the removed-screenshot count" preamble before calling :meth:`_call_llm` with their own
+        (absent vs. ``tool_set``/``disable_tools``/``json_schema``) ``extra_fields``. Callers are
+        responsible for their own ``self.max_request_bytes``/``self.keep_recent_screenshots``/
+        ``self._request_messages`` attributes -- not every ``BrowserAgentMixin`` subclass uses
+        payload trimming, so those aren't part of :class:`SupportsBrowserAgentState`.
+        """
+        self._request_messages, size_bytes, removed = update_trimmed_history(
+            self._messages,
+            self._request_messages,
+            max_bytes=self.max_request_bytes,
+            keep_recent=self.keep_recent_screenshots,
+        )
+        if removed:
+            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
+        return self._request_messages
 
     @llm_retry
     async def _call_llm_with_tools(self: SupportsBrowserAgentState, tools: list[dict]) -> ChatCompletion:
