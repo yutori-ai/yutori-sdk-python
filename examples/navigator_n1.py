@@ -29,12 +29,10 @@ from _common import (
     llm_retry,
     run_example_main,
 )
-from loguru import logger
 from openai.types.chat import ChatCompletion
 
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
-from yutori.navigator.loop import update_trimmed_history
 
 
 class Config(BaseAgentConfig):
@@ -79,16 +77,7 @@ class Agent(BrowserAgentMixin):
 
     @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        self._request_messages, size_bytes, removed = update_trimmed_history(
-            self._messages,
-            self._request_messages,
-            max_bytes=self.max_request_bytes,
-            keep_recent=self.keep_recent_screenshots,
-        )
-        if removed:
-            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
-
-        return await self._call_llm(self._request_messages)
+        return await self._call_llm(self._trim_request_messages())
 
     # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
     # n1 examples); this script has no custom tools, so it also uses the default

@@ -73,7 +73,6 @@ from yutori.navigator import (
     map_key_to_playwright,
     map_keys_individual,
 )
-from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.tools import (
     EXECUTE_JS_SCRIPT,
     EXTRACT_ELEMENTS_SCRIPT,
@@ -250,17 +249,8 @@ class Agent(BrowserAgentMixin):
 
     @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        self._request_messages, size_bytes, removed = update_trimmed_history(
-            self._messages,
-            self._request_messages,
-            max_bytes=self.max_request_bytes,
-            keep_recent=self.keep_recent_screenshots,
-        )
-        if removed:
-            logger.info(f"Trimmed {removed} old screenshot(s); payload ~{size_bytes / (1024 * 1024):.2f} MB")
-
         return await self._call_llm(
-            self._request_messages,
+            self._trim_request_messages(),
             extra_fields={
                 "tool_set": self.tool_set,
                 "disable_tools": self.disable_tools or None,
