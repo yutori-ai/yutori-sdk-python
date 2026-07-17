@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -85,6 +86,22 @@ def _default_sdk_plan(**overrides: Any) -> SDKInstallPlan:
     }
     kwargs.update(overrides)
     return SDKInstallPlan(**kwargs)
+
+
+@contextmanager
+def _patched_npx_install(*, npx_path: str | None = "/usr/local/bin/npx", consent: bool = True, run_result: Any = None):
+    """Patch the resolve_npx_path/Confirm.ask/run_interactive_command triad shared by
+    `maybe_install_mcp_server`/`maybe_install_mcp_skills` interactive-path tests.
+
+    Yields `(mock_ask, mock_run)` so callers can assert on consent prompting and on
+    what `run_interactive_command` was called with (or that it was skipped entirely).
+    """
+    with (
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=npx_path),
+        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=consent) as mock_ask,
+        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=run_result) as mock_run,
+    ):
+        yield mock_ask, mock_run
 
 
 @pytest.fixture(autouse=True)
@@ -784,11 +801,7 @@ def test_maybe_install_sdk_skipped_beats_availability_error_when_noninteractive(
 
 
 def test_maybe_install_mcp_server_skips_when_npx_missing():
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value=None),
-        patch("yutori.cli.commands.install_flow.Confirm.ask") as mock_ask,
-        patch("yutori.cli.commands.install_flow.run_interactive_command") as mock_run,
-    ):
+    with _patched_npx_install(npx_path=None) as (mock_ask, mock_run):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "skipped"
@@ -800,11 +813,7 @@ def test_maybe_install_mcp_server_skips_when_npx_missing():
 def test_maybe_install_mcp_server_runs_add_mcp_on_consent():
     success = _completed_process(0, "", "")
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=success) as mock_run,
-    ):
+    with _patched_npx_install(run_result=success) as (_, mock_run):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "success"
@@ -817,11 +826,7 @@ def test_maybe_install_mcp_server_failure_includes_retry_hint():
     # with the original (npx-prefixed) command.
     failure = _completed_process(1, None, None)
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
-    ):
+    with _patched_npx_install(run_result=failure):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "failed"
@@ -836,11 +841,7 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
     # 'npx'" — that's misleading when npx itself ran fine.
     failure = _completed_process(127, None, None)
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
-    ):
+    with _patched_npx_install(run_result=failure):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "failed"
@@ -852,11 +853,7 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
 def test_maybe_install_mcp_server_failure_surfaces_timeout():
     timed_out = _completed_process(124, None, None)
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=timed_out),
-    ):
+    with _patched_npx_install(run_result=timed_out):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "failed"
@@ -867,11 +864,7 @@ def test_maybe_install_mcp_server_failure_surfaces_timeout():
 def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
     success = _completed_process(0, "", "")
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=success) as mock_run,
-    ):
+    with _patched_npx_install(run_result=success) as (_, mock_run):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
     assert result.status == "success"
@@ -879,11 +872,7 @@ def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
 
 
 def test_maybe_install_mcp_skills_user_declines():
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=False),
-        patch("yutori.cli.commands.install_flow.run_interactive_command") as mock_run,
-    ):
+    with _patched_npx_install(consent=False) as (_, mock_run):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
     assert result.status == "skipped"
@@ -893,11 +882,7 @@ def test_maybe_install_mcp_skills_user_declines():
 def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
     failure = _completed_process(1, None, None)
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=failure),
-    ):
+    with _patched_npx_install(run_result=failure):
         result = maybe_install_mcp_skills(Console(), interactive=True)
 
     assert result.status == "failed"
@@ -907,11 +892,7 @@ def test_maybe_install_mcp_skills_failure_includes_skills_specific_retry_hint():
 def test_maybe_install_mcp_server_user_cancels_with_ctrl_c():
     cancelled = _completed_process(130, None, None)
 
-    with (
-        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
-        patch("yutori.cli.commands.install_flow.Confirm.ask", return_value=True),
-        patch("yutori.cli.commands.install_flow.run_interactive_command", return_value=cancelled),
-    ):
+    with _patched_npx_install(run_result=cancelled):
         result = maybe_install_mcp_server(Console(), interactive=True)
 
     assert result.status == "skipped"
