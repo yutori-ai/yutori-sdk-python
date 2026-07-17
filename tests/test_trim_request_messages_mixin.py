@@ -9,20 +9,13 @@ count" preamble inside their own ``_call_llm_with_retries``, differing only in t
 
 from __future__ import annotations
 
+from ._client_fixtures import _image_message
 from .conftest import require_examples_extra
 
 require_examples_extra()
 from loguru import logger  # noqa: E402
 
 from examples._common import BrowserAgentMixin  # noqa: E402
-
-
-def _image_message(role: str, *, url: str = "data:image/png;base64,abc", text: str | None = None) -> dict:
-    content: list[dict] = []
-    if text is not None:
-        content.append({"type": "text", "text": text})
-    content.append({"type": "image_url", "image_url": {"url": url, "detail": "high"}})
-    return {"role": role, "content": content}
 
 
 def _make_agent(

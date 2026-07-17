@@ -85,6 +85,19 @@ def make_mock_usage_response(period: str = "24h") -> MagicMock:
     return make_json_response(data)
 
 
+def _image_message(role: str, *, url: str = "data:image/png;base64,abc", text: str | None = None) -> dict[str, Any]:
+    """Build a single chat message with an ``image_url`` content block (plus optional text).
+
+    Shared by the trim-request-messages and navigator-replay test suites, which each need
+    minimal image-bearing messages to exercise size-based trimming/sanitization logic.
+    """
+    content: list[dict] = []
+    if text is not None:
+        content.append({"type": "text", "text": text})
+    content.append({"type": "image_url", "image_url": {"url": url, "detail": "high"}})
+    return {"role": role, "content": content}
+
+
 def make_trimmable_messages() -> list[dict[str, Any]]:
     """Build a fresh two-message list with an oversized ``image_url`` block in each message.
 
