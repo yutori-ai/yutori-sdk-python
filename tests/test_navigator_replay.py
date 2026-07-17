@@ -14,13 +14,7 @@ from yutori.navigator.replay import (
     sanitize_step_payload,
 )
 
-
-def _image_message(role: str, *, url: str = "data:image/png;base64,abc", text: str | None = None) -> dict:
-    content: list[dict] = []
-    if text is not None:
-        content.append({"type": "text", "text": text})
-    content.append({"type": "image_url", "image_url": {"url": url, "detail": "high"}})
-    return {"role": role, "content": content}
+from ._client_fixtures import _image_message
 
 
 def _tool_call(name: str, arguments: str, *, call_id: str = "call_1") -> dict:
