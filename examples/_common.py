@@ -397,7 +397,11 @@ class BrowserAgentMixin:
     ``_init_agent_state`` call) that ``navigator_n1.py``, ``navigator_n1_custom_tools.py``,
     and ``navigator_n1_memo.py`` all build from the same nine kwargs;
     ``navigator_n1_5.py`` interleaves several more model-specific kwargs among
-    those same nine and keeps its own inline assignment.
+    those same nine and keeps its own inline assignment. This mixin's own
+    ``__init__`` covers that same nine-kwarg signature directly, so
+    ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` -- which had
+    no other constructor-kwarg divergence -- now call ``super().__init__(**kwargs)``
+    instead of redefining the full signature themselves.
 
     ``_run_with_browser_lifecycle`` covers the entire ``run()`` body -- opening
     the client/browser, navigating, running :meth:`_run_agent_loop`, and
@@ -411,6 +415,40 @@ class BrowserAgentMixin:
     instead of ``_execute`` itself; ``navigator_n1.py`` has no custom tools and uses the
     default. ``navigator_n1_5.py`` keeps its own differently-shaped ``_execute``.
     """
+
+    def __init__(
+        self,
+        *,
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = NAVIGATOR_N1_MODEL,
+        temperature: float = 0.3,
+        max_steps: int = 100,
+        viewport_width: int = 1280,
+        viewport_height: int = 800,
+        headless: bool = False,
+        replay_dir: str | None = None,
+        replay_id: str | None = None,
+    ) -> None:
+        """Shared constructor for example ``Agent`` subclasses that add no kwargs of their own.
+
+        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` had byte-for-byte
+        identical ``__init__`` bodies built from exactly this nine-kwarg signature -- only
+        their trailing custom-tool setup line differed. Both now call ``super().__init__(**kwargs)``
+        and add just that one line. ``navigator_n1.py`` interleaves two more payload-trim kwargs
+        into this same signature and keeps its own ``__init__``; ``navigator_n1_5.py`` interleaves
+        several more model-specific kwargs and also keeps its own.
+        """
+        self._init_common_agent_config(
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            max_steps=max_steps,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            headless=headless,
+            replay_dir=replay_dir,
+            replay_id=replay_id,
+        )
 
     def _init_common_agent_config(
         self: SupportsBrowserAgentState,
@@ -427,12 +465,10 @@ class BrowserAgentMixin:
     ) -> None:
         """Assign the constructor kwargs shared by every example ``Agent.__init__`` and init agent state.
 
-        ``navigator_n1_custom_tools.py`` and ``navigator_n1_memo.py`` had byte-for-byte
-        identical ``__init__`` bodies built from exactly these nine kwargs plus a call to
-        :meth:`_init_agent_state` -- only their trailing custom-tool setup line differed.
-        ``navigator_n1.py`` sets the same nine kwargs (plus its own payload-trim fields set
-        separately around this call); ``navigator_n1_5.py`` interleaves several more
-        model-specific kwargs among these same nine and keeps its own inline assignment.
+        Called both by :meth:`__init__` above (for subclasses with no extra kwargs) and directly
+        by ``navigator_n1.py``'s ``Agent.__init__`` (which sets the same nine kwargs plus its own
+        payload-trim fields set separately around this call). ``navigator_n1_5.py`` interleaves
+        several more model-specific kwargs among these same nine and keeps its own inline assignment.
         """
         self.base_url = base_url
         self.model = model
