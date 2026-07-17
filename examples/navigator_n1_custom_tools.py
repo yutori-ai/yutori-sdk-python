@@ -35,9 +35,6 @@ from openai.types.chat import ChatCompletion
 from playwright.async_api import Page
 from pydantic import Field
 
-from yutori.config import DEFAULT_BASE_URL
-from yutori.navigator import NAVIGATOR_N1_MODEL
-
 
 class Config(BaseAgentConfig):
     task: str = Field(default="Get the titles and links of all the blog posts")
@@ -112,29 +109,8 @@ class ExtractContentAndLinksTool:
 
 
 class Agent(BrowserAgentMixin):
-    def __init__(
-        self,
-        base_url: str = DEFAULT_BASE_URL,
-        model: str = NAVIGATOR_N1_MODEL,
-        temperature: float = 0.3,
-        max_steps: int = 100,
-        viewport_width: int = 1280,
-        viewport_height: int = 800,
-        headless: bool = False,
-        replay_dir: str | None = None,
-        replay_id: str | None = None,
-    ):
-        self._init_common_agent_config(
-            base_url=base_url,
-            model=model,
-            temperature=temperature,
-            max_steps=max_steps,
-            viewport_width=viewport_width,
-            viewport_height=viewport_height,
-            headless=headless,
-            replay_dir=replay_dir,
-            replay_id=replay_id,
-        )
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
 
         # Custom tools
         self._extract_content_and_links_tool = ExtractContentAndLinksTool()
