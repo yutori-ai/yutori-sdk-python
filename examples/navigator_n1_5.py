@@ -373,6 +373,19 @@ class Agent(BrowserAgentMixin):
         await self._wait_for_page_ready()
         return result
 
+    async def _navigate_and_finish(self, nav_coro, *, sleep: float, message: str) -> str | None:
+        """Await a Playwright navigation call, wait for load, settle, then finish the action.
+
+        Shared by the ``goto_url``/``go_back``/``go_forward``/``refresh`` branches of
+        :meth:`_execute`, which each awaited a different navigation call, waited for
+        ``"domcontentloaded"``, slept for their own fixed duration, and finished with
+        their own message -- otherwise identical.
+        """
+        await nav_coro
+        await self._page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(sleep)
+        return await self._finish_action(message)
+
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
 
@@ -536,28 +549,16 @@ class Agent(BrowserAgentMixin):
                 url = arguments.get("url", "")
                 if "://" not in url:
                     url = f"https://{url}"
-                await self._page.goto(url)
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
-                return await self._finish_action(f"Navigated to {url}")
+                return await self._navigate_and_finish(self._page.goto(url), sleep=1, message=f"Navigated to {url}")
 
             elif action_name == "go_back":
-                await self._page.go_back()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
-                return await self._finish_action("Navigated back")
+                return await self._navigate_and_finish(self._page.go_back(), sleep=0.5, message="Navigated back")
 
             elif action_name == "go_forward":
-                await self._page.go_forward()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(0.5)
-                return await self._finish_action("Navigated forward")
+                return await self._navigate_and_finish(self._page.go_forward(), sleep=0.5, message="Navigated forward")
 
             elif action_name == "refresh":
-                await self._page.reload()
-                await self._page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(1)
-                return await self._finish_action("Refreshed the page")
+                return await self._navigate_and_finish(self._page.reload(), sleep=1, message="Refreshed the page")
 
             elif action_name == "wait":
                 duration = max(0, min(arguments.get("duration", 5), 100))
