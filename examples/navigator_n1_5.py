@@ -74,6 +74,7 @@ from yutori.navigator import (
     map_key_to_playwright,
     map_keys_individual,
 )
+from yutori.navigator.payload import DEFAULT_KEEP_RECENT_SCREENSHOTS, DEFAULT_MAX_REQUEST_BYTES
 from yutori.navigator.tools import (
     EXECUTE_JS_SCRIPT,
     EXTRACT_ELEMENTS_SCRIPT,
@@ -111,8 +112,8 @@ class Config(BaseModel):
     viewport_height: int = 800
     headless: bool = False
     # payload management
-    max_request_bytes: int = 9_500_000
-    keep_recent_screenshots: int = 6
+    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
+    keep_recent_screenshots: int = DEFAULT_KEEP_RECENT_SCREENSHOTS
     # optional local replay artifacts
     replay_dir: str | None = None
     replay_id: str | None = None
@@ -133,8 +134,8 @@ class Agent(BrowserAgentMixin):
         viewport_width: int = 1280,
         viewport_height: int = 800,
         headless: bool = False,
-        max_request_bytes: int = 9_500_000,
-        keep_recent_screenshots: int = 6,
+        max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+        keep_recent_screenshots: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
