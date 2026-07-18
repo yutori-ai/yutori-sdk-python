@@ -8,16 +8,15 @@ penalizing SDK users who never use the OAuth login flow.
 from .credentials import clear_config, load_config, require_api_key, resolve_api_key, save_config
 from .types import AuthStatus, LoginResult
 
+# Names lazily re-exported from .flow (see module docstring for why).
+_LAZY_FLOW_ATTRS = frozenset({"run_login_flow", "get_auth_status"})
+
 
 def __getattr__(name: str):
-    if name == "run_login_flow":
-        from .flow import run_login_flow
+    if name in _LAZY_FLOW_ATTRS:
+        from . import flow
 
-        return run_login_flow
-    if name == "get_auth_status":
-        from .flow import get_auth_status
-
-        return get_auth_status
+        return getattr(flow, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
