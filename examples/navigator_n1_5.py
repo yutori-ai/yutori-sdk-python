@@ -434,6 +434,20 @@ class Agent(BrowserAgentMixin):
         await asyncio.sleep(0.3)
         return await self._finish_action(message)
 
+    async def _press_key_and_finish(self, key_expr: str) -> str | None:
+        """Map ``key_expr`` to Playwright key names, press each in sequence, then finish.
+
+        Shared by the ``key_press`` branch and ``hold_key``'s no-duration fallback of
+        :meth:`_execute`, which each mapped the same key expression, pressed the resulting
+        keys, slept 0.3s, and finished with the same "Pressed key: ..." message --
+        otherwise identical.
+        """
+        key_presses = map_key_to_playwright(key_expr)
+        for key in key_presses:
+            await self._page.keyboard.press(key)
+        await asyncio.sleep(0.3)
+        return await self._finish_action(f"Pressed key: {key_expr}")
+
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
 
@@ -546,11 +560,7 @@ class Agent(BrowserAgentMixin):
 
             elif action_name == "key_press":
                 key_expr = arguments.get("key", "")
-                key_presses = map_key_to_playwright(key_expr)
-                for key in key_presses:
-                    await self._page.keyboard.press(key)
-                await asyncio.sleep(0.3)
-                return await self._finish_action(f"Pressed key: {key_expr}")
+                return await self._press_key_and_finish(key_expr)
 
             elif action_name == "hold_key":
                 key_expr = arguments.get("key", "")
@@ -565,11 +575,7 @@ class Agent(BrowserAgentMixin):
                     await asyncio.sleep(0.3)
                     return await self._finish_action(f"Held key '{key_expr}' for {duration}s")
                 else:
-                    key_presses = map_key_to_playwright(key_expr)
-                    for key in key_presses:
-                        await self._page.keyboard.press(key)
-                    await asyncio.sleep(0.3)
-                    return await self._finish_action(f"Pressed key: {key_expr}")
+                    return await self._press_key_and_finish(key_expr)
 
             # ---- Navigation actions ----
             elif action_name == "goto_url":
