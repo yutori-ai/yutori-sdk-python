@@ -33,12 +33,13 @@ from openai.types.chat import ChatCompletion
 
 from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_MODEL
+from yutori.navigator.payload import DEFAULT_KEEP_RECENT_SCREENSHOTS, DEFAULT_MAX_REQUEST_BYTES
 
 
 class Config(BaseAgentConfig):
     # payload management
-    max_request_bytes: int = 9_500_000
-    keep_recent_screenshots: int = 6
+    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES
+    keep_recent_screenshots: int = DEFAULT_KEEP_RECENT_SCREENSHOTS
 
 
 class Agent(BrowserAgentMixin):
@@ -51,8 +52,8 @@ class Agent(BrowserAgentMixin):
         viewport_width: int = 1280,
         viewport_height: int = 800,
         headless: bool = False,
-        max_request_bytes: int = 9_500_000,
-        keep_recent_screenshots: int = 6,
+        max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+        keep_recent_screenshots: int = DEFAULT_KEEP_RECENT_SCREENSHOTS,
         replay_dir: str | None = None,
         replay_id: str | None = None,
     ):
