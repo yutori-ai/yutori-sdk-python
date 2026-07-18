@@ -42,6 +42,7 @@ Usage:
 import argparse
 import asyncio
 import json
+from typing import Any
 
 from _common import (
     BrowserAgentMixin,
@@ -386,6 +387,32 @@ class Agent(BrowserAgentMixin):
         await asyncio.sleep(sleep)
         return await self._finish_action(message)
 
+    async def _move_with_modifier_held(
+        self,
+        modifier: str | None,
+        abs_x: int,
+        abs_y: int,
+        action: Any,
+        *,
+        pre_action_sleep: float = 0,
+    ) -> None:
+        """Move the mouse to ``(abs_x, abs_y)``, optionally holding ``modifier`` down, run ``action``, then release it.
+
+        Shared by the click and scroll branches of :meth:`_execute`, which each conditionally
+        pressed a modifier key, moved the mouse, performed their own follow-up mouse action,
+        then released the modifier -- otherwise identical bracketing. ``action`` is an
+        already-created coroutine (e.g. ``self._page.mouse.click(...)``); ``pre_action_sleep``
+        covers the click branch's extra settle delay between the move and the click itself.
+        """
+        if modifier:
+            await self._page.keyboard.down(modifier)
+        await self._page.mouse.move(abs_x, abs_y)
+        if pre_action_sleep:
+            await asyncio.sleep(pre_action_sleep)
+        await action
+        if modifier:
+            await self._page.keyboard.up(modifier)
+
     async def _move_mouse_and_finish(self, arguments: dict, *, mouse_action: str | None, message: str) -> str | None:
         """Resolve coordinates, move the mouse there, optionally press/release, then finish.
 
@@ -427,13 +454,13 @@ class Agent(BrowserAgentMixin):
                 button = {"middle_click": "middle", "right_click": "right"}.get(action_name, "left")
                 click_count = {"double_click": 2, "triple_click": 3}.get(action_name, 1)
 
-                if modifier:
-                    await self._page.keyboard.down(modifier)
-                await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.1)
-                await self._page.mouse.click(abs_x, abs_y, button=button, click_count=click_count)
-                if modifier:
-                    await self._page.keyboard.up(modifier)
+                await self._move_with_modifier_held(
+                    modifier,
+                    abs_x,
+                    abs_y,
+                    self._page.mouse.click(abs_x, abs_y, button=button, click_count=click_count),
+                    pre_action_sleep=0.1,
+                )
                 await asyncio.sleep(0.5)
                 return await self._finish_action(f"Clicked {click_count}x with {button}")
 
@@ -499,12 +526,9 @@ class Agent(BrowserAgentMixin):
                     elif direction == "right":
                         delta_x = px
 
-                    if modifier:
-                        await self._page.keyboard.down(modifier)
-                    await self._page.mouse.move(abs_x, abs_y)
-                    await self._page.mouse.wheel(delta_x, delta_y)
-                    if modifier:
-                        await self._page.keyboard.up(modifier)
+                    await self._move_with_modifier_held(
+                        modifier, abs_x, abs_y, self._page.mouse.wheel(delta_x, delta_y)
+                    )
                     await asyncio.sleep(0.5)
                     return await self._finish_action(f"Scrolled {direction}")
                 else:
