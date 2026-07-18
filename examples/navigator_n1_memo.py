@@ -125,14 +125,20 @@ class MemoToolSuite:
         with open(file_path, "w") as f:
             f.write("\n".join(lines))
 
-    async def add_question(self, index: int, question: str, description: str | None = None) -> str:
-        records = await self.read_jsonl(self.file_path)
+    @staticmethod
+    def _find_record(records: list[dict], index: int) -> dict | None:
         for record in records:
             if record["index"] == index:
-                record["question"] = question
-                record["description"] = description
-                logger.warning(f"Updated question {index} with new question: {question} and description: {description}")
-                break
+                return record
+        return None
+
+    async def add_question(self, index: int, question: str, description: str | None = None) -> str:
+        records = await self.read_jsonl(self.file_path)
+        record = self._find_record(records, index)
+        if record is not None:
+            record["question"] = question
+            record["description"] = description
+            logger.warning(f"Updated question {index} with new question: {question} and description: {description}")
         else:
             records.append({"index": index, "question": question, "description": description})
         await self.write_jsonl(self.file_path, records)
@@ -140,12 +146,10 @@ class MemoToolSuite:
 
     async def add_options(self, question_index: int, options: list[str]) -> str:
         records = await self.read_jsonl(self.file_path)
-        for record in records:
-            if record["index"] == question_index:
-                record.setdefault("options", []).extend(options)
-                break
-        else:
+        record = self._find_record(records, question_index)
+        if record is None:
             raise ValueError(f"Question index {question_index} not found")
+        record.setdefault("options", []).extend(options)
         await self.write_jsonl(self.file_path, records)
         return f"Successfully added options to question {question_index}"
 
