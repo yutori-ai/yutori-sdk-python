@@ -386,6 +386,26 @@ class Agent(BrowserAgentMixin):
         await asyncio.sleep(sleep)
         return await self._finish_action(message)
 
+    async def _move_mouse_and_finish(self, arguments: dict, *, mouse_action: str | None, message: str) -> str | None:
+        """Resolve coordinates, move the mouse there, optionally press/release, then finish.
+
+        Shared by the ``mouse_move``/``mouse_down``/``mouse_up`` branches of :meth:`_execute`,
+        which each resolved coordinates, moved the mouse there, performed at most one of
+        ``mouse.down()``/``mouse.up()``, slept 0.3s, and finished with their own message --
+        otherwise identical. ``mouse_action`` is ``"down"``, ``"up"``, or ``None`` (plain move).
+        """
+        resolved = await self._resolve_coordinates(arguments)
+        if isinstance(resolved, str):
+            return resolved
+        abs_x, abs_y = resolved
+        await self._page.mouse.move(abs_x, abs_y)
+        if mouse_action == "down":
+            await self._page.mouse.down()
+        elif mouse_action == "up":
+            await self._page.mouse.up()
+        await asyncio.sleep(0.3)
+        return await self._finish_action(message)
+
     async def _execute(self, tool_call: ChatCompletionMessageToolCall) -> str | None:
         action_name = tool_call.function.name
 
@@ -419,33 +439,15 @@ class Agent(BrowserAgentMixin):
 
             # ---- Mouse movement actions ----
             elif action_name == "mouse_move":
-                resolved = await self._resolve_coordinates(arguments)
-                if isinstance(resolved, str):
-                    return resolved
-                abs_x, abs_y = resolved
-                await self._page.mouse.move(abs_x, abs_y)
-                await asyncio.sleep(0.3)
-                return await self._finish_action("Mouse moved and hovering")
+                return await self._move_mouse_and_finish(
+                    arguments, mouse_action=None, message="Mouse moved and hovering"
+                )
 
             elif action_name == "mouse_down":
-                resolved = await self._resolve_coordinates(arguments)
-                if isinstance(resolved, str):
-                    return resolved
-                abs_x, abs_y = resolved
-                await self._page.mouse.move(abs_x, abs_y)
-                await self._page.mouse.down()
-                await asyncio.sleep(0.3)
-                return await self._finish_action("Mouse button pressed")
+                return await self._move_mouse_and_finish(arguments, mouse_action="down", message="Mouse button pressed")
 
             elif action_name == "mouse_up":
-                resolved = await self._resolve_coordinates(arguments)
-                if isinstance(resolved, str):
-                    return resolved
-                abs_x, abs_y = resolved
-                await self._page.mouse.move(abs_x, abs_y)
-                await self._page.mouse.up()
-                await asyncio.sleep(0.3)
-                return await self._finish_action("Mouse button released")
+                return await self._move_mouse_and_finish(arguments, mouse_action="up", message="Mouse button released")
 
             elif action_name == "drag":
                 start_coords = arguments.get("start_coordinates", [0, 0])
