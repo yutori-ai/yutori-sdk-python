@@ -22,6 +22,16 @@ AUTHORED_SCRIPTS = [
 ]
 
 
+@pytest.fixture(scope="module")
+def install_template_content() -> str:
+    return INSTALL_TEMPLATE.read_text()
+
+
+@pytest.fixture(scope="module")
+def uninstall_sh_content() -> str:
+    return UNINSTALL_SH.read_text()
+
+
 def _resolve_install_sh() -> Path:
     """Return a path to a generated install.sh, skipping only if truly unavailable."""
     if INSTALL_SH.exists():
@@ -120,13 +130,13 @@ rm -rf "$tmpdir"
     assert "dir_exists" in result.stdout
 
 
-def test_play_animation_calls_prerender_frames_directly() -> None:
+def test_play_animation_calls_prerender_frames_directly(install_template_content: str) -> None:
     """Regression guard: the caller of `prerender_frames` in install.sh.template
     must NOT use `$(...)` command substitution, since that runs in a subshell
     and loses FRAMES_RENDER_DIR. This test is a syntactic lint, not a runtime
     check — it protects against re-introduction of the bug.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     # Look for the play_animation_until_done function body and assert prerender_frames
     # is called as a plain statement, not captured.
     assert 'prerender_frames "$frame_count" "$use_color"' in content, (
@@ -139,12 +149,12 @@ def test_play_animation_calls_prerender_frames_directly() -> None:
     )
 
 
-def test_banner_line_counter_uses_pre_increment() -> None:
+def test_banner_line_counter_uses_pre_increment(install_template_content: str) -> None:
     """Regression: `(( n++ ))` returns the pre-increment value (0 on the first
     call), which under `set -euo pipefail` aborts the entire installer before
     the animation can render. Must use `(( ++n ))` or `(( n += 1 ))`.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     assert "(( banner_lines++ ))" not in content, (
         "`(( banner_lines++ ))` under `set -e` aborts on first iteration "
         "because the expression evaluates to 0. Use `(( ++banner_lines ))`."
@@ -152,7 +162,7 @@ def test_banner_line_counter_uses_pre_increment() -> None:
     assert "(( ++banner_lines ))" in content
 
 
-def test_cleanup_probes_tty_before_writing() -> None:
+def test_cleanup_probes_tty_before_writing(install_template_content: str) -> None:
     """Regression: cleanup must probe whether /dev/tty is actually usable
     before writing to it. `[[ -r /dev/tty ]]` / `[[ -w /dev/tty ]]` only check
     permission bits and return true under non-interactive docker / CI without
@@ -160,7 +170,7 @@ def test_cleanup_probes_tty_before_writing() -> None:
     'No such device or address' on every exit. `has_usable_tty` actually
     opens the device as a probe.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     assert "has_usable_tty()" in content, (
         "has_usable_tty helper must exist — it's the only way to know "
         "the TTY is actually openable, not just readable/writable."
@@ -182,7 +192,7 @@ def test_cleanup_probes_tty_before_writing() -> None:
     )
 
 
-def test_uninstall_probes_tty_before_prompting() -> None:
+def test_uninstall_probes_tty_before_prompting(uninstall_sh_content: str) -> None:
     """Regression: prompt_confirm used `[[ ! -r "$TTY" ]]` which passes on
     non-interactive docker/CI where the device exists with readable mode bits
     but no controlling terminal. `read <$TTY` then fails silently (via
@@ -190,7 +200,7 @@ def test_uninstall_probes_tty_before_prompting() -> None:
     prompts), and the uninstaller silently removes the CLI + ~/.yutori
     without actual user confirmation. Must use a has_usable_tty probe.
     """
-    content = UNINSTALL_SH.read_text()
+    content = uninstall_sh_content
     assert "has_usable_tty" in content, (
         "uninstall.sh must probe the TTY before relying on read <\"$TTY\" — "
         "otherwise it silently auto-accepts destructive prompts on non-TTY."
@@ -204,19 +214,19 @@ def test_uninstall_probes_tty_before_prompting() -> None:
     )
 
 
-def test_uninstall_summary_rule_is_not_misread_as_printf_flag() -> None:
+def test_uninstall_summary_rule_is_not_misread_as_printf_flag(uninstall_sh_content: str) -> None:
     """Regression: `printf '-------\\n'` errors with 'invalid option' because
     `-------` is parsed as flags. Must quote the argument separately, e.g.
     `printf '%s\\n' "-------"`.
     """
-    content = UNINSTALL_SH.read_text()
+    content = uninstall_sh_content
     assert "printf '-------\\n'" not in content and "printf '------\\n'" not in content, (
         "`printf '-------\\n'` errors with `printf: --: invalid option`. "
         "Use `printf '%s\\n' \"-------\"` instead."
     )
 
 
-def test_frame_top_skips_status_message_line() -> None:
+def test_frame_top_skips_status_message_line(install_template_content: str) -> None:
     """Regression: frame_top must place the frame BELOW the bootstrap intro.
     Layout is:
       rows 1..N    banner
@@ -230,7 +240,7 @@ def test_frame_top_skips_status_message_line() -> None:
     The frame must start after the three intro lines and their trailing blank,
     otherwise the first pad row will erase part of the installer intro.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     assert 'frame_top="$((banner_lines + 6))"' in content, (
         "frame_top must be banner_lines + 6 to skip the bootstrap intro "
         "and its trailing blank — otherwise the animation overwrites the "
@@ -238,23 +248,23 @@ def test_frame_top_skips_status_message_line() -> None:
     )
 
 
-def test_full_animation_keeps_bootstrap_intro_in_shell() -> None:
+def test_full_animation_keeps_bootstrap_intro_in_shell(install_template_content: str) -> None:
     """The shell bootstrap should introduce the installer before the Python UI
     starts, then suppress the duplicate Python header via an env var.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     assert 'render_bootstrap_intro "Interactive terminal detected."' in content
     assert 'export YUTORI_INSTALLER_BOOTSTRAP_SHOWN="1"' in content
 
 
-def test_full_animation_renders_enough_frames_for_fast_reinstalls() -> None:
+def test_full_animation_renders_enough_frames_for_fast_reinstalls(install_template_content: str) -> None:
     """Fast reinstalls (version bumps over an existing install) can complete
     in well under a second. Without a sensible minimum-frames floor, the
     animation flashes past in ~170ms and users perceive a hang when the
     screen is cleared for the Python UI handoff. Lock in at least ~1s of
     animation at 12fps cadence.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     import re
 
     match = re.search(r"local minimum_frames=(\d+)", content)
@@ -267,7 +277,7 @@ def test_full_animation_renders_enough_frames_for_fast_reinstalls() -> None:
     assert 'while kill -0 "$install_pid" 2>/dev/null || (( displayed_frames < minimum_frames )); do' in content
 
 
-def test_full_animation_clears_frame_region_before_handoff() -> None:
+def test_full_animation_clears_frame_region_before_handoff(install_template_content: str) -> None:
     """Regression: the final animation frame persists below frame_top. If the
     Python UI that takes over prints fewer lines than the frame is tall, old
     frame rows bleed through below the step prompts and summary table. The
@@ -275,7 +285,7 @@ def test_full_animation_clears_frame_region_before_handoff() -> None:
     after repositioning the cursor, so the region below is guaranteed blank
     when the handoff happens.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     # Look inside play_animation_until_done's teardown — the cursor repositions
     # to frame_top and should be followed by a clear-to-end-of-screen before
     # the reset-colors line.
@@ -287,19 +297,19 @@ def test_full_animation_clears_frame_region_before_handoff() -> None:
     )
 
 
-def test_frames_render_dir_uses_mktemp_d() -> None:
+def test_frames_render_dir_uses_mktemp_d(install_template_content: str) -> None:
     """Regression: the render dir must be mktemp -d-created, not derived from
     FRAMES_CACHE_FILE — a derived name under shared /tmp can be pre-created
     (with symlinks inside) by another local user and adopted by `mkdir -p`.
     """
-    content = INSTALL_TEMPLATE.read_text()
+    content = install_template_content
     assert 'FRAMES_RENDER_DIR="$(mktemp -d' in content
     assert '"${FRAMES_CACHE_FILE}.rendered.d"' not in content
 
 
-def test_uninstall_confirm_accepts_yes() -> None:
+def test_uninstall_confirm_accepts_yes(uninstall_sh_content: str) -> None:
     """Regression: the prompt offers "[Y/n]", so a typed "yes" must not be
     treated as a decline by a single-character match.
     """
-    content = UNINSTALL_SH.read_text()
+    content = uninstall_sh_content
     assert "^[Yy]([Ee][Ss])?$" in content
