@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from yutori.cli.commands import (
     INTERVAL_PRESETS,
@@ -13,8 +12,8 @@ from yutori.cli.commands import (
     print_creation_result,
     print_optional_field,
     print_rejection_reason,
+    render_entity_table,
     safe_str,
-    truncate_for_display,
 )
 
 app = typer.Typer(help="Manage scouts")
@@ -35,27 +34,15 @@ def list_scouts(
             console.print("[yellow]No scouts found.[/yellow]")
             return
 
-        table = Table(title="Your Scouts")
-        table.add_column("ID", style="cyan", no_wrap=True)
-        table.add_column("Query", max_width=50)
-        table.add_column("Status", style="green")
-        table.add_column("Interval")
-        table.add_column("Reason", max_width=32)
-
-        for scout in scouts:
-            interval_str = format_interval(scout.get("output_interval") or 0, short=True)
-
-            query = truncate_for_display(str(scout.get("query", "")))
-
-            table.add_row(
-                safe_str(scout.get("id", "")),
-                safe_str(query),
-                safe_str(scout.get("status", "unknown")),
-                interval_str,
-                safe_str(scout.get("rejection_reason") or ""),
-            )
-
-        console.print(table)
+        render_entity_table(
+            console,
+            "Your Scouts",
+            scouts,
+            id_key="id",
+            id_label="ID",
+            fourth_column_label="Interval",
+            fourth_column_fn=lambda scout: format_interval(scout.get("output_interval") or 0, short=True),
+        )
 
 
 @app.command()
