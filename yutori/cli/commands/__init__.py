@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import httpx
@@ -33,6 +33,7 @@ __all__ = [
     "print_task_list",
     "print_task_result_output",
     "print_task_submission_result",
+    "render_entity_table",
     "safe_str",
     "truncate_for_display",
 ]
@@ -269,6 +270,55 @@ def print_task_result_output(console: Console, result: dict[str, Any], *, max_le
     console.print(text, markup=False)
 
 
+def render_entity_table(
+    console: Console,
+    title: str,
+    items: list[dict[str, Any]],
+    *,
+    id_key: str,
+    id_label: str,
+    fourth_column_label: str,
+    fourth_column_fn: Callable[[dict[str, Any]], Any],
+) -> None:
+    """Render the 5-column Rich table shared by task-list and scout-list output.
+
+    Column shape: ``{id_label}`` / Query / Status / ``{fourth_column_label}`` / Reason.
+    ``id_key`` selects each item's identifier field (e.g. ``"task_id"`` for
+    browse/research, ``"id"`` for scouts); ``fourth_column_fn`` derives the 4th
+    column's value per item (e.g. a truncated created-at date, or a formatted
+    interval). Every cell goes through ``safe_str`` so API strings render
+    literally. Shared by ``print_task_list`` (browse/research) and
+    ``yutori scouts list``, which otherwise built structurally identical
+    tables that only differed in these four spots.
+    """
+    table = Table(title=title)
+    table.add_column(id_label, style="cyan", no_wrap=True)
+    table.add_column("Query", max_width=50)
+    table.add_column("Status", style="green")
+    table.add_column(fourth_column_label)
+    table.add_column("Reason", max_width=32)
+
+    for item in items:
+        # The list endpoints return the prompt under `query` for every entity
+        # type (browse create takes it as `task`).
+        query = truncate_for_display(str(item.get("query", "")))
+
+        table.add_row(
+            safe_str(item.get(id_key, "")),
+            safe_str(query),
+            safe_str(item.get("status", "unknown")),
+            safe_str(fourth_column_fn(item)),
+            safe_str(item.get("rejection_reason") or ""),
+        )
+
+    console.print(table)
+
+
+def _created_at_date(item: dict[str, Any]) -> str:
+    """Return just the YYYY-MM-DD date from an ISO-8601 ``created_at`` timestamp."""
+    return str(item.get("created_at") or "")[:10]
+
+
 def print_task_list(console: Console, task_type: str, result: dict[str, Any]) -> None:
     """Render a browsing/research task-list response as a Rich table.
 
@@ -282,30 +332,15 @@ def print_task_list(console: Console, task_type: str, result: dict[str, Any]) ->
     tasks = result.get("tasks", [])
 
     if tasks:
-        table = Table(title=f"Your {task_type} Tasks")
-        table.add_column("Task ID", style="cyan", no_wrap=True)
-        table.add_column("Query", max_width=50)
-        table.add_column("Status", style="green")
-        table.add_column("Created")
-        table.add_column("Reason", max_width=32)
-
-        for task in tasks:
-            # The list endpoint returns the prompt under `query` for both task types
-            # (browse create takes it as `task`).
-            query = truncate_for_display(str(task.get("query", "")))
-
-            # created_at is an ISO-8601 datetime; show just the YYYY-MM-DD date.
-            created = str(task.get("created_at") or "")[:10]
-
-            table.add_row(
-                safe_str(task.get("task_id", "")),
-                safe_str(query),
-                safe_str(task.get("status", "unknown")),
-                safe_str(created),
-                safe_str(task.get("rejection_reason") or ""),
-            )
-
-        console.print(table)
+        render_entity_table(
+            console,
+            f"Your {task_type} Tasks",
+            tasks,
+            id_key="task_id",
+            id_label="Task ID",
+            fourth_column_label="Created",
+            fourth_column_fn=_created_at_date,
+        )
     else:
         console.print(f"[yellow]No {task_type.lower()} tasks found.[/yellow]")
 
