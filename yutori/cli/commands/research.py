@@ -7,9 +7,9 @@ from rich.console import Console
 
 from yutori.cli.commands import (
     cli_client,
+    list_and_render_tasks,
     print_optional_field,
     print_task_get_header,
-    print_task_list,
     print_task_result_output,
     print_task_submission_result,
 )
@@ -26,8 +26,7 @@ def list_tasks(
 ) -> None:
     """List your research tasks."""
     with cli_client() as client:
-        result = client.research.list(limit=limit, status=status, cursor=cursor)
-        print_task_list(console, "Research", result)
+        list_and_render_tasks(console, client, "research", "Research", limit=limit, status=status, cursor=cursor)
 
 
 @app.command()
