@@ -29,6 +29,7 @@ __all__ = [
     "print_creation_result",
     "print_optional_field",
     "print_rejection_reason",
+    "list_and_render_tasks",
     "print_task_get_header",
     "print_task_list",
     "print_task_result_output",
@@ -357,6 +358,26 @@ def print_task_list(console: Console, task_type: str, result: dict[str, Any]) ->
     next_cursor = result.get("next_cursor")
     if result.get("has_more") and next_cursor:
         console.print(f"More results available. Re-run with --cursor {safe_str(next_cursor)}")
+
+
+def list_and_render_tasks(
+    console: Console,
+    client: Any,
+    namespace: str,
+    task_type: str,
+    *,
+    limit: int | None,
+    status: str | None,
+    cursor: str | None,
+) -> None:
+    """Fetch and render a task list -- the shared body of ``browse list`` and ``research list``.
+
+    ``namespace`` selects the client attribute to call ``.list(...)`` on (e.g.
+    ``"browsing"`` or ``"research"``); ``task_type`` is the display title passed
+    through to ``print_task_list``.
+    """
+    result = getattr(client, namespace).list(limit=limit, status=status, cursor=cursor)
+    print_task_list(console, task_type, result)
 
 
 def format_interval(seconds: int, *, short: bool = False) -> str:
