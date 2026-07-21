@@ -2,7 +2,7 @@
 
 import pytest
 
-from yutori import YutoriClient
+from yutori import AsyncYutoriClient, YutoriClient
 
 
 @pytest.fixture
@@ -11,6 +11,14 @@ def client():
     client = YutoriClient(api_key="yt-test")
     yield client
     client.close()
+
+
+@pytest.fixture
+async def async_client():
+    """Shared AsyncYutoriClient fixture for async tests, mirroring `client` above."""
+    client = AsyncYutoriClient(api_key="yt-test")
+    yield client
+    await client.close()
 
 
 def require_examples_extra() -> None:
