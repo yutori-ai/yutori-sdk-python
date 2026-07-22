@@ -79,7 +79,7 @@ def test_cookbook_is_pinned_and_does_not_use_an_editable_cua_checkout():
     assert "cua==0.1.6" in config
     assert "cua-cli==0.1.12" in config
     assert "cua-driver==0.10.0" in config
-    assert 'rev = "f92de456388139394d528ce5d3cbe7070308d157"' in config
+    assert 'rev = "257783cd4b10760f435696d6ca107dcaaebec815"' in config
     assert "cua-agent = { path =" not in config
     compile((root / "local_macos.py").read_text(), "local_macos.py", "exec")
     compile((root / "remote_sandbox.py").read_text(), "remote_sandbox.py", "exec")

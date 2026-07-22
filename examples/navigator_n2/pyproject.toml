@@ -12,5 +12,5 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-cua-agent = { git = "https://github.com/dhruvbatra/cua.git", rev = "f92de456388139394d528ce5d3cbe7070308d157", subdirectory = "libs/python/agent" }
+cua-agent = { git = "https://github.com/dhruvbatra/cua.git", rev = "257783cd4b10760f435696d6ca107dcaaebec815", subdirectory = "libs/python/agent" }
 yutori = { path = "../..", editable = true }
