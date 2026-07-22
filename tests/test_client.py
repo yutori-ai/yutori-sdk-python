@@ -473,24 +473,18 @@ class TestChatNamespace:
 
 
 class TestErrorHandling:
-    def test_api_error_on_400(self):
-        mock_response = make_status_response(400, "Bad request")
+    @pytest.mark.parametrize(
+        ("status_code", "reason"),
+        [(400, "Bad request"), (500, "Internal server error")],
+    )
+    def test_api_error(self, status_code, reason):
+        mock_response = make_status_response(status_code, reason)
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-test")
             with pytest.raises(APIError) as exc_info:
                 client.get_usage()
-            assert exc_info.value.status_code == 400
-            client.close()
-
-    def test_api_error_on_500(self):
-        mock_response = make_status_response(500, "Internal server error")
-
-        with patch.object(httpx.Client, "get", return_value=mock_response):
-            client = YutoriClient(api_key="yt-test")
-            with pytest.raises(APIError) as exc_info:
-                client.get_usage()
-            assert exc_info.value.status_code == 500
+            assert exc_info.value.status_code == status_code
             client.close()
 
 
