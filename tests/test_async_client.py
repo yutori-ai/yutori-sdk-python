@@ -49,8 +49,7 @@ class TestAsyncYutoriClientInit:
 class TestAsyncYutoriClientGetUsage:
     async def test_get_usage_success(self, async_client):
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=make_mock_usage_response()):
-            client = async_client
-            result = await client.get_usage()
+            result = await async_client.get_usage()
             assert result["num_active_scouts"] == 2
             assert result["activity"]["period"] == "24h"
 
@@ -58,8 +57,7 @@ class TestAsyncYutoriClientGetUsage:
         with patch.object(
             httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=make_mock_usage_response("30d")
         ) as mock_get:
-            client = async_client
-            result = await client.get_usage(period="30d")
+            result = await async_client.get_usage(period="30d")
             assert result["activity"]["period"] == "30d"
             call_kwargs = mock_get.call_args[1]
             assert call_kwargs["params"] == {"period": "30d"}
@@ -71,8 +69,7 @@ class TestAsyncScoutsNamespace:
         mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
-            client = async_client
-            result = await client.scouts.list(limit=10, status="active")
+            result = await async_client.scouts.list(limit=10, status="active")
             assert result == {"scouts": []}
             params = mock_get.call_args[1]["params"]
             assert params["page_size"] == 10
@@ -83,8 +80,7 @@ class TestAsyncScoutsNamespace:
         mock_response = make_json_response({"scouts": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
-            client = async_client
-            await client.scouts.list(cursor="next-page")
+            await async_client.scouts.list(cursor="next-page")
             params = mock_get.call_args[1]["params"]
             assert params["cursor"] == "next-page"
             assert "page_size" not in params
@@ -93,24 +89,21 @@ class TestAsyncScoutsNamespace:
         mock_response = make_json_response({"id": "scout-123"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.scouts.get("scout-123")
+            result = await async_client.scouts.get("scout-123")
             assert result["id"] == "scout-123"
 
     async def test_scouts_create(self, async_client):
         mock_response = make_json_response({"id": "new-scout"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.scouts.create(query="Monitor site")
+            result = await async_client.scouts.create(query="Monitor site")
             assert result["id"] == "new-scout"
 
     async def test_scouts_update_status(self, async_client):
         mock_response = make_json_response({"id": "scout-123", "status": "paused"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            client = async_client
-            result = await client.scouts.update("scout-123", status="paused")
+            result = await async_client.scouts.update("scout-123", status="paused")
             assert result["status"] == "paused"
             assert "/pause" in mock_post.call_args[0][0]
 
@@ -118,38 +111,33 @@ class TestAsyncScoutsNamespace:
         mock_response = make_json_response({"id": "scout-123", "query": "new query"})
 
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.scouts.update("scout-123", query="new query")
+            result = await async_client.scouts.update("scout-123", query="new query")
             assert result["query"] == "new query"
 
     async def test_scouts_update_is_public(self, async_client):
         mock_response = make_json_response({"id": "scout-123", "is_public": False})
 
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock_response) as mock_patch:
-            client = async_client
-            await client.scouts.update("scout-123", is_public=False)
+            await async_client.scouts.update("scout-123", is_public=False)
             payload = mock_patch.call_args[1]["json"]
             assert payload["is_public"] is False
 
     async def test_scouts_update_status_and_fields_raises(self, async_client):
-        client = async_client
         with pytest.raises(ValueError, match="Cannot update status and other fields simultaneously"):
-            await client.scouts.update("scout-123", status="paused", query="new query")
+            await async_client.scouts.update("scout-123", status="paused", query="new query")
 
     async def test_scouts_delete(self, async_client):
         mock_response = make_status_response(200)
 
         with patch.object(httpx.AsyncClient, "delete", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.scouts.delete("scout-123")
+            result = await async_client.scouts.delete("scout-123")
             assert result == {}
 
     async def test_scouts_get_updates(self, async_client):
         mock_response = make_json_response({"updates": []})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.scouts.get_updates("scout-123")
+            result = await async_client.scouts.get_updates("scout-123")
             assert "updates" in result
 
 
@@ -159,8 +147,7 @@ class TestAsyncBrowsingNamespace:
         mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
-            client = async_client
-            result = await client.browsing.list(limit=20, status="succeeded", cursor="cur-1")
+            result = await async_client.browsing.list(limit=20, status="succeeded", cursor="cur-1")
             assert result == {"tasks": [], "total": 0}
             assert mock_get.call_args[0][0].endswith("/browsing/tasks")
             params = mock_get.call_args[1]["params"]
@@ -173,8 +160,7 @@ class TestAsyncBrowsingNamespace:
         mock_response = make_json_response({"task_id": "task-123"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.browsing.create(
+            result = await async_client.browsing.create(
                 task="Click login",
                 start_url="https://example.com",
             )
@@ -184,8 +170,7 @@ class TestAsyncBrowsingNamespace:
         mock_response = make_json_response({"task_id": "task-456"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            client = async_client
-            result = await client.browsing.create(
+            result = await async_client.browsing.create(
                 task="Log in and export data",
                 start_url="https://example.com/login",
                 require_auth=True,
@@ -202,8 +187,7 @@ class TestAsyncBrowsingNamespace:
         mock_response = make_json_response({"task_id": "task-123", "status": "succeeded"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.browsing.get("task-123")
+            result = await async_client.browsing.get("task-123")
             assert result["status"] == "succeeded"
 
     async def test_browsing_get_with_rejection_reason(self, async_client):
@@ -216,8 +200,7 @@ class TestAsyncBrowsingNamespace:
         )
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.browsing.get("task-123")
+            result = await async_client.browsing.get("task-123")
             assert result["status"] == "failed"
             assert result["rejection_reason"] == "billing_limit_reached"
 
@@ -228,8 +211,7 @@ class TestAsyncResearchNamespace:
         mock_response = make_json_response({"tasks": [], "total": 0})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
-            client = async_client
-            result = await client.research.list(limit=20, status="succeeded", cursor="cur-1")
+            result = await async_client.research.list(limit=20, status="succeeded", cursor="cur-1")
             assert result == {"tasks": [], "total": 0}
             assert mock_get.call_args[0][0].endswith("/research/tasks")
             params = mock_get.call_args[1]["params"]
@@ -242,16 +224,14 @@ class TestAsyncResearchNamespace:
         mock_response = make_json_response({"task_id": "research-123"})
 
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.research.create(query="Find AI funding")
+            result = await async_client.research.create(query="Find AI funding")
             assert result["task_id"] == "research-123"
 
     async def test_research_get(self, async_client):
         mock_response = make_json_response({"task_id": "research-123", "status": "succeeded"})
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.research.get("research-123")
+            result = await async_client.research.get("research-123")
             assert result["status"] == "succeeded"
 
     async def test_research_get_with_rejection_reason(self, async_client):
@@ -264,8 +244,7 @@ class TestAsyncResearchNamespace:
         )
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
-            result = await client.research.get("research-123")
+            result = await async_client.research.get("research-123")
             assert result["status"] == "failed"
             assert result["rejection_reason"] == "rate_limit_exceeded"
 
@@ -287,8 +266,7 @@ class TestAsyncPydanticSchemaIntegration:
         with patch.object(
             httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
         ) as mock_post:
-            client = async_client
-            await client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel)
+            await async_client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel)
             payload = mock_post.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
@@ -296,8 +274,7 @@ class TestAsyncPydanticSchemaIntegration:
         with patch.object(
             httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
         ) as mock_post:
-            client = async_client
-            await client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel())
+            await async_client.browsing.create(task="t", start_url="https://x.com", output_schema=self._FakeModel())
             payload = mock_post.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
@@ -305,32 +282,28 @@ class TestAsyncPydanticSchemaIntegration:
         with patch.object(
             httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=self._make_mock_response()
         ) as mock_post:
-            client = async_client
-            await client.research.create(query="q", output_schema=self._FakeModel)
+            await async_client.research.create(query="q", output_schema=self._FakeModel)
             payload = mock_post.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_create_with_model_class(self, async_client):
         mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock, return_value=mock) as mock_post:
-            client = async_client
-            await client.scouts.create(query="q", output_schema=self._FakeModel)
+            await async_client.scouts.create(query="q", output_schema=self._FakeModel)
             payload = mock_post.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_update_with_model_class(self, async_client):
         mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
-            client = async_client
-            await client.scouts.update("s-1", output_schema=self._FakeModel)
+            await async_client.scouts.update("s-1", output_schema=self._FakeModel)
             payload = mock_patch.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
     async def test_scouts_update_with_model_instance(self, async_client):
         mock = make_json_response({"id": "s-1"})
         with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock, return_value=mock) as mock_patch:
-            client = async_client
-            await client.scouts.update("s-1", output_schema=self._FakeModel())
+            await async_client.scouts.update("s-1", output_schema=self._FakeModel())
             payload = mock_patch.call_args[1]["json"]
             assert payload["output_schema"] == {"type": "object", "properties": {"name": {"type": "string"}}}
 
@@ -341,8 +314,7 @@ class TestAsyncChatNamespace:
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
         with mocked_async_openai_client(mock_completion):
-            client = async_client
-            result = await client.chat.completions.create(
+            result = await async_client.chat.completions.create(
                 messages=[{"role": "user", "content": "Click login"}],
             )
             assert result.choices[0].message.content == "click"
@@ -359,8 +331,7 @@ class TestAsyncChatNamespace:
         mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
-            client = async_client
-            result = await client.chat.completions.create(
+            result = await async_client.chat.completions.create(
                 messages=[{"role": "user", "content": "Reply with JSON."}],
                 model="n1.5-latest",
                 tool_set=TOOL_SET_CORE,
@@ -390,9 +361,8 @@ class TestAsyncChatNamespace:
         original_snapshot = deepcopy(original_messages)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
-            client = async_client
             result = await acreate_trimmed(
-                client.chat.completions,
+                async_client.chat.completions,
                 original_messages,
                 max_bytes=100,
                 keep_recent=1,
@@ -416,8 +386,7 @@ class TestAsyncChatNamespace:
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
-            client = async_client
-            result = await client.chat.completions.create(
+            result = await async_client.chat.completions.create(
                 model="n1-latest",
                 messages=trimmed_messages,
             )
@@ -450,9 +419,8 @@ class TestAsyncErrorHandling:
         mock_response = make_status_response(500, "Server error")
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            client = async_client
             with pytest.raises(APIError) as exc_info:
-                await client.get_usage()
+                await async_client.get_usage()
             assert exc_info.value.status_code == 500
 
 
@@ -461,9 +429,8 @@ class TestAsyncTransportErrorWrapping:
         from yutori.exceptions import APIConnectionError
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
-            client = async_client
             with pytest.raises(APIConnectionError, match="ConnectError.*refused"):
-                await client.scouts.list()
+                await async_client.scouts.list()
 
 
 class TestAsyncLazyChatNamespace:
