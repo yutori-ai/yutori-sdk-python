@@ -399,16 +399,12 @@ class TestAsyncChatNamespace:
 
 @pytest.mark.asyncio
 class TestAsyncErrorHandling:
-    async def test_auth_error(self):
-        mock_response = make_status_response(401, "Unauthorized")
-
-        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
-            async with AsyncYutoriClient(api_key="yt-invalid") as client:
-                with pytest.raises(AuthenticationError):
-                    await client.get_usage()
-
-    async def test_auth_error_forbidden(self):
-        mock_response = make_status_response(403, "Forbidden")
+    @pytest.mark.parametrize(
+        ("status_code", "reason"),
+        [(401, "Unauthorized"), (403, "Forbidden")],
+    )
+    async def test_auth_error(self, status_code, reason):
+        mock_response = make_status_response(status_code, reason)
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             async with AsyncYutoriClient(api_key="yt-invalid") as client:
