@@ -80,17 +80,12 @@ class TestYutoriClientGetUsage:
             assert call_kwargs["params"] == {}
             client.close()
 
-    def test_get_usage_auth_error(self):
-        mock_response = make_status_response(401, "Unauthorized")
-
-        with patch.object(httpx.Client, "get", return_value=mock_response):
-            client = YutoriClient(api_key="yt-invalid")
-            with pytest.raises(AuthenticationError):
-                client.get_usage()
-            client.close()
-
-    def test_get_usage_forbidden_auth_error(self):
-        mock_response = make_status_response(403, "Forbidden")
+    @pytest.mark.parametrize(
+        ("status_code", "reason"),
+        [(401, "Unauthorized"), (403, "Forbidden")],
+    )
+    def test_get_usage_auth_error(self, status_code, reason):
+        mock_response = make_status_response(status_code, reason)
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
             client = YutoriClient(api_key="yt-invalid")
