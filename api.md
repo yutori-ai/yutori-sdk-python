@@ -94,7 +94,10 @@ Importable from `yutori.navigator`. Prefer these over hard-coded strings so upgr
 from yutori.navigator import (
     NAVIGATOR_N1_MODEL,
     NAVIGATOR_N1_5_MODEL,
+    NAVIGATOR_N2_PREVIEW_MODEL,
     NAVIGATOR_COORDINATE_SCALE,
+    TOOL_SET_COMPUTER_USE,
+    TOOL_SET_COMPUTER_USE_BATCH,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
 )
@@ -104,8 +107,14 @@ from yutori.navigator import (
 |----------|-------|-------|
 | `NAVIGATOR_N1_MODEL` | `"n1-latest"` | Alias for the latest stable Navigator n1 model. |
 | `NAVIGATOR_N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable Navigator n1.5 model (current default). |
+| `NAVIGATOR_N2_PREVIEW_MODEL` | `"n2-preview"` | Gated Navigator n2 computer-use preview; not an SDK default or stable alias. |
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
+| `TOOL_SET_COMPUTER_USE` | `"computer_use_tools-20260708"` | Safe/default Navigator n2 computer-use contract. |
+| `TOOL_SET_COMPUTER_USE_BATCH` | `"computer_use_tools-20260716"` | Experimental, opt-in n2 contract adding ordered `computer_batch`. |
+| `MAX_REQUEST_BODY_BYTES` | `10_000_000` | Complete serialized-body limit for gateway-backed Navigator endpoints. |
+| `REQUEST_ENVELOPE_ALLOWANCE_BYTES` | `500_000` | Reserved request space outside the `messages` array. |
+| `DEFAULT_MAX_REQUEST_BYTES` | `9_500_000` | Derived serialized-`messages` budget used by trimming helpers. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
@@ -116,7 +125,7 @@ For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.y
 
 ### `client.chat` — Navigator API
 
-OpenAI-compatible pixels-to-actions chat completions. Works with both Navigator n1 and Navigator n1.5 models.
+OpenAI-compatible pixels-to-actions chat completions. Works with Navigator n1/n1.5 browser use and the gated Navigator n2 desktop preview.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
@@ -154,13 +163,15 @@ parsed = getattr(response, "parsed_json", None)
 
 **Parameters:**
 - `messages` (`Iterable[ChatCompletionMessageParam]`): OpenAI-format chat messages. Include screenshots as `image_url` content blocks.
-- `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `NAVIGATOR_N1_MODEL` / `NAVIGATOR_N1_5_MODEL` for clarity.
-- `tool_set` (`str | None`, **Navigator n1.5 only**): Which built-in tool set to activate. Use `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Forwarded via `extra_body`.
+- `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `NAVIGATOR_N1_MODEL`, `NAVIGATOR_N1_5_MODEL`, or gated-preview `NAVIGATOR_N2_PREVIEW_MODEL` for clarity.
+- `tool_set` (`str | None`): Server-provided tool set. n1.5 accepts `TOOL_SET_CORE` / `TOOL_SET_EXPANDED`. n2 defaults to `TOOL_SET_COMPUTER_USE`; `TOOL_SET_COMPUTER_USE_BATCH` explicitly enables experimental ordered batches. Forwarded via `extra_body`.
 - `disable_tools` (`list[str] | None`, **Navigator n1.5 only**): Tool names to remove from the active tool set.
 - `json_schema` (`dict | None`, **Navigator n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
-- `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges Navigator n1.5 params into it.
+- `**kwargs`: Any other OpenAI Chat Completions parameter. If the caller already passes `extra_body`, the SDK merges Navigator params into it. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`; n1.5 behavior is unchanged.
 
 **Returns:** `openai.types.chat.ChatCompletion`. When `json_schema` is set on Navigator n1.5 and parsing succeeds, the API also sets `response.parsed_json`.
+
+For n2, the server retains all images from the two newest image-bearing messages; intervening text-only messages do not consume the two-message window. It removes only image parts from older messages and uses the n2-only `[Earlier screenshot omitted.]` marker if that would otherwise leave empty content. The complete request-body limit is `MAX_REQUEST_BODY_BYTES` (10,000,000 bytes); image trimmers default to the derived `DEFAULT_MAX_REQUEST_BYTES` (9,500,000 bytes) because they measure only serialized `messages`.
 
 **Navigator n1 vs. Navigator n1.5 summary** (reference: [docs.yutori.com](https://docs.yutori.com/reference/n1-5)):
 

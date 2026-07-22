@@ -17,6 +17,8 @@ uv run playwright install chromium
 
 The examples rely on the SDK's normal credential resolution. They do not expose a separate `--api-key` flag.
 
+Navigator n2 examples use a separate locked Python 3.12 environment under `examples/navigator_n2/`; see that directory's README before running them.
+
 ## navigator_n1.py
 
 A complete browsing agent using the Navigator API with the Navigator n1 model. Launches a local Playwright browser, captures screenshots through `yutori.navigator.aplaywright_screenshot_to_data_url(...)`, converts tool-call coordinates with `yutori.navigator.denormalize_coordinates(...)`, sends them to Navigator n1, and executes predicted actions until the task is complete. The example keeps its own long-lived message history bounded with `update_trimmed_history(...)` from `yutori.navigator.loop`, then still ends with a standard `client.chat.completions.create(...)` call.
@@ -49,6 +51,18 @@ Options:
 - `--json-schema` - JSON schema string for structured output
 - `--timezone` - User timezone (default: America/Los_Angeles)
 - `--location` - User location (default: San Francisco, CA, US)
+
+## navigator_n2/
+
+Pinned Python 3.12 cookbooks for the gated Navigator n2 computer-use preview. `local_macos.py` controls the complete local desktop through Cua Driver's screen-absolute pixel surface; `remote_sandbox.py` runs the same agent loop in a disposable Cua cloud Sandbox. Both default to the non-batch tool set, confirm mutating actions, enforce a step limit, and clean up deterministically.
+
+```bash
+cd examples/navigator_n2
+uv sync --python 3.12 --locked
+uv run python local_macos.py "Open Calculator and compute 17 * 23"
+```
+
+See [navigator_n2/README.md](navigator_n2/README.md) for permissions, remote setup, batch opt-in, and safety options.
 
 ## navigator_n1_custom_tools.py
 

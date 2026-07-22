@@ -34,10 +34,20 @@ from .models import (
     N1_MODEL,
     NAVIGATOR_N1_5_MODEL,
     NAVIGATOR_N1_MODEL,
+    NAVIGATOR_N2_PREVIEW_MODEL,
+    TOOL_SET_COMPUTER_USE,
+    TOOL_SET_COMPUTER_USE_BATCH,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
 )
-from .payload import estimate_messages_size_bytes, trim_images_to_fit, trimmed_messages_to_fit
+from .payload import (
+    DEFAULT_MAX_REQUEST_BYTES,
+    MAX_REQUEST_BODY_BYTES,
+    REQUEST_ENVELOPE_ALLOWANCE_BYTES,
+    estimate_messages_size_bytes,
+    trim_images_to_fit,
+    trimmed_messages_to_fit,
+)
 from .stop import format_stop_and_summarize
 
 __all__ = [
@@ -47,7 +57,13 @@ __all__ = [
     "NAVIGATOR_COORDINATE_SCALE",
     "NAVIGATOR_N1_5_MODEL",
     "NAVIGATOR_N1_MODEL",
+    "NAVIGATOR_N2_PREVIEW_MODEL",
+    "DEFAULT_MAX_REQUEST_BYTES",
+    "MAX_REQUEST_BODY_BYTES",
+    "REQUEST_ENVELOPE_ALLOWANCE_BYTES",
     "RunHooksBase",
+    "TOOL_SET_COMPUTER_USE",
+    "TOOL_SET_COMPUTER_USE_BATCH",
     "TOOL_SET_CORE",
     "TOOL_SET_EXPANDED",
     "acreate_trimmed",

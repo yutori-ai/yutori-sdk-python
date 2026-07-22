@@ -1,0 +1,16 @@
+[project]
+name = "yutori-navigator-n2-cookbooks"
+version = "0.1.0"
+description = "Pinned local and remote Cua cookbooks for Yutori Navigator n2-preview"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "cua==0.1.6",
+    "cua-agent[cloud]",
+    "cua-cli==0.1.12",
+    "cua-driver==0.10.0",
+    "yutori",
+]
+
+[tool.uv.sources]
+cua-agent = { git = "https://github.com/dhruvbatra/cua.git", rev = "f92de456388139394d528ce5d3cbe7070308d157", subdirectory = "libs/python/agent" }
+yutori = { path = "../..", editable = true }

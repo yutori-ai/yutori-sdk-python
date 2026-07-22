@@ -110,7 +110,7 @@ The Yutori API provides four main capabilities:
 
 | API           | Description                                                    | SDK Namespace     |
 | ------------- | -------------------------------------------------------------- | ----------------- |
-| **Navigator** | Computer-use model family (Navigator n1, Navigator n1.5)       | `client.chat`     |
+| **Navigator** | Browser- and computer-use models (Navigator n1, n1.5, n2 preview) | `client.chat`   |
 | **Browsing**  | One-time browser automation tasks                              | `client.browsing` |
 | **Research**  | Deep web research using 100+ tools                             | `client.research` |
 | **Scouting**  | Continuous web monitoring on a schedule                        | `client.scouts`   |
@@ -118,7 +118,7 @@ The Yutori API provides four main capabilities:
 
 ## Navigator API
 
-The Navigator API hosts Yutori's family of computer-use models for navigating websites. The current public versions are **Navigator n1** (model id `n1-latest`) and **Navigator n1.5** (model id `n1.5-latest`). Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
+The Navigator API hosts Yutori's visual-control models. Navigator n1 (`n1-latest`) and Navigator n1.5 (`n1.5-latest`) control browsers; the gated Navigator n2 preview (`n2-preview`) controls a complete desktop. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -156,6 +156,10 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 This snippet shows a single model call. In practice, you'll usually run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it emits `stop`. Complete agent loops live in [examples/](examples/).
 
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1 (`n1-latest`) is still supported for callers that want the older model. Navigator n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator n1.5 reference](https://docs.yutori.com/reference/n1-5) and [Navigator n1 reference](https://docs.yutori.com/reference/n1) for model IDs, parameters, and the full action space.
+
+Navigator n2 is a gated, non-streaming preview and does not change the SDK default. Its safe computer-use tool set is `computer_use_tools-20260708`; ordered `computer_batch` calls are experimental and require the explicit `computer_use_tools-20260716` tool set. n2 rejects caller-provided tools, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. The server preserves every screenshot in the two newest image-bearing messages (text-only messages do not consume a slot), strips older image parts while preserving other history, and inserts `[Earlier screenshot omitted.]` only when n2 pruning empties a message.
+
+Gateway-backed Navigator requests have a 10,000,000-byte complete-body limit. SDK trimming helpers use a separate 9,500,000-byte serialized-`messages` budget, reserving 500,000 bytes for the rest of the request. See the [n2 Cua cookbooks](examples/navigator_n2/) for local macOS and disposable sandbox loops.
 
 ### Agent-loop helpers
 
@@ -339,7 +343,7 @@ Run `yutori --help` or `yutori <command> --help` for full options.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples, including Navigator agent loops for both Navigator n1 and Navigator n1.5.
+See [examples/](examples/) for complete working examples, including Navigator n1/n1.5 browser loops and gated Navigator n2 desktop cookbooks.
 
 ## Contributing
 

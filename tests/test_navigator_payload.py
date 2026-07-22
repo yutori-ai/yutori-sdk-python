@@ -5,6 +5,8 @@ from __future__ import annotations
 from yutori.navigator.payload import (
     DEFAULT_KEEP_RECENT_SCREENSHOTS,
     DEFAULT_MAX_REQUEST_BYTES,
+    MAX_REQUEST_BODY_BYTES,
+    REQUEST_ENVELOPE_ALLOWANCE_BYTES,
     _strip_one_image,
     estimate_messages_size_bytes,
     message_has_image,
@@ -178,6 +180,9 @@ class TestTrimImagesToFit:
 
     def test_defaults(self):
         assert DEFAULT_MAX_REQUEST_BYTES == 9_500_000
+        assert MAX_REQUEST_BODY_BYTES == 10_000_000
+        assert REQUEST_ENVELOPE_ALLOWANCE_BYTES == 500_000
+        assert DEFAULT_MAX_REQUEST_BYTES == MAX_REQUEST_BODY_BYTES - REQUEST_ENVELOPE_ALLOWANCE_BYTES
         assert DEFAULT_KEEP_RECENT_SCREENSHOTS == 6
 
     def test_messages_mutated_in_place(self):

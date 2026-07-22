@@ -15,7 +15,14 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
-DEFAULT_MAX_REQUEST_BYTES = 9_500_000
+MAX_REQUEST_BODY_BYTES = 10_000_000
+"""Maximum serialized request-body size for gateway-backed Navigator endpoints."""
+
+REQUEST_ENVELOPE_ALLOWANCE_BYTES = 500_000
+"""Space reserved for the request fields outside the serialized messages list."""
+
+DEFAULT_MAX_REQUEST_BYTES = MAX_REQUEST_BODY_BYTES - REQUEST_ENVELOPE_ALLOWANCE_BYTES
+"""Default serialized-messages budget used by screenshot-trimming helpers."""
 DEFAULT_KEEP_RECENT_SCREENSHOTS = 6
 
 
@@ -115,7 +122,8 @@ def trim_images_to_fit(
 
     Args:
         messages: The mutable messages list (modified in place).
-        max_bytes: Target maximum payload size in bytes.
+        max_bytes: Target maximum serialized ``messages`` size in bytes. This
+            is not the complete HTTP request-body limit.
         keep_recent: Number of recent screenshots to protect from removal.
 
     Returns:
@@ -179,7 +187,8 @@ def trimmed_messages_to_fit(
 
     Args:
         messages: The original messages list.
-        max_bytes: Target maximum payload size in bytes.
+        max_bytes: Target maximum serialized ``messages`` size in bytes. This
+            is not the complete HTTP request-body limit.
         keep_recent: Number of recent screenshots to protect from removal.
 
     Returns:

@@ -107,7 +107,7 @@ If they decline, skip the Scout demo and end with a recap of Research + Browsing
 
 ## Navigator API
 
-Navigator is Yutori's computer-use model (model id `n1.5-latest`). It is an **OpenAI Chat Completions-compatible endpoint**: you send a screenshot of a web page plus a task instruction, and the model returns **browser actions** as tool calls (`left_click`, `type`, `scroll`, `goto_url`, …). You execute those actions in your own browser (e.g. Playwright), append the results, capture a fresh screenshot, and call again — an **agent loop** — until the model returns a text response with no tool calls.
+Navigator is Yutori's visual-control model family. Navigator n1.5 (`n1.5-latest`, the SDK default) returns browser actions; the gated Navigator n2 preview (`n2-preview`) returns complete-desktop computer actions. Both use an **OpenAI Chat Completions-compatible endpoint**: send a screenshot plus a task, execute returned tool calls, append their results and a fresh screenshot, and call again until the model returns a final text response.
 
 There is no `yutori` CLI command for Navigator; it is called from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client.
 
@@ -162,6 +162,14 @@ Pass these as keyword args to `client.chat.completions.create(...)`:
 | `temperature` | Sampling temperature (default 0.3). |
 
 The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>. For the SDK and CLI reference, see the link at the bottom of this file.
+
+### Navigator n2-preview parameters and history
+
+`n2-preview` is gated and non-streaming. Use `computer_use_tools-20260708` (the default) for individual computer actions. The experimental `computer_use_tools-20260716` set adds an ordered `computer_batch` tool and must be selected explicitly. n2 rejects caller-supplied tools, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`; these restrictions do not change n1.5 streaming or parameter behavior.
+
+The server keeps every image in the two newest image-bearing messages. Text-only messages do not consume a slot; older image parts are removed while non-image history remains. If an older image-only message becomes empty, the n2 preprocessor inserts `[Earlier screenshot omitted.]`. Gateway-backed endpoints cap the complete serialized request at 10,000,000 bytes; SDK screenshot trimmers target 9,500,000 bytes for the `messages` array so the surrounding model, parameters, JSON framing, and server-provided tools still fit.
+
+Runnable local macOS and disposable Cua Sandbox examples live in `examples/navigator_n2/`. They default to individual actions and require `--batch` to opt in to batching.
 
 For SDK/API integration details, use:
 

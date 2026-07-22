@@ -32,15 +32,19 @@ class ChatCompletions:
         Args:
             messages: List of messages following OpenAI Chat format.
             model: Model to use (default: ``"n1.5-latest"`` — Navigator n1.5).
-            tool_set: (Navigator n1.5 only) Built-in tool set to use, e.g.
-                ``"browser_tools_core-20260403"`` or
-                ``"browser_tools_expanded-20260403"``.
+            tool_set: Server-provided tool set. Navigator n1.5 accepts its
+                browser tool sets. Navigator n2-preview accepts
+                ``"computer_use_tools-20260708"`` (default) or the explicitly
+                selected experimental batch set ``"computer_use_tools-20260716"``.
             disable_tools: (Navigator n1.5 only) List of tool names to remove
                 from the selected tool set.
             json_schema: (Navigator n1.5 only) JSON Schema for structured output.
                 When provided, the model returns a ``parsed_json`` field
                 on the response.
-            **kwargs: Additional parameters (e.g., temperature).
+            **kwargs: Additional parameters (e.g., temperature). Navigator
+                n2-preview is non-streaming and rejects caller-provided tools,
+                ``disable_tools``, ``json_schema``, ``response_format``, and
+                non-auto ``tool_choice``; Navigator n1.5 behavior is unchanged.
 
         Returns:
             ChatCompletion object.
