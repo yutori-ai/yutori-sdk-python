@@ -189,24 +189,18 @@ async def execute_n1_primitive_action(
     Playwright calls propagate to the caller, which already wraps action
     execution in its own try/except.
     """
-    if action_name == "left_click":
+    if action_name in ("left_click", "double_click", "right_click", "triple_click"):
+        # All four share the same coordinate resolution and post-click pause;
+        # only the actual mouse call differs.
         abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
-        await page.mouse.click(abs_x, abs_y)
-        await asyncio.sleep(0.5)
-
-    elif action_name == "double_click":
-        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
-        await page.mouse.dblclick(abs_x, abs_y)
-        await asyncio.sleep(0.5)
-
-    elif action_name == "right_click":
-        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
-        await page.mouse.click(abs_x, abs_y, button="right")
-        await asyncio.sleep(0.5)
-
-    elif action_name == "triple_click":
-        abs_x, abs_y = _click_coordinates(arguments, viewport_width, viewport_height)
-        await page.mouse.click(abs_x, abs_y, click_count=3)
+        if action_name == "double_click":
+            await page.mouse.dblclick(abs_x, abs_y)
+        elif action_name == "right_click":
+            await page.mouse.click(abs_x, abs_y, button="right")
+        elif action_name == "triple_click":
+            await page.mouse.click(abs_x, abs_y, click_count=3)
+        else:
+            await page.mouse.click(abs_x, abs_y)
         await asyncio.sleep(0.5)
 
     elif action_name == "type":
