@@ -411,13 +411,17 @@ class TestAsyncErrorHandling:
                 with pytest.raises(AuthenticationError):
                     await client.get_usage()
 
-    async def test_api_error(self, async_client):
-        mock_response = make_status_response(500, "Server error")
+    @pytest.mark.parametrize(
+        ("status_code", "reason"),
+        [(400, "Bad request"), (500, "Internal server error")],
+    )
+    async def test_api_error(self, async_client, status_code, reason):
+        mock_response = make_status_response(status_code, reason)
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock, return_value=mock_response):
             with pytest.raises(APIError) as exc_info:
                 await async_client.get_usage()
-            assert exc_info.value.status_code == 500
+            assert exc_info.value.status_code == status_code
 
 
 class TestAsyncTransportErrorWrapping:
