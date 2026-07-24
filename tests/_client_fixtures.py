@@ -47,6 +47,27 @@ USAGE_RESPONSE = {
 }
 
 
+def patch_async_http(method: str, response: Any = None, *, side_effect: Any = None) -> Any:
+    """Patch ``httpx.AsyncClient.<method>`` with an :class:`AsyncMock`.
+
+    Every async transport test has to pass ``new_callable=AsyncMock`` to
+    ``patch.object`` — without it the awaited call yields a ``MagicMock``
+    instead of the mocked response. That boilerplate was repeated at every
+    call site in the async client suite, and was long enough to push several
+    of them onto three wrapped lines. Pass ``response`` for the awaited return
+    value, or ``side_effect`` to raise a transport error instead.
+
+    Used exactly like ``patch.object``: as a context manager that yields the
+    mock, so callers can still assert on ``call_args``.
+
+    The sync suite deliberately keeps plain ``patch.object(httpx.Client, ...)``
+    — it needs no ``new_callable`` argument, so a wrapper there would add
+    indirection without removing anything.
+    """
+    mock_kwargs = {"side_effect": side_effect} if side_effect is not None else {"return_value": response}
+    return patch.object(httpx.AsyncClient, method, new_callable=AsyncMock, **mock_kwargs)
+
+
 def make_json_response(data: Any, *, status_code: int = 200) -> MagicMock:
     """Build a mocked :class:`httpx.Response` whose ``.content`` and ``.json()`` both reflect `data`.
 
