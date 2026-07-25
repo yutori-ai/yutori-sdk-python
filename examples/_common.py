@@ -168,6 +168,18 @@ def _click_coordinates(
     return denormalize_coordinates(coords, viewport_width, viewport_height)
 
 
+async def _navigate_and_settle(page: Any, nav_coro: Any, *, sleep: float) -> None:
+    """Await a Playwright navigation call, wait for load, then settle for ``sleep`` seconds.
+
+    Shared by the ``goto``/``back``/``refresh`` branches of :func:`execute_n1_primitive_action`,
+    which each await a different navigation call, wait for ``"domcontentloaded"``, then sleep
+    for their own fixed duration -- otherwise identical.
+    """
+    await nav_coro
+    await page.wait_for_load_state("domcontentloaded")
+    await asyncio.sleep(sleep)
+
+
 async def execute_n1_primitive_action(
     page: Any,
     action_name: str,
@@ -259,19 +271,13 @@ async def execute_n1_primitive_action(
 
     elif action_name in ("goto", "goto_url"):
         url = arguments.get("url", "")
-        await page.goto(url)
-        await page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(1)
+        await _navigate_and_settle(page, page.goto(url), sleep=1)
 
     elif action_name in ("back", "go_back"):
-        await page.go_back()
-        await page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(0.5)
+        await _navigate_and_settle(page, page.go_back(), sleep=0.5)
 
     elif action_name == "refresh":
-        await page.reload()
-        await page.wait_for_load_state("domcontentloaded")
-        await asyncio.sleep(1)
+        await _navigate_and_settle(page, page.reload(), sleep=1)
 
     elif action_name == "wait":
         await asyncio.sleep(5)
