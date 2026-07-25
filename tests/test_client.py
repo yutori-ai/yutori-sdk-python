@@ -53,32 +53,26 @@ class TestYutoriClientInit:
 
 
 class TestYutoriClientGetUsage:
-    def test_get_usage_success(self):
+    def test_get_usage_success(self, client):
         with patch.object(httpx.Client, "get", return_value=make_mock_usage_response()):
-            client = YutoriClient(api_key="yt-test")
             result = client.get_usage()
             assert result["num_active_scouts"] == 2
             assert result["activity"]["period"] == "24h"
             assert result["rate_limits"]["status"] == "available"
-            client.close()
 
-    def test_get_usage_with_period(self):
+    def test_get_usage_with_period(self, client):
         with patch.object(httpx.Client, "get", return_value=make_mock_usage_response("7d")) as mock_get:
-            client = YutoriClient(api_key="yt-test")
             result = client.get_usage(period="7d")
             assert result["activity"]["period"] == "7d"
             # Verify period is passed as query param
             call_kwargs = mock_get.call_args[1]
             assert call_kwargs["params"] == {"period": "7d"}
-            client.close()
 
-    def test_get_usage_no_period_sends_no_params(self):
+    def test_get_usage_no_period_sends_no_params(self, client):
         with patch.object(httpx.Client, "get", return_value=make_mock_usage_response()) as mock_get:
-            client = YutoriClient(api_key="yt-test")
             client.get_usage()
             call_kwargs = mock_get.call_args[1]
             assert call_kwargs["params"] == {}
-            client.close()
 
     @pytest.mark.parametrize(
         ("status_code", "reason"),
@@ -374,11 +368,10 @@ class TestPydanticSchemaIntegration:
 
 
 class TestChatNamespace:
-    def test_chat_completions(self):
+    def test_chat_completions(self, client):
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
-            client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Click login"}],
                 model="n1-latest",
@@ -387,9 +380,8 @@ class TestChatNamespace:
             mock_openai_client.chat.completions.create.assert_called_once()
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
             assert call_kwargs["model"] == "n1-latest"
-            client.close()
 
-    def test_chat_completions_n1_5_forwards_extra_body_options(self):
+    def test_chat_completions_n1_5_forwards_extra_body_options(self, client):
         from yutori.navigator import TOOL_SET_CORE
 
         json_schema = {
@@ -401,7 +393,6 @@ class TestChatNamespace:
         mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
-            client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Reply with JSON."}],
                 model="n1.5-latest",
@@ -419,9 +410,8 @@ class TestChatNamespace:
                 "disable_tools": ["hold_key"],
                 "json_schema": json_schema,
             }
-            client.close()
 
-    def test_n1_helper_create_trimmed_public_helper_uses_trimmed_copy(self):
+    def test_n1_helper_create_trimmed_public_helper_uses_trimmed_copy(self, client):
         from copy import deepcopy
 
         from yutori.navigator import create_trimmed
@@ -432,7 +422,6 @@ class TestChatNamespace:
         original_snapshot = deepcopy(original_messages)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
-            client = YutoriClient(api_key="yt-test")
             result = create_trimmed(
                 client.chat.completions,
                 original_messages,
@@ -440,7 +429,6 @@ class TestChatNamespace:
                 keep_recent=1,
             )
             assert result.choices[0].message.content == "click"
-            client.close()
 
         call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
         sent_messages = call_kwargs["messages"]
@@ -448,7 +436,7 @@ class TestChatNamespace:
         assert sent_messages == trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)[0]
         assert original_messages == original_snapshot
 
-    def test_n1_payload_helper_supports_standard_create_pattern(self):
+    def test_n1_payload_helper_supports_standard_create_pattern(self, client):
         from copy import deepcopy
 
         from yutori.navigator import trimmed_messages_to_fit
@@ -459,13 +447,11 @@ class TestChatNamespace:
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
-            client = YutoriClient(api_key="yt-test")
             result = client.chat.completions.create(
                 model="n1-latest",
                 messages=trimmed_messages,
             )
             assert result.choices[0].message.content == "click"
-            client.close()
 
         call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
         assert call_kwargs["messages"] == trimmed_messages
@@ -477,15 +463,13 @@ class TestErrorHandling:
         ("status_code", "reason"),
         [(400, "Bad request"), (500, "Internal server error")],
     )
-    def test_api_error(self, status_code, reason):
+    def test_api_error(self, status_code, reason, client):
         mock_response = make_status_response(status_code, reason)
 
         with patch.object(httpx.Client, "get", return_value=mock_response):
-            client = YutoriClient(api_key="yt-test")
             with pytest.raises(APIError) as exc_info:
                 client.get_usage()
             assert exc_info.value.status_code == status_code
-            client.close()
 
 
 class TestTransportErrorWrapping:
