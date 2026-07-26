@@ -448,7 +448,26 @@ def test_usage_rejected_key_prints_auth_guidance_not_traceback():
     assert "Traceback" not in result.stdout
 
 
-def test_scouts_list_network_error_prints_message_not_traceback():
+def test_scouts_list_connection_error_prints_message_not_traceback():
+    # This is the exception type a real YutoriClient call actually raises for
+    # network failures: yutori/_http.py wraps every httpx.HTTPError into an
+    # APIConnectionError before it leaves the SDK, so this is what cli_api_errors
+    # must catch for offline/network-failure CLI usage to show a friendly message.
+    from yutori.exceptions import APIConnectionError
+
+    client = _make_client_mock()
+    client.scouts.list.side_effect = APIConnectionError("Network error calling the Yutori API (ConnectError): refused")
+
+    result = _invoke_cli(client, ["scouts", "list"])
+
+    assert result.exit_code == 1
+    assert "Network error" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_scouts_list_raw_httpx_error_prints_message_not_traceback():
+    # Defensive fallback: cli_api_errors also catches a raw httpx.HTTPError
+    # directly, in case a network error ever reaches this layer unwrapped.
     import httpx
 
     client = _make_client_mock()

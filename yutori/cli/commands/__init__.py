@@ -13,7 +13,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from yutori.auth.credentials import resolve_api_key
-from yutori.exceptions import APIError, AuthenticationError
+from yutori.exceptions import APIConnectionError, APIError, AuthenticationError
 
 __all__ = [
     "INTERVAL_PRESETS",
@@ -123,6 +123,12 @@ def cli_api_errors() -> Iterator[None]:
     a multi-screen Typer traceback. The AuthenticationError class name stays
     in the output because the installer's AUTH_FAILURE_MARKERS
     (yutori/cli/commands/install_flow.py) classify failures by grepping it.
+
+    ``APIConnectionError`` is the type real client calls actually raise for
+    network failures — ``yutori/_http.py`` wraps every ``httpx.HTTPError``
+    into one before it leaves the SDK. The raw ``httpx.HTTPError`` catch is
+    kept alongside it as a defensive fallback for the same friendly message
+    in case a network error ever reaches this layer unwrapped.
     """
     try:
         yield
@@ -133,7 +139,7 @@ def cli_api_errors() -> Iterator[None]:
     except APIError as exc:
         _console.print(f"[red]APIError: {safe_str(exc)}[/red]")
         raise typer.Exit(1) from exc
-    except httpx.HTTPError as exc:
+    except (APIConnectionError, httpx.HTTPError) as exc:
         _console.print(f"[red]Network error: {safe_str(exc)}[/red]")
         _console.print("Check your connection and try again.")
         raise typer.Exit(1) from exc
