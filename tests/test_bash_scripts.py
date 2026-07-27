@@ -32,6 +32,17 @@ def uninstall_sh_content() -> str:
     return UNINSTALL_SH.read_text()
 
 
+def _extract_function_body(content: str, start_marker: str, end_marker: str = "\n}\n") -> str:
+    """Return the substring from *start_marker* through the first *end_marker* after it.
+
+    Isolates one bash function's body from a larger script's text for regression
+    assertions below, without a real bash parser.
+    """
+    start = content.index(start_marker)
+    end = content.index(end_marker, start)
+    return content[start:end]
+
+
 def _resolve_install_sh() -> Path:
     """Return a path to a generated install.sh, skipping only if truly unavailable."""
     if INSTALL_SH.exists():
@@ -143,7 +154,7 @@ def test_play_animation_calls_prerender_frames_directly(install_template_content
         "prerender_frames must be called directly (not via command substitution) "
         "so FRAMES_RENDER_DIR survives in the parent shell."
     )
-    assert '=$(prerender_frames' not in content and '="$(prerender_frames' not in content, (
+    assert "=$(prerender_frames" not in content and '="$(prerender_frames' not in content, (
         "prerender_frames must NOT be called in a $(...) subshell — "
         "FRAMES_RENDER_DIR assignment would be lost and the render dir would leak."
     )
@@ -176,16 +187,10 @@ def test_cleanup_probes_tty_before_writing(install_template_content: str) -> Non
         "the TTY is actually openable, not just readable/writable."
     )
     # cleanup() must call has_usable_tty before touching /dev/tty.
-    cleanup_start = content.index("cleanup() {")
-    cleanup_end = content.index("}", cleanup_start)
-    cleanup_body = content[cleanup_start:cleanup_end]
-    assert "has_usable_tty" in cleanup_body, (
-        "cleanup() must guard its /dev/tty write with has_usable_tty."
-    )
+    cleanup_body = _extract_function_body(content, "cleanup() {", "}")
+    assert "has_usable_tty" in cleanup_body, "cleanup() must guard its /dev/tty write with has_usable_tty."
     # Same for handoff_to_python_ui's </dev/tty redirect.
-    handoff_start = content.index("handoff_to_python_ui()")
-    handoff_end = content.index("\n}\n", handoff_start)
-    handoff_body = content[handoff_start:handoff_end]
+    handoff_body = _extract_function_body(content, "handoff_to_python_ui()")
     assert "has_usable_tty" in handoff_body, (
         "handoff_to_python_ui must probe the TTY before exec'ing with "
         "</dev/tty — otherwise the redirect fails on non-interactive runs."
@@ -202,16 +207,12 @@ def test_uninstall_probes_tty_before_prompting(uninstall_sh_content: str) -> Non
     """
     content = uninstall_sh_content
     assert "has_usable_tty" in content, (
-        "uninstall.sh must probe the TTY before relying on read <\"$TTY\" — "
+        'uninstall.sh must probe the TTY before relying on read <"$TTY" — '
         "otherwise it silently auto-accepts destructive prompts on non-TTY."
     )
     # prompt_confirm must call the probe, not just `[[ -r "$TTY" ]]`.
-    prompt_start = content.index("prompt_confirm()")
-    prompt_end = content.index("\n}\n", prompt_start)
-    prompt_body = content[prompt_start:prompt_end]
-    assert "has_usable_tty" in prompt_body, (
-        "prompt_confirm must invoke has_usable_tty before proceeding."
-    )
+    prompt_body = _extract_function_body(content, "prompt_confirm()")
+    assert "has_usable_tty" in prompt_body, "prompt_confirm must invoke has_usable_tty before proceeding."
 
 
 def test_uninstall_summary_rule_is_not_misread_as_printf_flag(uninstall_sh_content: str) -> None:
@@ -221,8 +222,7 @@ def test_uninstall_summary_rule_is_not_misread_as_printf_flag(uninstall_sh_conte
     """
     content = uninstall_sh_content
     assert "printf '-------\\n'" not in content and "printf '------\\n'" not in content, (
-        "`printf '-------\\n'` errors with `printf: --: invalid option`. "
-        "Use `printf '%s\\n' \"-------\"` instead."
+        "`printf '-------\\n'` errors with `printf: --: invalid option`. Use `printf '%s\\n' \"-------\"` instead."
     )
 
 
