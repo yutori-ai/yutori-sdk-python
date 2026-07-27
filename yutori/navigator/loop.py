@@ -25,7 +25,7 @@ class SupportsSyncChatCompletionsCreate(Protocol):
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1.5-latest",
+        model: str = NAVIGATOR_N1_5_MODEL,
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create a sync chat completion."""
@@ -38,7 +38,7 @@ class SupportsAsyncChatCompletionsCreate(Protocol):
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1.5-latest",
+        model: str = NAVIGATOR_N1_5_MODEL,
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create an async chat completion."""
