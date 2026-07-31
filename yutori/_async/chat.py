@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from .._http import apply_chat_extra_body
+from ..navigator.models import NAVIGATOR_N1_5_MODEL
 
 
 class AsyncChatCompletions:
@@ -21,7 +22,7 @@ class AsyncChatCompletions:
         self,
         messages: Iterable[ChatCompletionMessageParam],
         *,
-        model: str = "n1.5-latest",
+        model: str = NAVIGATOR_N1_5_MODEL,
         tool_set: str | None = None,
         disable_tools: list[str] | None = None,
         json_schema: dict | None = None,

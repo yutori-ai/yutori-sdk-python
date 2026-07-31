@@ -368,6 +368,16 @@ class TestPydanticSchemaIntegration:
 
 
 class TestChatNamespace:
+    def test_chat_completions_default_model_is_canonical_n1_5_constant(self, client):
+        from yutori.navigator import NAVIGATOR_N1_5_MODEL
+
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_5_MODEL)
+
+        with mocked_sync_openai_client(mock_completion) as mock_openai_client:
+            client.chat.completions.create(messages=[{"role": "user", "content": "Click login"}])
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
+
     def test_chat_completions(self, client):
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
