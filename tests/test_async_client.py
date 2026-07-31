@@ -301,6 +301,16 @@ class TestAsyncPydanticSchemaIntegration:
 
 @pytest.mark.asyncio
 class TestAsyncChatNamespace:
+    async def test_chat_completions_default_model_is_canonical_n1_5_constant(self, async_client):
+        from yutori.navigator import NAVIGATOR_N1_5_MODEL
+
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_5_MODEL)
+
+        with mocked_async_openai_client(mock_completion) as mock_openai_client:
+            await async_client.chat.completions.create(messages=[{"role": "user", "content": "Click login"}])
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
+
     async def test_chat_completions(self, async_client):
         mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
 
