@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from yutori import APIError, AuthenticationError, YutoriClient
+from yutori.navigator import NAVIGATOR_N1_5_MODEL, NAVIGATOR_N1_MODEL
 
 from ._client_fixtures import (
     make_json_response,
@@ -369,8 +370,6 @@ class TestPydanticSchemaIntegration:
 
 class TestChatNamespace:
     def test_chat_completions_default_model_is_canonical_n1_5_constant(self, client):
-        from yutori.navigator import NAVIGATOR_N1_5_MODEL
-
         mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_5_MODEL)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
@@ -379,17 +378,17 @@ class TestChatNamespace:
             assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
 
     def test_chat_completions(self, client):
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Click login"}],
-                model="n1-latest",
+                model=NAVIGATOR_N1_MODEL,
             )
             assert result.choices[0].message.content == "click"
             mock_openai_client.chat.completions.create.assert_called_once()
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
-            assert call_kwargs["model"] == "n1-latest"
+            assert call_kwargs["model"] == NAVIGATOR_N1_MODEL
 
     def test_chat_completions_n1_5_forwards_extra_body_options(self, client):
         from yutori.navigator import TOOL_SET_CORE
@@ -400,12 +399,12 @@ class TestChatNamespace:
             "required": ["status"],
             "additionalProperties": False,
         }
-        mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
+        mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model=NAVIGATOR_N1_5_MODEL)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             result = client.chat.completions.create(
                 messages=[{"role": "user", "content": "Reply with JSON."}],
-                model="n1.5-latest",
+                model=NAVIGATOR_N1_5_MODEL,
                 tool_set=TOOL_SET_CORE,
                 disable_tools=["hold_key"],
                 json_schema=json_schema,
@@ -413,7 +412,7 @@ class TestChatNamespace:
             )
             assert result.choices[0].message.content == '{"status":"ok"}'
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
-            assert call_kwargs["model"] == "n1.5-latest"
+            assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
             assert call_kwargs["extra_body"] == {
                 "trace_id": "trace-123",
                 "tool_set": TOOL_SET_CORE,
@@ -427,7 +426,7 @@ class TestChatNamespace:
         from yutori.navigator import create_trimmed
         from yutori.navigator.payload import trimmed_messages_to_fit
 
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
         original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
 
@@ -451,14 +450,14 @@ class TestChatNamespace:
 
         from yutori.navigator import trimmed_messages_to_fit
 
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
         original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
         with mocked_sync_openai_client(mock_completion) as mock_openai_client:
             result = client.chat.completions.create(
-                model="n1-latest",
+                model=NAVIGATOR_N1_MODEL,
                 messages=trimmed_messages,
             )
             assert result.choices[0].message.content == "click"

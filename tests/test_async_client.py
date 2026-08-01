@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from yutori import APIError, AsyncYutoriClient, AuthenticationError
+from yutori.navigator import NAVIGATOR_N1_5_MODEL, NAVIGATOR_N1_MODEL
 
 from ._client_fixtures import (
     make_json_response,
@@ -302,8 +303,6 @@ class TestAsyncPydanticSchemaIntegration:
 @pytest.mark.asyncio
 class TestAsyncChatNamespace:
     async def test_chat_completions_default_model_is_canonical_n1_5_constant(self, async_client):
-        from yutori.navigator import NAVIGATOR_N1_5_MODEL
-
         mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_5_MODEL)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
@@ -312,7 +311,7 @@ class TestAsyncChatNamespace:
             assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
 
     async def test_chat_completions(self, async_client):
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
 
         with mocked_async_openai_client(mock_completion):
             result = await async_client.chat.completions.create(
@@ -329,12 +328,12 @@ class TestAsyncChatNamespace:
             "required": ["status"],
             "additionalProperties": False,
         }
-        mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model="n1.5-latest")
+        mock_completion = make_mock_chat_completion(content='{"status":"ok"}', model=NAVIGATOR_N1_5_MODEL)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
             result = await async_client.chat.completions.create(
                 messages=[{"role": "user", "content": "Reply with JSON."}],
-                model="n1.5-latest",
+                model=NAVIGATOR_N1_5_MODEL,
                 tool_set=TOOL_SET_CORE,
                 disable_tools=["hold_key"],
                 json_schema=json_schema,
@@ -343,7 +342,7 @@ class TestAsyncChatNamespace:
             assert result.choices[0].message.content == '{"status":"ok"}'
 
         call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
-        assert call_kwargs["model"] == "n1.5-latest"
+        assert call_kwargs["model"] == NAVIGATOR_N1_5_MODEL
         assert call_kwargs["extra_body"] == {
             "trace_id": "trace-123",
             "tool_set": TOOL_SET_CORE,
@@ -357,7 +356,7 @@ class TestAsyncChatNamespace:
         from yutori.navigator import acreate_trimmed
         from yutori.navigator.payload import trimmed_messages_to_fit
 
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
         original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
 
@@ -381,14 +380,14 @@ class TestAsyncChatNamespace:
 
         from yutori.navigator import trimmed_messages_to_fit
 
-        mock_completion = make_mock_chat_completion(content="click", model="n1-latest")
+        mock_completion = make_mock_chat_completion(content="click", model=NAVIGATOR_N1_MODEL)
         original_messages = make_trimmable_messages()
         original_snapshot = deepcopy(original_messages)
         trimmed_messages, _, _ = trimmed_messages_to_fit(original_messages, max_bytes=100, keep_recent=1)
 
         with mocked_async_openai_client(mock_completion) as mock_openai_client:
             result = await async_client.chat.completions.create(
-                model="n1-latest",
+                model=NAVIGATOR_N1_MODEL,
                 messages=trimmed_messages,
             )
             assert result.choices[0].message.content == "click"
