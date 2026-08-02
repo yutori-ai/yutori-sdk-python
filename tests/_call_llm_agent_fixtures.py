@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 from examples._common import BrowserAgentMixin
+from yutori.navigator import NAVIGATOR_N1_MODEL
 
 
 def make_call_llm_agent() -> BrowserAgentMixin:
@@ -23,7 +24,7 @@ def make_call_llm_agent() -> BrowserAgentMixin:
     whose ``model_dump()`` is ``{"role": "assistant", "content": "done"}``.
     """
     agent = BrowserAgentMixin()
-    agent.model = "n1-latest"
+    agent.model = NAVIGATOR_N1_MODEL
     agent.temperature = 0.3
     agent._step_count = 3
     agent._step_payloads = []
