@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -100,5 +101,10 @@ class YutoriClient(_SyncBaseNamespace):
     def __enter__(self) -> YutoriClient:
         return self
 
-    def __exit__(self, exc_type: type | None, exc: BaseException | None, traceback: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.close()

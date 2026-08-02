@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -110,5 +111,10 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
     async def __aenter__(self) -> AsyncYutoriClient:
         return self
 
-    async def __aexit__(self, exc_type: type | None, exc: BaseException | None, traceback: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         await self.close()
