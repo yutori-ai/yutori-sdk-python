@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
+from yutori.navigator import NAVIGATOR_N1_MODEL
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -147,7 +149,7 @@ def make_trimmable_messages() -> list[dict[str, Any]]:
 
 
 def make_mock_chat_completion(
-    *, content: str = "click", model: str = "n1-latest", completion_id: str = "chatcmpl-123"
+    *, content: str = "click", model: str = NAVIGATOR_N1_MODEL, completion_id: str = "chatcmpl-123"
 ) -> ChatCompletion:
     """Build a minimal :class:`openai.types.chat.ChatCompletion` for mocking chat.completions.create.
 

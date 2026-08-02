@@ -14,6 +14,7 @@ from .conftest import require_examples_extra
 
 require_examples_extra()
 from examples._common import BrowserAgentMixin  # noqa: E402
+from yutori.navigator import NAVIGATOR_N1_MODEL  # noqa: E402
 
 from ._call_llm_agent_fixtures import make_call_llm_agent  # noqa: E402
 
@@ -31,7 +32,7 @@ async def test_call_llm_with_tools_passes_tools_and_fields_to_create() -> None:
     response = await agent._call_llm_with_tools(tools)
 
     agent._client.chat.completions.create.assert_awaited_once_with(
-        model="n1-latest",
+        model=NAVIGATOR_N1_MODEL,
         messages=agent._messages,
         temperature=0.3,
         tools=tools,
@@ -49,7 +50,7 @@ async def test_call_llm_with_tools_records_sanitized_step_payload() -> None:
     payload = agent._step_payloads[0]
     assert payload["step_num"] == 3
     assert payload["request"] == {
-        "model": "n1-latest",
+        "model": NAVIGATOR_N1_MODEL,
         "messages": agent._messages,
         "temperature": 0.3,
         "tools": tools,
