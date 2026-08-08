@@ -4,6 +4,7 @@ import copy
 
 import pytest
 
+from yutori.navigator import NAVIGATOR_N1_MODEL
 from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.replay import (
     TrajectoryRecorder,
@@ -81,7 +82,7 @@ def test_sanitize_step_payload_clips_images_before_storage() -> None:
         {
             "step_num": 1,
             "request": {
-                "model": "n1-latest",
+                "model": NAVIGATOR_N1_MODEL,
                 "messages": [_image_message("user", url=large_url, text="Inspect page")],
             },
             "response": {"id": "resp_123"},
@@ -124,7 +125,7 @@ def test_generate_visualization_html_renders_raw_request_and_response_json() -> 
         {
             "step_num": 1,
             "request": {
-                "model": "n1-latest",
+                "model": NAVIGATOR_N1_MODEL,
                 "messages": [_image_message("user", url=large_url, text="Inspect page")],
             },
             "response": {
@@ -154,7 +155,7 @@ async def test_trajectory_recorder_writes_artifacts(tmp_path) -> None:
         {
             "step_num": 1,
             "request": {
-                "model": "n1-latest",
+                "model": NAVIGATOR_N1_MODEL,
                 "messages": [_image_message("user", url=large_url, text="Inspect page")],
             },
             "response": {"id": "resp_123"},
