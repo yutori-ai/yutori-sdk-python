@@ -178,7 +178,7 @@ class TrajectoryRecorder:
     ) -> None:
         """Render the optional static HTML replay viewer for one run."""
 
-        html = generate_visualization_html(
+        visualization_html = generate_visualization_html(
             task_id=self.run_id,
             messages=messages,
             result=result,
@@ -186,7 +186,7 @@ class TrajectoryRecorder:
             coord_space_width=coord_space_width,
             coord_space_height=coord_space_height,
         )
-        await self._write_text(self.artifact_path("visualization.html"), html)
+        await self._write_text(self.artifact_path("visualization.html"), visualization_html)
 
 
 def generate_visualization_html(
@@ -208,7 +208,7 @@ def generate_visualization_html(
     result_score = getattr(result, "score", None) if result is not None else None
     result_json = _dump_result_json(result)
 
-    html: list[str] = [
+    html_lines: list[str] = [
         "<!DOCTYPE html>",
         "<html lang=\"en\">",
         "<head>",
@@ -234,25 +234,25 @@ def generate_visualization_html(
             badge_class = "success"
         elif result_score == 0:
             badge_class = "failure"
-        html.append(f"<div class=\"score {badge_class}\">score {result_score}</div>")
-    html.extend(["</header>", "<main>"])
+        html_lines.append(f"<div class=\"score {badge_class}\">score {result_score}</div>")
+    html_lines.extend(["</header>", "<main>"])
 
     if system_prompt:
-        html.extend(_render_text_details_panel("System Prompt", system_prompt))
+        html_lines.extend(_render_text_details_panel("System Prompt", system_prompt))
 
     if user_query:
-        html.extend(_render_text_details_panel("User Prompt", user_query, open=True))
+        html_lines.extend(_render_text_details_panel("User Prompt", user_query, open=True))
 
     if not steps:
-        html.append("<section class=\"panel empty\">No assistant steps were recorded.</section>")
+        html_lines.append("<section class=\"panel empty\">No assistant steps were recorded.</section>")
 
     for step in steps:
-        html.append(_render_step(step))
+        html_lines.append(_render_step(step))
 
     if result_json:
-        html.extend(_render_text_details_panel("Result Artifact", result_json))
+        html_lines.extend(_render_text_details_panel("Result Artifact", result_json))
 
-    html.extend(
+    html_lines.extend(
         [
             "</main>",
             "<div class=\"modal\" id=\"modal\" onclick=\"closeReplayModal(event)\">",
@@ -267,7 +267,7 @@ def generate_visualization_html(
             "</html>",
         ]
     )
-    return "\n".join(html)
+    return "\n".join(html_lines)
 
 
 def _build_steps(
@@ -574,7 +574,7 @@ def _render_text_details_panel(title: str, content: str, *, open: bool = False) 
     """Build the collapsible ``<details class="panel">`` block used by ``generate_visualization_html``
     for the System Prompt, User Prompt, and Result Artifact sections.
 
-    Returned as a 4-line list to match the existing ``html.extend([...])`` call style
+    Returned as a 4-line list to match the existing ``html_lines.extend([...])`` call style
     so the on-disk visualization HTML keeps its line layout exactly.
     """
     open_attr = " open" if open else ""
