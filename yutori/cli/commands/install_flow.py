@@ -480,7 +480,7 @@ def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstal
     if version_result.returncode != 0:
         return None, StepResult("CLI", "failed", describe_completed_process(version_result))
 
-    version = version_result.stdout.strip() or version_result.stderr.strip() or "yutori installed"
+    cli_version = version_result.stdout.strip() or version_result.stderr.strip() or "yutori installed"
     shell_cli = shutil.which("yutori", path=resolved_env.get("PATH"))
     shell_cli_path = Path(shell_cli) if shell_cli else None
     current_shell_resolves_to_install = bool(shell_cli and normalize_path(shell_cli) == normalize_path(cli_path))
@@ -488,14 +488,14 @@ def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstal
         cli_path=cli_path,
         bin_dir=bin_dir,
         uv_path=uv_path,
-        version=version,
+        version=cli_version,
         on_path=current_shell_resolves_to_install,
         shell_cli_path=shell_cli_path,
     )
     if shell_cli_path is None:
-        detail = f"{version} at {cli_path}. `yutori` is not currently reachable from PATH."
+        detail = f"{cli_version} at {cli_path}. `yutori` is not currently reachable from PATH."
     elif current_shell_resolves_to_install:
-        detail = f"{version} at {cli_path}"
+        detail = f"{cli_version} at {cli_path}"
     else:
         detail = f"Current shell resolves `yutori` to {shell_cli_path}, not {cli_path}."
     return state, StepResult("CLI", "success", detail)
