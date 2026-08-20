@@ -195,6 +195,20 @@ def _resolve_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return env or os.environ
 
 
+def _which(name: str, env: Mapping[str, str] | None = None) -> str | None:
+    """Locate the ``name`` executable on the PATH of *env* (default ``os.environ``).
+
+    Every executable lookup in the installer must be scoped to the resolved
+    environment's PATH rather than to ``shutil.which``'s process-PATH default:
+    ``resolve_uv_path`` / ``resolve_npx_path`` / ``inspect_cli_install`` /
+    ``detect_sdk_install_plan`` all accept an explicit ``env`` and are called
+    with a synthetic one (by the installer's own callers and by the tests).
+    Centralizing the ``path=`` argument keeps a new call site from silently
+    reading the process PATH instead.
+    """
+    return shutil.which(name, path=_resolve_env(env).get("PATH"))
+
+
 def _synthetic_returncode_for_exception(exc: BaseException) -> int:
     """Map a caught subprocess-launch exception to a synthetic returncode.
 
@@ -369,7 +383,7 @@ def resolve_uv_path(env: Mapping[str, str] | None = None) -> str | None:
     if explicit_uv and _is_executable(explicit_uv):
         return explicit_uv
 
-    uv_path = shutil.which("uv", path=resolved_env.get("PATH"))
+    uv_path = _which("uv", resolved_env)
     if uv_path:
         return uv_path
 
@@ -383,7 +397,7 @@ def resolve_uv_path(env: Mapping[str, str] | None = None) -> str | None:
 
 def resolve_npx_path(env: Mapping[str, str] | None = None) -> str | None:
     resolved_env = _resolve_env(env)
-    return shutil.which("npx", path=resolved_env.get("PATH"))
+    return _which("npx", resolved_env)
 
 
 def python_has_pip(interpreter: str, env: Mapping[str, str] | None = None) -> bool:
@@ -481,7 +495,7 @@ def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstal
         return None, StepResult("CLI", "failed", describe_completed_process(version_result))
 
     cli_version = version_result.stdout.strip() or version_result.stderr.strip() or "yutori installed"
-    shell_cli = shutil.which("yutori", path=resolved_env.get("PATH"))
+    shell_cli = _which("yutori", resolved_env)
     shell_cli_path = Path(shell_cli) if shell_cli else None
     current_shell_resolves_to_install = bool(shell_cli and normalize_path(shell_cli) == normalize_path(cli_path))
     state = CLIInstallState(
@@ -519,11 +533,7 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
             venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "Scripts" / "python.exe"
         else:
             venv_python = Path(resolved_env["VIRTUAL_ENV"]) / "bin" / "python"
-        python_path = (
-            str(venv_python)
-            if _is_executable(venv_python)
-            else shutil.which("python", path=resolved_env.get("PATH"))
-        )
+        python_path = str(venv_python) if _is_executable(venv_python) else _which("python", resolved_env)
         return SDKInstallPlan(
             reason=f"Detected active virtual environment at {resolved_env['VIRTUAL_ENV']}.",
             command=((python_path or "python"), "-m", "pip", "install", "yutori"),
@@ -541,8 +551,7 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
     )
     # Prefer python3 but fall back to python — some minimal images and recent
     # Homebrew installs expose only one of the two.
-    path_env = resolved_env.get("PATH")
-    interpreter = shutil.which("python3", path=path_env) or shutil.which("python", path=path_env)
+    interpreter = _which("python3", resolved_env) or _which("python", resolved_env)
     available = bool(interpreter) and python_has_pip(interpreter or "", resolved_env)
     return SDKInstallPlan(
         reason=reason,
