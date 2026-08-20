@@ -14,6 +14,7 @@ from ._async import (
     AsyncScoutsNamespace,
 )
 from ._http import _AsyncBaseNamespace, build_query_params
+from .auth.credentials import require_api_key
 from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
 
 
@@ -56,8 +57,6 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         Raises:
             AuthenticationError: If no API key is provided or found in environment.
         """
-        from yutori.auth.credentials import require_api_key
-
         self._api_key = require_api_key(api_key)
         base_url = sanitize_base_url(base_url)
         super().__init__(httpx.AsyncClient(timeout=timeout), base_url, self._api_key)
