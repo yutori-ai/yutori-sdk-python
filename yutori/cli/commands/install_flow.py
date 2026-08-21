@@ -468,31 +468,45 @@ def summarize_results(console: Console, results: Sequence[StepResult]) -> None:
     console.print(table)
 
 
+def _cli_inspect_failure(detail: str) -> tuple[None, StepResult]:
+    """Build the ``(None, failed "CLI" StepResult)`` pair every ``inspect_cli_install`` bailout returns.
+
+    The two values are not independent: ``install_flow_command`` reads them
+    separately (the state gates PATH repair and verification, the status gates
+    the exit code), so a ``None`` state must always be paired with a
+    ``"failed"`` step. Building that pair here keeps the six bailout paths from
+    re-deriving the invariant, and a seventh from pairing a ``None`` state with
+    a non-failed status. Mirrors :func:`_verification_failure`, which does the
+    same for ``run_verification``'s paired return.
+    """
+    return None, StepResult("CLI", "failed", detail)
+
+
 def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstallState | None, StepResult]:
     resolved_env = _resolve_env(env)
     uv_path = resolve_uv_path(resolved_env)
     if not uv_path:
-        return None, StepResult("CLI", "failed", "uv is not available, so the installed CLI could not be verified.")
+        return _cli_inspect_failure("uv is not available, so the installed CLI could not be verified.")
 
     bin_dir_result = run_command([uv_path, "tool", "dir", "--bin"], env=resolved_env)
     if bin_dir_result.returncode != 0:
-        return None, StepResult("CLI", "failed", describe_completed_process(bin_dir_result))
+        return _cli_inspect_failure(describe_completed_process(bin_dir_result))
 
     # uv may print a line per directory plus warnings — take the last non-empty line.
     candidate_lines = [line.strip() for line in bin_dir_result.stdout.splitlines() if line.strip()]
     if not candidate_lines:
-        return None, StepResult("CLI", "failed", "`uv tool dir --bin` returned no path.")
+        return _cli_inspect_failure("`uv tool dir --bin` returned no path.")
     bin_dir = Path(candidate_lines[-1])
     if not bin_dir.is_absolute():
-        return None, StepResult("CLI", "failed", f"`uv tool dir --bin` returned a non-absolute path: {bin_dir}")
+        return _cli_inspect_failure(f"`uv tool dir --bin` returned a non-absolute path: {bin_dir}")
     cli_name = "yutori.exe" if os.name == "nt" else "yutori"
     cli_path = bin_dir / cli_name
     if not cli_path.exists():
-        return None, StepResult("CLI", "failed", f"Expected CLI binary at {cli_path}, but it was not found.")
+        return _cli_inspect_failure(f"Expected CLI binary at {cli_path}, but it was not found.")
 
     version_result = run_command([str(cli_path), "--version"], env=resolved_env)
     if version_result.returncode != 0:
-        return None, StepResult("CLI", "failed", describe_completed_process(version_result))
+        return _cli_inspect_failure(describe_completed_process(version_result))
 
     cli_version = version_result.stdout.strip() or version_result.stderr.strip() or "yutori installed"
     shell_cli = _which("yutori", resolved_env)
