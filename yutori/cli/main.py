@@ -10,6 +10,8 @@ except ImportError:
     print("Yutori CLI dependencies are missing. Reinstall with: pip install yutori")
     sys.exit(1)
 
+from yutori import __version__
+
 from .commands import auth, browse, research, scouts, usage
 from .commands.install_flow import install_flow_command
 
@@ -27,8 +29,6 @@ app.add_typer(usage.app, name="usage")
 
 
 def _print_version() -> None:
-    from yutori import __version__
-
     typer.echo(f"yutori {__version__}")
 
 
