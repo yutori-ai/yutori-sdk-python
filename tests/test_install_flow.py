@@ -88,6 +88,20 @@ def _default_sdk_plan(**overrides: Any) -> SDKInstallPlan:
     return SDKInstallPlan(**kwargs)
 
 
+def _patched_successful_cli_inspect() -> Any:
+    """Patch `inspect_cli_install` to report a successful CLI install.
+
+    7+ install-flow tests need the CLI step to have already succeeded before
+    exercising later steps (PATH/SDK/auth/MCP/verification), and each
+    reconstructed the same `(_default_cli_state(), StepResult("CLI", "success", "ok"))`
+    pair via a throwaway `cli_state` local that no call site referenced again.
+    """
+    return patch(
+        "yutori.cli.commands.install_flow.inspect_cli_install",
+        return_value=(_default_cli_state(), StepResult("CLI", "success", "ok")),
+    )
+
+
 @contextmanager
 def _patched_npx_install(*, npx_path: str | None = "/usr/local/bin/npx", consent: bool = True, run_result: Any = None):
     """Patch the resolve_npx_path/Confirm.ask/run_interactive_command triad shared by
@@ -143,12 +157,8 @@ def test_hidden_install_ui_alias_dispatches_to_install_flow_command():
     # invoking the subcommand. Without this alias, a stale cached
     # install.sh paired with a freshly-upgraded CLI would fail. Pin
     # the alias so a future cleanup doesn't silently break those flows.
-    cli_state = _default_cli_state()
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
         patch(
             "yutori.cli.commands.install_flow.detect_sdk_install_plan",
@@ -288,14 +298,10 @@ def test_install_flow_noninteractive_runs_mcp_and_skills_even_without_auth():
     # callback, not "user declined." MCP / skills should still install --
     # they don't need an API key at registration time. Auth and verification
     # are the only steps that genuinely require a key/browser.
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
         patch(
@@ -336,14 +342,10 @@ def test_install_flow_interactive_auth_decline_still_skips_mcp_and_skills():
     # Symmetric guard: when the *user* declines auth in interactive mode,
     # they've opted out of finishing setup, so MCP/skills should still skip.
     # The non-interactive carve-out above must not regress this case.
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=True),
         patch("yutori.cli.commands.install_flow.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
@@ -392,14 +394,10 @@ def test_install_flow_exits_nonzero_when_cli_verification_fails():
 
 
 def test_install_flow_marks_auth_failure_when_verification_rejects_credentials():
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan(reason="Detected pyproject.toml in the current directory.")
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.is_interactive_terminal", return_value=False),
         patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
@@ -522,14 +520,10 @@ def test_run_verification_non_auth_api_error_returns_auth_failed_false(tmp_path:
 
 
 def test_install_flow_skips_header_when_bootstrap_already_rendered():
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan()
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch("yutori.cli.commands.install_flow.maybe_repair_path", return_value=StepResult("PATH", "success", "ok")),
@@ -550,14 +544,10 @@ def test_install_flow_skips_header_when_bootstrap_already_rendered():
 
 
 def test_install_flow_exits_zero_when_verification_fails_for_non_auth_reason():
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan()
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
@@ -932,14 +922,10 @@ def test_run_interactive_command_maps_exceptions_to_returncode(side_effect, expe
 
 
 def test_install_flow_failed_mcp_does_not_bump_exit_code():
-    cli_state = _default_cli_state()
     sdk_plan = _default_sdk_plan()
 
     with (
-        patch(
-            "yutori.cli.commands.install_flow.inspect_cli_install",
-            return_value=(cli_state, StepResult("CLI", "success", "ok")),
-        ),
+        _patched_successful_cli_inspect(),
         patch("yutori.cli.commands.install_flow.detect_sdk_install_plan", return_value=sdk_plan),
         patch("yutori.cli.commands.install_flow.maybe_install_sdk", return_value=StepResult("SDK", "skipped", "skip")),
         patch(
