@@ -13,6 +13,8 @@ from rich.markup import escape
 from rich.table import Table
 
 from yutori.auth.credentials import resolve_api_key
+from yutori.auth.flow import get_auth_status
+from yutori.client import YutoriClient
 from yutori.exceptions import APIConnectionError, APIError, AuthenticationError
 
 __all__ = [
@@ -84,8 +86,6 @@ def safe_str(value: Any) -> str:
 
 def get_authenticated_client() -> Any:
     """Get an authenticated YutoriClient, or exit with an error message."""
-    from yutori.client import YutoriClient
-
     api_key = resolve_api_key()
     if not api_key:
         _console.print("[red]Not authenticated. Run 'yutori auth login' first.[/red]")
@@ -102,8 +102,6 @@ def _auth_recovery_hint() -> str:
     saved credentials anyway. Every variant mentions 'yutori auth login' so
     the output stays stable for callers grepping it.
     """
-    from yutori.auth.flow import get_auth_status
-
     source = get_auth_status().source
     if source == "env_var":
         return (
