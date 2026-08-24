@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import httpx
 
 from ._schema import resolve_output_schema
 from .exceptions import APIConnectionError, APIError, AuthenticationError
+
+_ClientT = TypeVar("_ClientT", httpx.Client, httpx.AsyncClient)
 
 
 def build_headers(api_key: str) -> dict[str, str]:
@@ -161,7 +163,7 @@ def _to_connection_error(exc: httpx.HTTPError) -> APIConnectionError:
     return APIConnectionError(message)
 
 
-class _BaseNamespace:
+class _BaseNamespace(Generic[_ClientT]):
     """Shared base for SDK namespace classes (sync and async).
 
     Stores the HTTP client, base URL, and a precomputed auth header dict
@@ -169,7 +171,7 @@ class _BaseNamespace:
     of rebuilding headers on every request.
     """
 
-    def __init__(self, client: Any, base_url: str, api_key: str) -> None:
+    def __init__(self, client: _ClientT, base_url: str, api_key: str) -> None:
         self._client = client
         self._base_url = base_url
         self._headers = build_headers(api_key)
@@ -183,7 +185,7 @@ class _BaseNamespace:
         return kwargs
 
 
-class _SyncBaseNamespace(_BaseNamespace):
+class _SyncBaseNamespace(_BaseNamespace[httpx.Client]):
     """Sync namespace base with a shared request helper.
 
     Centralizes the ``self._client.<method>(url, headers=..., ...)`` +
@@ -210,7 +212,7 @@ class _SyncBaseNamespace(_BaseNamespace):
         return handle_response(response)
 
 
-class _AsyncBaseNamespace(_BaseNamespace):
+class _AsyncBaseNamespace(_BaseNamespace[httpx.AsyncClient]):
     """Async counterpart of :class:`_SyncBaseNamespace`."""
 
     async def _request(
