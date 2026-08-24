@@ -84,7 +84,7 @@ def safe_str(value: Any) -> str:
     return escape(str(value))
 
 
-def get_authenticated_client() -> Any:
+def get_authenticated_client() -> YutoriClient:
     """Get an authenticated YutoriClient, or exit with an error message."""
     api_key = resolve_api_key()
     if not api_key:
@@ -144,7 +144,7 @@ def cli_api_errors() -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def cli_client() -> Iterator[Any]:
+def cli_client() -> Iterator[YutoriClient]:
     """Authenticated client with CLI error handling — the one entry point
     for API-calling commands.
 
@@ -366,7 +366,7 @@ def print_task_list(console: Console, task_type: str, result: dict[str, Any]) ->
 
 def list_and_render_tasks(
     console: Console,
-    client: Any,
+    client: YutoriClient,
     namespace: str,
     task_type: str,
     *,
