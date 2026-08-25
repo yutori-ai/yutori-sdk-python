@@ -180,7 +180,7 @@ class _BaseNamespace(Generic[_ClientT]):
         self._base_url = base_url
         self._headers = build_headers(api_key)
 
-    def _request_kwargs(self, params: Any, json: Any) -> dict[str, Any]:
+    def _request_kwargs(self, params: dict[str, Any] | None, json: dict[str, Any] | None) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"headers": self._headers}
         if params is not None:
             kwargs["params"] = params
@@ -202,8 +202,8 @@ class _SyncBaseNamespace(_BaseNamespace[httpx.Client]):
         method: _HTTPMethod,
         path: str,
         *,
-        params: Any = None,
-        json: Any = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         http_method = getattr(self._client, method)
         try:
@@ -224,8 +224,8 @@ class _AsyncBaseNamespace(_BaseNamespace[httpx.AsyncClient]):
         method: _HTTPMethod,
         path: str,
         *,
-        params: Any = None,
-        json: Any = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         http_method = getattr(self._client, method)
         try:
