@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 import httpx
 
@@ -10,6 +10,10 @@ from ._schema import resolve_output_schema
 from .exceptions import APIConnectionError, APIError, AuthenticationError
 
 _ClientT = TypeVar("_ClientT", httpx.Client, httpx.AsyncClient)
+
+# The only httpx.Client/AsyncClient methods any namespace ever dispatches
+# through _BaseNamespace._request()'s getattr(self._client, method) call.
+_HTTPMethod = Literal["get", "post", "patch", "delete"]
 
 
 def build_headers(api_key: str) -> dict[str, str]:
@@ -108,7 +112,7 @@ def resolve_scout_status_endpoint(status: str) -> str:
 
 def prepare_scout_update(
     scout_id: str, status: str | None, payload: dict[str, Any]
-) -> tuple[str, str, dict[str, Any] | None]:
+) -> tuple[Literal["post", "patch"], str, dict[str, Any] | None]:
     """Resolve ``(method, path, json)`` for a ``scouts.update()`` call.
 
     Centralizes the mutual-exclusion rule between ``status`` and field
@@ -195,7 +199,7 @@ class _SyncBaseNamespace(_BaseNamespace[httpx.Client]):
 
     def _request(
         self,
-        method: str,
+        method: _HTTPMethod,
         path: str,
         *,
         params: Any = None,
@@ -217,7 +221,7 @@ class _AsyncBaseNamespace(_BaseNamespace[httpx.AsyncClient]):
 
     async def _request(
         self,
-        method: str,
+        method: _HTTPMethod,
         path: str,
         *,
         params: Any = None,
