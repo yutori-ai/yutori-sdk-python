@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+import httpx
 
 
 class YutoriSDKError(Exception):
@@ -20,7 +20,7 @@ class APIConnectionError(YutoriSDKError):
 class APIError(YutoriSDKError):
     """Raised when the Yutori API returns a non-successful or unusable response."""
 
-    def __init__(self, message: str, status_code: int, response: Any | None = None):
+    def __init__(self, message: str, status_code: int, response: httpx.Response | None = None):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
