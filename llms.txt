@@ -107,9 +107,9 @@ If they decline, skip the Scout demo and end with a recap of Research + Browsing
 
 ## Navigator API
 
-Navigator is Yutori's computer-use model (model id `n1.5-latest`). It is an **OpenAI Chat Completions-compatible endpoint**: you send a screenshot of a web page plus a task instruction, and the model returns **browser actions** as tool calls (`left_click`, `type`, `scroll`, `goto_url`, …). You execute those actions in your own browser (e.g. Playwright), append the results, capture a fresh screenshot, and call again — an **agent loop** — until the model returns a text response with no tool calls.
+Navigator is Yutori's visual-control model family. Navigator n1.5 (model id `n1.5-latest`) controls browsers. The gated Navigator n2 preview (model id `n2-preview`) controls a complete desktop through a CUA harness. Both use the **OpenAI Chat Completions-compatible endpoint**: you send a screenshot plus a task instruction, and the model returns actions as tool calls. You execute those actions, append the results, capture a fresh screenshot, and call again - an **agent loop** - until the model returns a text response with no tool calls.
 
-There is no `yutori` CLI command for Navigator; it is called from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client.
+There is no `yutori` CLI command for browser Navigator loops; call them from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client. For macOS n2 CUA, prefer the MCP preview installer/tool unless the user explicitly wants to build a direct SDK harness.
 
 ### Minimal single call
 
@@ -162,6 +162,29 @@ Pass these as keyword args to `client.chat.completions.create(...)`:
 | `temperature` | Sampling temperature (default 0.3). |
 
 The core action space covers clicks, scroll, type, key press, drag, mouse move/down/up, navigation (`goto_url`, `go_back`, `go_forward`, `refresh`), `wait`, and `hold_key`. Coordinates are in a normalized 1000×1000 space — use `denormalize_coordinates(coords, width, height)` to map to viewport pixels. For the full action reference, see <https://docs.yutori.com/reference/n1-5>. For the SDK and CLI reference, see the link at the bottom of this file.
+
+### Navigator n2 / macOS CUA preview
+
+Use this only for users with gated dev access who want local Mac desktop automation. Install Yutori MCP; it is the supported installer and MCP server for the n2 CUA harness:
+
+```bash
+uvx yutori-mcp --env dev login
+uvx yutori-mcp computer-use setup
+uvx yutori-mcp computer-use doctor
+uvx yutori-mcp computer-use smoke
+```
+
+Dependencies: macOS 15+, Python 3.10+, `uvx`, a dev API key with `n2-preview` access, `yutori-mcp`, the SDK-owned runtime (`yutori==0.9.2`), `CuaDriver.app` / `cua-driver==0.19.3`, Screen Recording and Accessibility permissions, and optionally Xcode Command Line Tools for the native reasoning overlay. `computer-use setup` installs the pinned CuaDriver app and prompts for permissions.
+
+Then expose the MCP server with `uvx yutori-mcp --env dev`; the `run_computer_use_task` tool appears only on macOS against dev. It controls the visible foreground desktop, sends visible desktop content to Yutori's dev model endpoint, and should run while the user is not touching the Mac.
+
+Direct SDK harness use is available in published SDK 0.9.2+ after the pinned CuaDriver app has been installed and permissioned by `yutori-mcp computer-use setup` or an equivalent manual install:
+
+```bash
+python -m pip install 'yutori[macos]>=0.9.2'
+```
+
+Use `model="n2-preview"` with `tool_set="computer_use_tools-20260815"` (or SDK constants `NAVIGATOR_N2_PREVIEW_MODEL` and `TOOL_SET_COMPUTER_USE_LATEST`). The SDK exports `N2ComputerAgent` and `yutori.navigator.macos.MacOSComputer`; `MacOSComputer` owns the CuaDriver session, native capture/input, optional local shell lifecycle, cancellation, recovery, and presentation overlay. Local shell execution stays disabled unless explicitly enabled.
 
 For SDK/API integration details, use:
 
