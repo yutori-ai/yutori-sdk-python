@@ -84,7 +84,7 @@ def usage(
                 gate_on_status_available=True,
             )
 
-        # Navigator API rate limits (falls back to the deprecated ``n1_rate_limits`` key on older servers)
+        # Fall back to the deprecated legacy key on older servers.
         navigator_limits = data.get("navigator_rate_limits") or data.get("n1_rate_limits") or {}
         if navigator_limits:
             _print_rate_limits(
@@ -100,7 +100,7 @@ def usage(
             p = activity.get("period", period)
             console.print(f"\n  [bold]Activity ({p})[/bold]")
 
-            # `navigator_calls` is the canonical key; `n1_calls` is the deprecated alias.
+            # `navigator_calls` is the canonical key; keep the legacy fallback for older servers.
             navigator_calls = activity.get("navigator_calls", activity.get("n1_calls", 0))
             table = Table(show_header=True, padding=(0, 2))
             table.add_column("Metric")

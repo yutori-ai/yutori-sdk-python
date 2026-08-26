@@ -5,7 +5,7 @@ step because every tool response includes a new screenshot. These utilities
 help keep the total payload under the API's size limit by selectively removing
 old screenshots while preserving recent context.
 
-Adapted from the n1-brightdata project (https://github.com/meirk-brd/n1-brightdata).
+Adapted from Yutori's earlier browser-agent tooling.
 """
 
 from __future__ import annotations
