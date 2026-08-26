@@ -7,17 +7,33 @@ Pins the exact request-building / replay-step-recording behavior of this helper,
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 from .conftest import require_examples_extra
 
 require_examples_extra()
 from examples._common import BrowserAgentMixin  # noqa: E402
 from yutori.navigator import NAVIGATOR_N1_5_MODEL  # noqa: E402
 
-from ._call_llm_agent_fixtures import make_call_llm_agent  # noqa: E402
-
 
 def _make_agent() -> BrowserAgentMixin:
-    return make_call_llm_agent()
+    """Build a ``BrowserAgentMixin`` with a mocked chat-completions client.
+
+    ``model``/``temperature`` are fixed, ``_step_count``/``_step_payloads`` are initialized,
+    and ``_client.chat.completions.create`` returns a response whose ``model_dump()`` is
+    ``{"role": "assistant", "content": "done"}``.
+    """
+    agent = BrowserAgentMixin()
+    agent.model = NAVIGATOR_N1_5_MODEL
+    agent.temperature = 0.3
+    agent._step_count = 3
+    agent._step_payloads = []
+
+    response = MagicMock()
+    response.model_dump.return_value = {"role": "assistant", "content": "done"}
+    agent._client = MagicMock()
+    agent._client.chat.completions.create = AsyncMock(return_value=response)
+    return agent
 
 
 async def test_call_llm_without_extra_fields_passes_only_base_fields() -> None:

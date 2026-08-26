@@ -95,11 +95,11 @@ class ExtractContentAndLinksTool:
                 else:
                     url_to_title[url] = title
 
-        result = f"Current URL: {page.url}"
-        if url_to_title:
-            result += "\nLinks on the entire page:\n"
-            result += "\n".join([f"- [{title}]({url})" for url, title in url_to_title.items()])
-        return result
+        # The n1.5 loop already appends the current URL to every non-empty tool result.
+        if not url_to_title:
+            return "No links found on the page."
+        links = "\n".join(f"- [{title}]({url})" for url, title in url_to_title.items())
+        return f"Links on the entire page:\n{links}"
 
 
 class Agent(NavigatorAgent):

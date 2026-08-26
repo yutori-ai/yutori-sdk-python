@@ -163,14 +163,15 @@ The SDK defaults to the current browser Navigator model (n1.5). Browser Navigato
 
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. It answers with `computer_batch` calls — an ordered sequence of GUI actions, answered with one screenshot taken after the last one — and `bash` calls, answered with the command's output. Use `model="n2"` and our standard the tool set:
+Navigator n2 operates a full desktop. It answers with `computer_batch` calls — an ordered sequence of GUI actions, answered with one screenshot taken after the last one — and `bash` calls, answered with the command's output. Use `model="n2"` and pin the tool set:
 
 ```python
 from yutori import AsyncYutoriClient
 from yutori.navigator import TOOL_SET_COMPUTER_USE_LATEST, screenshot_to_data_url
 
 async with AsyncYutoriClient() as client:
-    image_url = screenshot_to_data_url(screenshot_bytes)  # a full-screen capture
+    # A full-screen capture, kept at the display's own size (the default resize_to is a browser viewport).
+    image_url = screenshot_to_data_url(screenshot_bytes, resize_to=(screen_width, screen_height))
 
     response = await client.chat.completions.create(
         model="n2",

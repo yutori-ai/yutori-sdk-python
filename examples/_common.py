@@ -127,21 +127,18 @@ def build_agent_arg_parser(
     default_config: Any,
     *,
     api_label: str,
-    include_payload_trim: bool = False,
 ) -> argparse.ArgumentParser:
     """Build the task/model/agent/browser/replay parser shared by the example scripts' ``main()``.
 
-    ``navigator_n1_5.py`` adds its own tool-set/json-schema/timezone/location arguments on
-    top of this base set and builds its parser directly; the custom-tool scripts use it as is
-    through :func:`run_example_main`.
+    The custom-tool scripts use it as is through :func:`run_example_main`. ``navigator_n1_5.py``
+    builds its parser directly instead, since it also takes tool-set/json-schema/timezone/
+    location and payload-trim arguments.
     """
     parser = argparse.ArgumentParser(description=description)
     add_task_arguments(parser, default_config)
     add_model_arguments(parser, default_config, api_label=api_label)
     add_agent_arguments(parser, default_config)
     add_browser_arguments(parser, default_config)
-    if include_payload_trim:
-        add_payload_trim_arguments(parser, default_config)
     add_replay_arguments(parser, default_config)
     return parser
 
@@ -168,23 +165,17 @@ async def run_example_main(
     *,
     api_label: str,
     agent_cls: Callable[..., SupportsAgentRun],
-    include_payload_trim: bool = False,
 ) -> None:
     """Configure logging, parse CLI args, and run ``agent_cls`` -- the shared ``main()`` body.
 
     Used by the custom-tool scripts, whose CLI is exactly the base argument set.
-    ``navigator_n1_5.py`` builds its parser directly with extra
-    tool-set/json-schema/timezone/location arguments, so it keeps its own ``main()``.
+    ``navigator_n1_5.py`` takes extra tool-set/json-schema/timezone/location and payload-trim
+    arguments, so it keeps its own ``main()``.
     """
     configure_example_logging()
 
     default_config = config_cls()
-    parser = build_agent_arg_parser(
-        description,
-        default_config,
-        api_label=api_label,
-        include_payload_trim=include_payload_trim,
-    )
+    parser = build_agent_arg_parser(description, default_config, api_label=api_label)
     args = parser.parse_args()
     config = config_cls.model_validate(vars(args))
 
@@ -198,13 +189,11 @@ class SupportsBrowserAgentState(Protocol):
     or replay-persistence methods below are called.
     """
 
-    base_url: str
     headless: bool
     viewport_width: int
     viewport_height: int
     replay_dir: str | None
     replay_id: str | None
-    max_steps: int
     model: str
     temperature: float
     _client: Any
@@ -216,8 +205,6 @@ class SupportsBrowserAgentState(Protocol):
     _message_index: int
     _step_count: int
     _step_payloads: list[dict]
-
-    async def _call_llm_with_retries(self) -> ChatCompletion: ...
 
 
 class BrowserAgentMixin:
@@ -263,11 +250,10 @@ class BrowserAgentMixin:
     ) -> None:
         """Reset per-run message/replay state and log the run header -- the prologue of every ``run()``.
 
-        Resets message/step bookkeeping for a fresh run and starts a replay recorder when
-        ``self.replay_dir`` is set. ``replay_prefix`` labels the replay run id
-        (``"navigator_1_5"``, ``"n1_5_custom"``, ``"n1_5_memo"``). Callers that reset
-        additional per-run state (``navigator_n1_5.py`` also clears ``self._request_messages``)
-        do so themselves.
+        Starts a replay recorder when ``self.replay_dir`` is set; ``replay_prefix`` labels the
+        replay run id (``"navigator_1_5"``, ``"n1_5_custom"``, ``"n1_5_memo"``). Callers that
+        reset additional per-run state (``navigator_n1_5.py`` also clears
+        ``self._request_messages``) do so themselves.
         """
         logger.info(f"Task: {task}")
         logger.info(f"Starting URL: {start_url}")

@@ -93,7 +93,6 @@ Importable from `yutori.navigator`. Prefer these over hard-coded strings so upgr
 
 ```python
 from yutori.navigator import (
-    NAVIGATOR_N1_MODEL,
     NAVIGATOR_N1_5_MODEL,
     NAVIGATOR_COORDINATE_SCALE,
     TOOL_SET_CORE,
@@ -141,7 +140,7 @@ response = client.chat.completions.create(
             ],
         }
     ],
-    tool_set=TOOL_SET_EXPANDED,           # Navigator n1.5 only
+    tool_set=TOOL_SET_EXPANDED,           # n1.5 tool set; n2 uses TOOL_SET_COMPUTER_USE_LATEST
     disable_tools=["hold_key", "drag"],    # Navigator n1.5 only
     json_schema={...},                     # Navigator n1.5 only
 )
@@ -158,7 +157,7 @@ parsed = getattr(response, "parsed_json", None)
 **Parameters:**
 - `messages` (`Iterable[ChatCompletionMessageParam]`): OpenAI-format chat messages. Include screenshots as `image_url` content blocks.
 - `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `NAVIGATOR_N1_5_MODEL` or `"n2"` for clarity.
-- `tool_set` (`str | None`, **Navigator n1.5 only**): Which built-in tool set to activate. Use `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Forwarded via `extra_body`.
+- `tool_set` (`str | None`): Which server-side tool set to activate. Navigator n1.5: `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Navigator n2: `TOOL_SET_COMPUTER_USE_LATEST` (pin it explicitly). Forwarded via `extra_body`.
 - `disable_tools` (`list[str] | None`, **Navigator n1.5 only**): Tool names to remove from the active tool set.
 - `json_schema` (`dict | None`, **Navigator n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
 - `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges Navigator n1.5 params into it.
@@ -456,7 +455,7 @@ Opt-in helpers for custom agent loops. They do **not** change the shape of `clie
 ```python
 from yutori.navigator import (
     # Models / tool sets
-    NAVIGATOR_N1_MODEL, NAVIGATOR_N1_5_MODEL,
+    NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
     # Navigator n2 loop helpers
     N2ComputerAgent, parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
@@ -486,7 +485,7 @@ from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager).
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model=..., instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). Pass `model="n2"` explicitly: 0.9.2 still defaults to the deprecated `n2-preview` alias.
 
 `computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
