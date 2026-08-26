@@ -12,13 +12,11 @@ raw request/response payloads in `visualization.html` after the run.
 Custom tools: `navigator_n1_5_custom_tools.py` and `navigator_n1_5_memo.py` subclass
 the `Agent` below, set `self.custom_tools`, and override `_dispatch_custom_tool`.
 
-Key differences from the retired Navigator n1:
-- model: "n1.5-latest" (instead of "n1-latest")
+Navigator n1.5 features:
+- model: "n1.5-latest"
 - tool_set / disable_tools: select which built-in tools the model can use
 - json_schema: request structured output (returned as parsed_json on the response)
-- Renamed actions: hover → mouse_move; key_press param renamed from key_comb → key
-- New actions: middle_click, mouse_down, mouse_up, go_forward, hold_key
-- type no longer has press_enter_after / clear_before_typing
+- Actions include mouse_move, middle_click, mouse_down, mouse_up, go_forward, hold_key, and more
 - Key names are lowercase (e.g. ctrl+c, enter, left) instead of Playwright names
 
 Usage:
