@@ -1,10 +1,8 @@
 """Characterization tests for ``examples._common.build_agent_arg_parser``.
 
-Pins the exact argument set/defaults produced before/after extracting this
-parser assembly out of ``navigator_n1.py``, ``navigator_n1_memo.py``, and
-``navigator_n1_custom_tools.py`` (which previously each hand-assembled the
-same task/model/agent/browser/replay argument groups in ``main()``, with
-``navigator_n1.py`` alone also wiring in payload-trim arguments).
+Pins the exact argument set/defaults of the task/model/agent/browser/replay parser that the
+custom-tool example scripts get through ``run_example_main``, extracted out of the ``main()``
+bodies that each used to hand-assemble the same argument groups.
 """
 
 from __future__ import annotations
@@ -27,8 +25,6 @@ def _default_config(**overrides) -> SimpleNamespace:
         "max_steps": 100,
         "viewport_width": 1280,
         "viewport_height": 800,
-        "max_request_bytes": 9_500_000,
-        "keep_recent_screenshots": 6,
         "replay_dir": None,
         "replay_id": None,
     }
@@ -36,13 +32,13 @@ def _default_config(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-def test_build_agent_arg_parser_without_payload_trim() -> None:
+def test_build_agent_arg_parser_produces_the_base_argument_set() -> None:
     default_config = _default_config()
 
     parser = build_agent_arg_parser(
         "Example description",
         default_config,
-        api_label="Yutori Navigator n1",
+        api_label="Yutori Navigator n1.5",
     )
     args = parser.parse_args([])
 
@@ -62,20 +58,6 @@ def test_build_agent_arg_parser_without_payload_trim() -> None:
     assert parser.description == "Example description"
 
 
-def test_build_agent_arg_parser_with_payload_trim() -> None:
-    default_config = _default_config()
-
-    parser = build_agent_arg_parser(
-        "Example description",
-        default_config,
-        api_label="Yutori Navigator n1",
-        include_payload_trim=True,
-    )
-    args = parser.parse_args([])
-
-    assert args.max_request_bytes == default_config.max_request_bytes
-    assert args.keep_recent_screenshots == default_config.keep_recent_screenshots
-
 
 def test_build_agent_arg_parser_honors_overrides_via_cli() -> None:
     default_config = _default_config()
@@ -83,7 +65,7 @@ def test_build_agent_arg_parser_honors_overrides_via_cli() -> None:
     parser = build_agent_arg_parser(
         "Example description",
         default_config,
-        api_label="Yutori Navigator n1",
+        api_label="Yutori Navigator n1.5",
     )
     args = parser.parse_args(["--task", "custom task", "--max-steps", "5"])
 

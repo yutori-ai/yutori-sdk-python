@@ -1,9 +1,9 @@
 """Characterization tests for ``examples._common.BrowserAgentMixin._init_agent_state``/``_start_run``.
 
-Pins the exact behavior of these two helpers before/after extracting them out of
-``navigator_n1.py``, ``navigator_n1_custom_tools.py``, ``navigator_n1_memo.py``, and
-``navigator_n1_5.py``, each of which previously hand-rolled this same ``__init__``
-browser/replay bookkeeping and ``run()`` reset-and-start-replay prologue.
+Pins the exact behavior of these two helpers, which hold the ``__init__`` browser/replay
+bookkeeping and the ``run()`` reset-and-start-replay prologue now shared by
+``navigator_n1_5.py`` and the custom-tool scripts that subclass it (the retired
+``navigator_n1_*`` scripts each hand-rolled their own copy).
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def test_start_run_resets_message_and_step_state_without_replay_dir() -> None:
     agent._step_count = 5
     agent._step_payloads = [{"step_num": 1}]
 
-    agent._start_run("do the thing", "https://example.com", replay_prefix="n1")
+    agent._start_run("do the thing", "https://example.com", replay_prefix="navigator_1_5")
 
     assert agent._messages == [{"role": "user", "content": [{"type": "text", "text": "do the thing"}]}]
     assert agent._message_index == 0
@@ -87,7 +87,7 @@ def test_start_run_creates_replay_recorder_when_replay_dir_set(tmp_path) -> None
     agent = _make_agent(replay_dir=str(tmp_path), replay_id="fixed-run-id")
     agent._init_agent_state()
 
-    agent._start_run("do the thing", "https://example.com", replay_prefix="n1")
+    agent._start_run("do the thing", "https://example.com", replay_prefix="navigator_1_5")
 
     assert agent._replay is not None
     assert agent._replay.run_id == "fixed-run-id"
@@ -99,10 +99,10 @@ def test_start_run_derives_replay_id_from_prefix_and_task_when_unset(tmp_path) -
     agent = _make_agent(replay_dir=str(tmp_path), replay_id=None)
     agent._init_agent_state()
 
-    agent._start_run("Do The Thing!", "https://example.com", replay_prefix="n1_custom")
+    agent._start_run("Do The Thing!", "https://example.com", replay_prefix="n1_5_custom")
 
     assert agent._replay is not None
-    assert agent._replay.run_id.startswith("n1_custom_")
+    assert agent._replay.run_id.startswith("n1_5_custom_")
     assert "do-the-thing" in agent._replay.run_id
 
 

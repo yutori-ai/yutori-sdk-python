@@ -9,7 +9,10 @@ Replay logging in this example is optional. Here, "replay" means saving the
 agent trajectory to local files so you can inspect screenshots, actions, and
 raw request/response payloads in `visualization.html` after the run.
 
-Key differences from Navigator n1:
+Custom tools: `navigator_n1_5_custom_tools.py` and `navigator_n1_5_memo.py` subclass
+the `Agent` below, set `self.custom_tools`, and override `_dispatch_custom_tool`.
+
+Key differences from the retired Navigator n1:
 - model: "n1.5-latest" (instead of "n1-latest")
 - tool_set / disable_tools: select which built-in tools the model can use
 - json_schema: request structured output (returned as parsed_json on the response)
@@ -120,6 +123,9 @@ class Config(BaseModel):
 
 
 class Agent(BrowserAgentMixin):
+    # Prefix for replay run ids; custom-tool subclasses override it.
+    replay_prefix = "navigator_1_5"
+
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
@@ -158,6 +164,9 @@ class Agent(BrowserAgentMixin):
 
         self._init_agent_state()
         self._request_messages: list | None = None
+        # Extra OpenAI-style function tools sent alongside the built-in browser actions;
+        # custom-tool subclasses populate this and handle the calls in _dispatch_custom_tool.
+        self.custom_tools: list[dict] = []
 
     async def run(self, task: str, start_url: str) -> str:
         # Keep original task for stop-and-summarize; format with context for the model
@@ -168,7 +177,7 @@ class Agent(BrowserAgentMixin):
             user_location=self.user_location,
         )
 
-        self._start_run(task, start_url, replay_prefix="navigator_1_5")
+        self._start_run(task, start_url, replay_prefix=self.replay_prefix)
         self._request_messages = None
 
         final_response = ""
@@ -233,32 +242,16 @@ class Agent(BrowserAgentMixin):
 
         return final_response
 
-    def _format_message_for_log(self, message: dict) -> dict:
-        content = message.get("content")
-        if not isinstance(content, list):
-            return message
-
-        clipped_content = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "image_url" and "url" in item.get("image_url", {}):
-                clipped_content.append({
-                    **item,
-                    "image_url": {"url": self._clip_image_url(item["image_url"]["url"])},
-                })
-            else:
-                clipped_content.append(item)
-        return {**message, "content": clipped_content}
-
     @llm_retry
     async def _call_llm_with_retries(self) -> ChatCompletion:
-        return await self._call_llm(
-            self._trim_request_messages(),
-            extra_fields={
-                "tool_set": self.tool_set,
-                "disable_tools": self.disable_tools or None,
-                "json_schema": self.json_schema,
-            },
-        )
+        extra_fields: dict[str, Any] = {
+            "tool_set": self.tool_set,
+            "disable_tools": self.disable_tools or None,
+            "json_schema": self.json_schema,
+        }
+        if self.custom_tools:
+            extra_fields["tools"] = self.custom_tools
+        return await self._call_llm(self._trim_request_messages(), extra_fields=extra_fields)
 
     async def _predict(self) -> ChatCompletion:
         screenshot_url = await self._take_screenshot()
@@ -458,6 +451,10 @@ class Agent(BrowserAgentMixin):
             return f"[ERROR] Failed to parse arguments: {tool_call.function.arguments}"
 
         try:
+            custom_result = await self._dispatch_custom_tool(action_name, arguments)
+            if custom_result is not None:
+                return custom_result
+
             modifier = self._map_modifier(arguments.get("modifier"))
 
             # ---- Mouse click actions ----
