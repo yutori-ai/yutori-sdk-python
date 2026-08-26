@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/yutori.svg)](https://pypi.org/project/yutori/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) — build web agents that autonomously execute tasks on the web.
+The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) — build reliable computer-use agents that browse, research, monitor, and operate computers.
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
@@ -110,7 +110,7 @@ The Yutori API provides four main capabilities:
 
 | API           | Description                                                    | SDK Namespace     |
 | ------------- | -------------------------------------------------------------- | ----------------- |
-| **Navigator** | Computer-use model family (Navigator n1, Navigator n1.5)       | `client.chat`     |
+| **Navigator** | Browser- and computer-use models (Navigator n1, n1.5, n2) | `client.chat`  |
 | **Browsing**  | One-time browser automation tasks                              | `client.browsing` |
 | **Research**  | Deep web research using 100+ tools                             | `client.research` |
 | **Scouting**  | Continuous web monitoring on a schedule                        | `client.scouts`   |
@@ -118,7 +118,7 @@ The Yutori API provides four main capabilities:
 
 ## Navigator API
 
-The Navigator API hosts Yutori's family of computer-use models for navigating websites. The current public versions are **Navigator n1** (model id `n1-latest`) and **Navigator n1.5** (model id `n1.5-latest`). Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
+The Navigator API hosts Yutori's visual-control models. **Navigator n1** (`n1-latest`) and **Navigator n1.5** (`n1.5-latest`) control browsers; **Navigator n2** controls a complete desktop. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -157,6 +157,31 @@ This snippet shows a single model call. In practice, you'll usually run an agent
 
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1 (`n1-latest`) is still supported for callers that want the older model. Navigator n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator n1.5 reference](https://docs.yutori.com/reference/n1-5) and [Navigator n1 reference](https://docs.yutori.com/reference/n1) for model IDs, parameters, and the full action space.
 
+### Navigator n2 macOS CUA
+
+Navigator n2 is a non-streaming computer-use model. It does not change the SDK default. Use `model="n2"` and pass an explicit dated tool set; the current macOS CUA surface is `computer_use_tools-20260815`, exposed by SDK 0.9.2+ as `TOOL_SET_COMPUTER_USE_LATEST`.
+
+For local Mac desktop automation, install **Yutori MCP**. It is the supported installer and MCP server for the n2 CUA harness:
+
+```bash
+uvx yutori-mcp login
+uvx yutori-mcp computer-use setup
+uvx yutori-mcp computer-use doctor
+uvx yutori-mcp computer-use smoke
+uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the result." --app Calculator
+```
+
+This path requires macOS 15+, Python 3.10+, `uvx`, and a Yutori API key with computer-use access. `computer-use setup` installs and starts the pinned `CuaDriver.app` / `cua-driver==0.19.3`, requests Screen Recording and Accessibility permissions, prepares the optional native reasoning overlay, and verifies the SDK-owned runtime (`yutori==0.9.2`) before a task runs.
+
+For direct SDK harness use, first run the MCP setup flow above, or manage `CuaDriver.app` 0.19.3 yourself and run `cua-driver permissions grant`. Then install the published SDK runtime and prepare the optional overlay:
+
+```bash
+python -m pip install 'yutori[macos]>=0.9.2'
+python -c 'from yutori.navigator.macos import prepare_macos_overlay; prepare_macos_overlay()'
+```
+
+The SDK harness exports `N2ComputerAgent` for the agent loop and `yutori.navigator.macos.MacOSComputer` for the native Mac driver. `MacOSComputer` owns the persistent CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and optional presentation overlay. Local shell execution stays disabled unless the caller explicitly enables it.
+
 ### Agent-loop helpers
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
@@ -171,6 +196,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                                 |
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5's lowercase key names to Playwright format.                                                                       |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for the Navigator n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
+| `N2ComputerAgent` / `yutori.navigator.macos.MacOSComputer`  | Published 0.9.2+ helpers for Navigator n2 desktop CUA loops.                                                                             |
 
 
 Full helper reference: [api.md](api.md).

@@ -7,7 +7,8 @@ A dense reference to everything the Yutori Python SDK and CLI expose. The [READM
 | Import | Purpose |
 |--------|---------|
 | `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `APIConnectionError`, `AuthenticationError`, `YutoriSDKError`) |
-| `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator n1 / Navigator n1.5 chat completions) |
+| `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator n1 / Navigator n1.5 / Navigator n2 chat completions) |
+| `yutori.navigator.macos` | Published 0.9.2+ macOS CUA harness for Navigator n2 loops |
 | `yutori.navigator.tools` | Packaged JavaScript reference implementations for the Navigator n1.5 expanded browser tools |
 
 All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator helpers are optional and do not change the shape of `client.chat.completions.create(...)`.
@@ -54,7 +55,7 @@ YutoriClient(
 
 | Attribute | Class | Purpose |
 |-----------|-------|---------|
-| `client.chat` | `ChatNamespace` | Navigator API (Navigator n1 / Navigator n1.5) chat completions |
+| `client.chat` | `ChatNamespace` | Navigator API (Navigator n1 / Navigator n1.5 / Navigator n2) chat completions |
 | `client.browsing` | `BrowsingNamespace` | One-time browser automation |
 | `client.research` | `ResearchNamespace` | One-time deep web research |
 | `client.scouts` | `ScoutsNamespace` | Continuous monitoring scouts |
@@ -97,6 +98,7 @@ from yutori.navigator import (
     NAVIGATOR_COORDINATE_SCALE,
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
+    TOOL_SET_COMPUTER_USE_LATEST,
 )
 ```
 
@@ -106,17 +108,18 @@ from yutori.navigator import (
 | `NAVIGATOR_N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable Navigator n1.5 model (current default). |
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
+| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260815"` | Current Navigator n2 macOS CUA surface: `computer_batch`, `screenshot`, `bash`, and held click/scroll modifiers. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
 
-For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.yutori.com/reference/n1](https://docs.yutori.com/reference/n1) and [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5).
+For pinned versions (e.g. `n1-20260203`, `n1-experimental-20260309`) see [docs.yutori.com/reference/n1](https://docs.yutori.com/reference/n1) [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5), and [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ## Namespaces
 
 ### `client.chat` — Navigator API
 
-OpenAI-compatible pixels-to-actions chat completions. Works with both Navigator n1 and Navigator n1.5 models.
+OpenAI-compatible pixels-to-actions chat completions. Works with Navigator n1, Navigator n1.5, and Navigator n2 models.
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
@@ -174,6 +177,33 @@ parsed = getattr(response, "parsed_json", None)
 | Click modifiers | — | `ref`, `modifier` |
 | Extra actions | — | `hold_key`, `middle_click`, `mouse_down`, `mouse_up`, `go_forward` |
 | `type` extras | `press_enter_after`, `clear_before_typing` | — |
+
+#### Navigator n2
+
+Navigator n2 is a non-streaming desktop computer-use model. It does not change the SDK default. Use `model="n2"` and pass an explicit dated tool set. The current macOS CUA surface is `TOOL_SET_COMPUTER_USE_LATEST` (`"computer_use_tools-20260815"`).
+
+The n2 surface rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. The server preserves every screenshot in the two newest image-bearing messages, strips older image parts while preserving non-image history, and bills output plus reasoning tokens as output-class tokens.
+
+For local macOS desktop execution, install Yutori MCP. It is the supported all-in-one installer and MCP server for the n2 CUA harness:
+
+```bash
+uvx yutori-mcp login
+uvx yutori-mcp computer-use setup
+uvx yutori-mcp computer-use doctor
+uvx yutori-mcp computer-use smoke
+uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the result." --app Calculator
+```
+
+Dependencies for that path are macOS 15+, Python 3.10+, `uvx`, a Yutori API key with computer-use access, `yutori-mcp`, the SDK-owned runtime (`yutori==0.9.2`), `CuaDriver.app` / `cua-driver==0.19.3`, Screen Recording and Accessibility permissions, and optionally Xcode Command Line Tools for the native reasoning overlay. `computer-use setup` installs the pinned CuaDriver app and prompts for the macOS permissions.
+
+For direct SDK harness use, first run the MCP setup flow above, or manage `CuaDriver.app` 0.19.3 yourself and run `cua-driver permissions grant`. Then install the published macOS extra and prepare the optional overlay:
+
+```bash
+python -m pip install 'yutori[macos]>=0.9.2'
+python -c 'from yutori.navigator.macos import prepare_macos_overlay; prepare_macos_overlay()'
+```
+
+`N2ComputerAgent` runs the agent loop. `yutori.navigator.macos.MacOSComputer` owns the persistent CuaDriver session, native capture/input, local shell lifecycle, cancellation, recovery, and optional presentation overlay. Local shell execution remains disabled unless the caller explicitly enables it.
 
 ### `client.browsing` — Browsing API
 
@@ -439,7 +469,10 @@ Opt-in helpers for custom agent loops. They do **not** change the shape of `clie
 ```python
 from yutori.navigator import (
     # Models / tool sets
-    NAVIGATOR_N1_MODEL, NAVIGATOR_N1_5_MODEL, TOOL_SET_CORE, TOOL_SET_EXPANDED, NAVIGATOR_COORDINATE_SCALE,
+    NAVIGATOR_N1_MODEL, NAVIGATOR_N1_5_MODEL,
+    TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
+    # Navigator n2 loop helpers
+    N2ComputerAgent, parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
     # Coordinates
@@ -456,6 +489,17 @@ from yutori.navigator import (
     extract_text_content, RunHooksBase,
 )
 ```
+
+### macOS CUA harness
+
+Importable from published SDK 0.9.2+:
+
+```python
+from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
+from yutori.navigator.macos import MacOSComputer, check_macos_overlay, prepare_macos_overlay
+```
+
+`MacOSComputer` is the native CUA executor for macOS. It sends screenshots to the n2 loop, executes CuaDriver actions in the same capture coordinate space, manages foreground/background shell commands, watches for target crashes, and can show the branded reasoning/action overlay. It requires macOS, Python 3.10+, `yutori[macos]>=0.9.2`, and `cua-driver==0.19.3`.
 
 ### Screenshot helpers
 
@@ -631,6 +675,7 @@ Optional extras:
 |-------|----------|---------|
 | `dev` | `pytest`, `pytest-asyncio`, `ruff`, `build` | Development tooling. |
 | `examples` | `loguru`, `playwright`, `pydantic`, `tenacity` | Running the `examples/` scripts. Pydantic is also the library to install if you want to pass Pydantic models to `output_schema=`. |
+| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops in published SDK 0.9.2+. |
 
 ## Error handling example
 
