@@ -189,7 +189,7 @@ response = client.chat.completions.create(
 )
 ```
 
-`N2ComputerAgent` (0.9.2+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a complete agent on a Daytona sandbox desktop using Cua's `ComputerAgent`; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
+`N2ComputerAgent` (0.9.2+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a complete agent on a Daytona sandbox desktop built on it; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ### `client.browsing` — Browsing API
 

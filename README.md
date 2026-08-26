@@ -195,12 +195,12 @@ async with AsyncYutoriClient() as client:
         ...
 ```
 
-[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop: [Cua](https://cua.ai)'s `ComputerAgent` runs the loop, and everything Daytona-specific is one small adapter class. [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through it.
+`N2ComputerAgent` runs this loop for you against any desktop you can screenshot and drive. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through it.
 
 <details>
 <summary>Drive your own local Mac</summary>
 
-[Yutori MCP](https://github.com/yutori-ai/yutori-mcp) ships the local harness, built on the SDK's `N2ComputerAgent`:
+[Yutori MCP](https://github.com/yutori-ai/yutori-mcp) ships the local harness, built on the same `N2ComputerAgent`:
 
 ```bash
 uvx yutori-mcp computer-use setup

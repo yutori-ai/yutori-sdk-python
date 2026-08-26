@@ -167,7 +167,7 @@ The core action space covers clicks, scroll, type, key press, drag, mouse move/d
 
 Navigator n2 operates a full desktop. Use `model="n2"` and pin the tool set with `tool_set=TOOL_SET_COMPUTER_USE_LATEST` (`"computer_use_tools-20260815"`, the set the SDK's loop implements). It answers with `computer_batch` calls (an ordered sequence of GUI actions, answered with one screenshot taken after the last one) and `bash` calls (answered with the command's output); text with no tool calls is the final answer. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation; the server keeps images only in the two newest image-bearing messages.
 
-- **Sandboxed Linux desktop:** [`examples/navigator_n2_daytona.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n2_daytona.py) is a complete agent — Cua's `ComputerAgent` runs the loop and a `DaytonaComputer` adapter runs the actions. `pip install cua-agent daytona yutori` (Python 3.12 or 3.13) plus a `DAYTONA_API_KEY`. Walkthrough: <https://docs.yutori.com/reference/n2-daytona>.
+- **Sandboxed Linux desktop:** [`examples/navigator_n2_daytona.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n2_daytona.py) is a complete agent — the SDK's `N2ComputerAgent` runs the loop and a `DaytonaComputer` adapter runs the actions. `pip install 'yutori>=0.9.2' daytona` (Python 3.10+) plus a `DAYTONA_API_KEY`. Walkthrough: <https://docs.yutori.com/reference/n2-daytona>.
 - **Local Mac:** install Yutori MCP and run
 
 ```bash
@@ -177,7 +177,7 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 
 `uvx yutori-mcp` then exposes the `run_computer_use_task` MCP tool on macOS. It controls the visible foreground desktop and sends what is on screen to Yutori, so run it while the user is not touching the Mac.
 
-The SDK (0.9.2+) exports the loop itself, `N2ComputerAgent`, and the native Mac driver it uses, `yutori.navigator.macos.MacOSComputer` (`pip install 'yutori[macos]'`). Model reference: <https://docs.yutori.com/reference/n2>.
+`N2ComputerAgent` (SDK 0.9.2+) drives any adapter with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`; pass `model="n2"` explicitly (0.9.2 still defaults to the deprecated `n2-preview` alias). `yutori.navigator.macos.MacOSComputer` is the native Mac adapter Yutori MCP uses (`pip install 'yutori[macos]'`). Model reference: <https://docs.yutori.com/reference/n2>.
 
 For SDK/API integration details, use:
 
