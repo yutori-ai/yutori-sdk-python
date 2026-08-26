@@ -57,7 +57,7 @@ class BrowsingNamespace(_SyncBaseNamespace):
         Args:
             task: Natural language description of the browsing task.
             start_url: URL to start browsing from.
-            max_steps: Maximum agent steps (1-100).
+            max_steps: Maximum agent steps.
             agent: Optional agent/model override for the browsing task.
             require_auth: Use auth-optimized browser for login flows.
             browser: "cloud" (default) or "local" to use the desktop app with

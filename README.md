@@ -182,6 +182,8 @@ python -c 'from yutori.navigator.macos import prepare_macos_overlay; prepare_mac
 
 The SDK harness exports `N2ComputerAgent` for the agent loop and `yutori.navigator.macos.MacOSComputer` for the native Mac driver. `MacOSComputer` owns the persistent CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and optional presentation overlay. Local shell execution stays disabled unless the caller explicitly enables it.
 
+For longer n2 runs, prefer compacting or summarizing older screenshots and tool results so the conversation stays within `max_context_len`; do not rely on an artificial 100-step cap.
+
 ### Agent-loop helpers
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
