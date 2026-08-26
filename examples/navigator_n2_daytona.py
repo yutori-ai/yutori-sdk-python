@@ -24,7 +24,9 @@ Walkthrough: https://docs.yutori.com/reference/n2-daytona
 """
 
 import asyncio
+import shlex
 import sys
+import uuid
 
 from cua_agent import ComputerAgent
 from daytona import AsyncDaytona, CreateSandboxFromSnapshotParams
@@ -69,6 +71,11 @@ class DaytonaComputer:
         await self._cu.mouse.drag(path[0]["x"], path[0]["y"], path[-1]["x"], path[-1]["y"])
 
     async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None:
+        # Daytona scrolls vertically only, in wheel notches of ~100px. n2 has no horizontal scroll either.
+        if scroll_y == 0:
+            if scroll_x:
+                raise NotImplementedError("horizontal scrolling is not supported")
+            return
         await self._cu.mouse.scroll(x, y, "down" if scroll_y > 0 else "up", max(1, round(abs(scroll_y) / 100)))
 
     async def type(self, text: str) -> None:
@@ -110,11 +117,23 @@ class DaytonaComputer:
         raise NotImplementedError("held clicks are not supported")
 
     async def run_bash_command(self, command: str, timeout: float = 120.0, run_in_background: bool = False) -> str:
+        if run_in_background:
+            # Detach and return right away; the model reads the output file later.
+            log_path = f"/tmp/n2-bash-{uuid.uuid4().hex[:8]}.log"
+            launched = await self._sandbox.process.exec(
+                f"nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 & echo $!", timeout=30
+            )
+            pid = launched.result.strip()
+            return f"Started background task (pid {pid}).\nOutput file: {log_path}\nCancel with: kill {pid}"
+
         result = await self._sandbox.process.exec(command, timeout=int(timeout))
+        # Truncate before adding the markers so they survive a long failing command.
         output = result.result or ""
+        if len(output) > 8000:
+            output = output[:8000] + "\n[result truncated]"
         if result.exit_code:
-            output = f"{output}\n[exit code {result.exit_code}]"
-        return output[:8000]
+            output = f"{output}\n[exit code {result.exit_code}]" if output else f"[exit code {result.exit_code}]"
+        return output
 
 
 class RunGuard:
