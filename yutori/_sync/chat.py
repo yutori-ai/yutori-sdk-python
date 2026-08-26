@@ -32,11 +32,11 @@ class ChatCompletions:
 
         Args:
             messages: List of messages following OpenAI Chat format.
-            model: Model to use (defaults to the current browser Navigator model).
-            tool_set: Built-in browser Navigator tool set to use, e.g.
+            model: Model to use (default: ``"n1.5-latest"`` -- Navigator n1.5).
+            tool_set: Navigator n1.5 browser tool set to use, e.g.
                 ``"browser_tools_core-20260403"`` or
                 ``"browser_tools_expanded-20260403"``.
-            disable_tools: List of browser tool names to remove
+            disable_tools: List of Navigator n1.5 browser tool names to remove
                 from the selected tool set.
             json_schema: JSON Schema for structured output.
                 When provided, the model returns a ``parsed_json`` field

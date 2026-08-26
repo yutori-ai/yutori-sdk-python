@@ -110,7 +110,7 @@ The Yutori API provides four main capabilities:
 
 | API           | Description                                                    | SDK Namespace     |
 | ------------- | -------------------------------------------------------------- | ----------------- |
-| **Navigator** | Browser- and computer-use models                            | `client.chat`  |
+| **Navigator** | Browser- and computer-use models (Navigator n1.5, n2)         | `client.chat`  |
 | **Browsing**  | One-time browser automation tasks                              | `client.browsing` |
 | **Research**  | Deep web research using 100+ tools                             | `client.research` |
 | **Scouting**  | Continuous web monitoring on a schedule                        | `client.scouts`   |
@@ -159,7 +159,7 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it returns text with no `tool_calls`. Complete agent loops live in [examples/](examples/).
 
-The SDK defaults to the current browser Navigator model (n1.5). Browser Navigator requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
+The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
 
 ### Navigator n2 (computer use)
 
@@ -223,8 +223,8 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `format_task_with_context(task, ...)`                       | Append location, timezone, and current date to a task message.                                                                           |
 | `format_stop_and_summarize(task)`                           | Ask the model to summarize when hitting max steps or an error.                                                                           |
 | `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                                 |
-| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator lowercase key names to Playwright format.                                                                              |
-| `yutori.navigator.tools`                                    | Packaged JS reference implementations for browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`).             |
+| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
+| `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 | `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The Navigator n2 agent loop and the computer-use tool set it implements (SDK 0.9.2+).                                                    |
 
 
@@ -394,7 +394,7 @@ Run `yutori --help` or `yutori <command> --help` for full options.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples: Navigator n1.5 browser agents and a Navigator n2 computer-use agent on a Daytona desktop.
+See [examples/](examples/) for complete working examples: Navigator n1.5 browser loops, custom tools, and a Navigator n2 computer-use agent on a Daytona desktop.
 
 ## Contributing
 
