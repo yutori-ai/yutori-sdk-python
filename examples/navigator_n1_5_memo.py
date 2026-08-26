@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 """
-A web browsing agent using Yutori's Navigator API (Navigator n1, OpenAI API
-compatible) with custom tools.
+A web browsing agent using Yutori's Navigator API (Navigator n1.5) with custom tools
+that let the model memorize information (into a file) as it navigates.
 
-This script demonstrates how to use custom tools to let the model memorize information (into files) as it navigates.
-
-We ask the model to take a quiz and record every question, description, and all the options along the way.
+We ask the model to take a quiz and record every question, description, and all the
+options along the way. Built on the complete Navigator n1.5 agent in `navigator_n1_5.py`.
 
 Replay logging in this example is optional. Here, "replay" means saving the
 agent trajectory to local files so you can inspect screenshots, actions, and
@@ -19,7 +18,7 @@ We implement three custom tools:
 Usage:
     yutori auth login  # or export YUTORI_API_KEY=...
     uv sync --extra examples
-    uv run python examples/navigator_n1_memo.py \
+    uv run python examples/navigator_n1_5_memo.py \
         --task "Take the quiz and record every question, description, and all the options along the way" \
         --start-url "https://www.triviaplaza.com/three-letter-computer-terms-quiz/"
 """
@@ -31,13 +30,9 @@ from datetime import datetime, timezone
 from functools import cached_property
 from typing import Any
 
-from _common import (
-    BaseAgentConfig,
-    BrowserAgentMixin,
-    run_example_main,
-)
+from _common import BaseAgentConfig, run_example_main
 from loguru import logger
-from openai.types.chat import ChatCompletion
+from navigator_n1_5 import Agent as NavigatorAgent
 from pydantic import Field
 
 
@@ -159,37 +154,26 @@ class MemoToolSuite:
         return f"Memo file path: {self.file_path}\nRecords:\n{content}"
 
 
-class Agent(BrowserAgentMixin):
+class Agent(NavigatorAgent):
+    replay_prefix = "n1_5_memo"
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # Custom memo tool suite
         self._memo_tool_suite = MemoToolSuite()
+        self.custom_tools = self._memo_tool_suite.input_schemas
 
-    async def run(self, task: str, start_url: str) -> str:
-        return await self._run_with_browser_lifecycle(task, start_url, replay_prefix="navigator_memo")
-
-    async def _call_llm_with_retries(self) -> ChatCompletion:
-        return await self._call_llm_with_tools(self._memo_tool_suite.input_schemas)
-
-    # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
-    # n1 examples).
-
-    async def _dispatch_custom_tool(
-        self, action_name: str, arguments: dict[str, Any]
-    ) -> tuple[bool, str | None] | None:
+    async def _dispatch_custom_tool(self, action_name: str, arguments: dict[str, Any]) -> str | None:
         if action_name == "add_question":
-            result = await self._memo_tool_suite.add_question(**arguments)
-            return False, result
+            return await self._memo_tool_suite.add_question(**arguments)
 
         if action_name == "add_options":
-            result = await self._memo_tool_suite.add_options(**arguments)
-            return False, result
+            return await self._memo_tool_suite.add_options(**arguments)
 
         if action_name == "list_records":
-            result = await self._memo_tool_suite.list_records()
-            logger.info("Task completed (`list_records` tool called)")
-            return True, result
+            # The model reads the records back and then answers with its summary.
+            return await self._memo_tool_suite.list_records()
 
         return None
 
@@ -197,8 +181,8 @@ class Agent(BrowserAgentMixin):
 async def main():
     await run_example_main(
         Config,
-        "Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task",
-        api_label="Yutori Navigator n1",
+        "Example of using the Yutori Navigator API (Navigator n1.5) with custom memo tools",
+        api_label="Yutori Navigator n1.5",
         agent_cls=Agent,
     )
 

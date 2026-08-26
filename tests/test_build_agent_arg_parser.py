@@ -1,10 +1,9 @@
 """Characterization tests for ``examples._common.build_agent_arg_parser``.
 
 Pins the exact argument set/defaults produced before/after extracting this
-parser assembly out of ``navigator_n1.py``, ``navigator_n1_memo.py``, and
-``navigator_n1_custom_tools.py`` (which previously each hand-assembled the
+parser assembly out of the example scripts (which previously each hand-assembled the
 same task/model/agent/browser/replay argument groups in ``main()``, with
-``navigator_n1.py`` alone also wiring in payload-trim arguments).
+``navigator_n1_5.py`` alone also wiring in payload-trim arguments).
 """
 
 from __future__ import annotations

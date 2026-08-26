@@ -1,7 +1,7 @@
 """Characterization tests for ``examples._common.BrowserAgentMixin._trim_request_messages``.
 
 Pins the exact trim-and-log behavior of this helper before/after extracting it out of
-``navigator_n1.py`` and ``navigator_n1_5.py``, each of which previously carried a
+``navigator_n1_5.py`` (and, before its retirement, ``navigator_n1.py``), which carried a
 byte-for-byte identical "call ``update_trimmed_history``, then log the removed-screenshot
 count" preamble inside their own ``_call_llm_with_retries``, differing only in the
 ``extra_fields`` passed to the ``_call_llm`` call that followed.

@@ -1,8 +1,8 @@
 """Characterization tests for ``examples._common.BrowserAgentMixin._init_agent_state``/``_start_run``.
 
 Pins the exact behavior of these two helpers before/after extracting them out of
-``navigator_n1.py``, ``navigator_n1_custom_tools.py``, ``navigator_n1_memo.py``, and
-``navigator_n1_5.py``, each of which previously hand-rolled this same ``__init__``
+the example agents (``navigator_n1_5.py`` and the custom-tool scripts that subclass
+it), which previously hand-rolled this same ``__init__``
 browser/replay bookkeeping and ``run()`` reset-and-start-replay prologue.
 """
 

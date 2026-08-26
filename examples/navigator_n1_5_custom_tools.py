@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 """
-A web browsing agent using Yutori's Navigator API (Navigator n1, OpenAI API
-compatible) with custom tools.
+A web browsing agent using Yutori's Navigator API (Navigator n1.5) with a custom tool.
 
-This script takes a user query, launches a local Playwright browser session,
-calls the Navigator API to get actions, executes them, and iterates until the
-task is complete.
-
-In addition, we implement a custom tool to extract content and links from the page.
+Custom tools ride alongside the built-in browser actions through the `tools`
+parameter, and the model calls them like any other action. This script adds a
+read-only tool that extracts the page's content and links, on top of the
+complete Navigator n1.5 agent in `navigator_n1_5.py`.
 
 Replay logging in this example is optional. Here, "replay" means saving the
 agent trajectory to local files so you can inspect screenshots, actions, and
@@ -16,7 +14,7 @@ raw request/response payloads in `visualization.html` after the run.
 Usage:
     yutori auth login  # or export YUTORI_API_KEY=...
     uv sync --extra examples
-    uv run python examples/navigator_n1_custom_tools.py \
+    uv run python examples/navigator_n1_5_custom_tools.py \
         --task "Get the titles and links of all the blog posts" \
         --start-url "https://www.yutori.com"
 """
@@ -26,12 +24,8 @@ import re
 from functools import cached_property
 from typing import Any
 
-from _common import (
-    BaseAgentConfig,
-    BrowserAgentMixin,
-    run_example_main,
-)
-from openai.types.chat import ChatCompletion
+from _common import BaseAgentConfig, run_example_main
+from navigator_n1_5 import Agent as NavigatorAgent
 from playwright.async_api import Page
 from pydantic import Field
 
@@ -108,36 +102,28 @@ class ExtractContentAndLinksTool:
         return result
 
 
-class Agent(BrowserAgentMixin):
+class Agent(NavigatorAgent):
+    replay_prefix = "n1_5_custom"
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # Custom tools
         self._extract_content_and_links_tool = ExtractContentAndLinksTool()
+        self.custom_tools = [self._extract_content_and_links_tool.input_schema]
 
-    async def run(self, task: str, start_url: str) -> str:
-        return await self._run_with_browser_lifecycle(task, start_url, replay_prefix="n1_custom")
-
-    async def _call_llm_with_retries(self) -> ChatCompletion:
-        return await self._call_llm_with_tools([self._extract_content_and_links_tool.input_schema])
-
-    # _predict() and _execute() are inherited from BrowserAgentMixin (identical across the
-    # n1 examples).
-
-    async def _dispatch_custom_tool(
-        self, action_name: str, arguments: dict[str, Any]
-    ) -> tuple[bool, str | None] | None:
+    async def _dispatch_custom_tool(self, action_name: str, arguments: dict[str, Any]) -> str | None:
         if action_name == "extract_content_and_links":
             await self._wait_for_page_ready()
-            return False, await self._extract_content_and_links_tool(self._page)
+            return await self._extract_content_and_links_tool(self._page)
         return None
 
 
 async def main():
     await run_example_main(
         Config,
-        "Example of using the Yutori Navigator API (Navigator n1) to perform a web browsing task",
-        api_label="Yutori Navigator n1",
+        "Example of using the Yutori Navigator API (Navigator n1.5) with a custom tool",
+        api_label="Yutori Navigator n1.5",
         agent_cls=Agent,
     )
 

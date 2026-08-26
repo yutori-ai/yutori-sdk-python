@@ -1,11 +1,6 @@
-"""Shared ``BrowserAgentMixin`` agent-builder for ``_call_llm``/``_call_llm_with_tools`` tests.
+"""Shared ``BrowserAgentMixin`` agent-builder for the ``_call_llm`` tests.
 
-``test_call_llm_mixin.py`` and ``test_call_llm_with_tools_mixin.py`` each defined a
-``_make_agent()`` that was byte-for-byte identical except for one line: the
-``_call_llm_with_tools`` tests pre-populate ``agent._messages`` (read internally via
-``self._messages``), while the ``_call_llm`` tests pass a local ``messages`` list explicitly
-and don't need ``agent._messages`` set. Centralizing the shared setup here mirrors the
-``tests/_client_fixtures.py`` precedent for the sync/async client test suites.
+Mirrors the ``tests/_client_fixtures.py`` precedent for the sync/async client test suites.
 """
 
 from __future__ import annotations
@@ -13,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 from examples._common import BrowserAgentMixin
-from yutori.navigator import NAVIGATOR_N1_MODEL
+from yutori.navigator import NAVIGATOR_N1_5_MODEL
 
 
 def make_call_llm_agent() -> BrowserAgentMixin:
@@ -24,7 +19,7 @@ def make_call_llm_agent() -> BrowserAgentMixin:
     whose ``model_dump()`` is ``{"role": "assistant", "content": "done"}``.
     """
     agent = BrowserAgentMixin()
-    agent.model = NAVIGATOR_N1_MODEL
+    agent.model = NAVIGATOR_N1_5_MODEL
     agent.temperature = 0.3
     agent._step_count = 3
     agent._step_payloads = []
