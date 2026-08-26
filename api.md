@@ -233,8 +233,8 @@ task = client.browsing.create(
 **Parameters:**
 - `task` (`str`): Natural language description of the browsing task.
 - `start_url` (`str`): URL to start browsing from.
-- `max_steps` (`int`, optional): Maximum agent steps (1–100).
-- `agent` (`str`, optional): `"navigator-n1.5-latest"` (default) or `"claude-sonnet-4-5-computer-use-2025-01-24"`.
+- `max_steps` (`int`, optional): Maximum agent steps.
+- `agent` (`str`, optional): Optional agent/model override for the browsing task.
 - `require_auth` (`bool`, optional): Use an auth-optimized browser for login flows.
 - `browser` (`str`, optional): `"cloud"` (default) or `"local"` for Yutori Local with the user's logged-in desktop sessions.
 - `output_schema`: See [Structured output](#structured-output).
