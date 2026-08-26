@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/yutori.svg)](https://pypi.org/project/yutori/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) — build reliable computer-use agents that browse, research, monitor, and operate computers.
+The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) — build agents that monitor, research, and browse the web as well as operate computers with [Yutori](https://yutori.com/api).
 
 The SDK offers sync and async clients with full type annotations, plus a `yutori` CLI for authentication and managing resources from the terminal.
 
@@ -110,7 +110,7 @@ The Yutori API provides four main capabilities:
 
 | API           | Description                                                    | SDK Namespace     |
 | ------------- | -------------------------------------------------------------- | ----------------- |
-| **Navigator** | Browser- and computer-use models (Navigator n1, n1.5, n2) | `client.chat`  |
+| **Navigator** | Browser- and computer-use models                            | `client.chat`  |
 | **Browsing**  | One-time browser automation tasks                              | `client.browsing` |
 | **Research**  | Deep web research using 100+ tools                             | `client.research` |
 | **Scouting**  | Continuous web monitoring on a schedule                        | `client.scouts`   |
@@ -118,7 +118,7 @@ The Yutori API provides four main capabilities:
 
 ## Navigator API
 
-The Navigator API hosts Yutori's visual-control models. **Navigator n1** (`n1-latest`) and **Navigator n1.5** (`n1.5-latest`) control browsers; **Navigator n2** controls a complete desktop. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
+The Navigator API hosts Yutori's visual-control models. Browser Navigator models control webpages; **Navigator n2** controls a complete desktop. Capture a screenshot, send it to the model, and execute the returned tool calls. The endpoint follows the OpenAI Chat Completions interface, so `client.chat` is a drop-in OpenAI-compatible client:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -155,7 +155,7 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll usually run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it emits `stop`. Complete agent loops live in [examples/](examples/).
 
-The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1 (`n1-latest`) is still supported for callers that want the older model. Navigator n1.5 adds selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator n1.5 reference](https://docs.yutori.com/reference/n1-5) and [Navigator n1 reference](https://docs.yutori.com/reference/n1) for model IDs, parameters, and the full action space.
+The SDK defaults to the current browser Navigator model. Browser Navigator requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
 
 ### Navigator n2 macOS CUA
 
@@ -182,6 +182,8 @@ python -c 'from yutori.navigator.macos import prepare_macos_overlay; prepare_mac
 
 The SDK harness exports `N2ComputerAgent` for the agent loop and `yutori.navigator.macos.MacOSComputer` for the native Mac driver. `MacOSComputer` owns the persistent CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and optional presentation overlay. Local shell execution stays disabled unless the caller explicitly enables it.
 
+For longer n2 runs, prefer compacting or summarizing older screenshots and tool results so the conversation stays within `max_context_len`; do not rely on an artificial 100-step cap.
+
 ### Agent-loop helpers
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
@@ -194,8 +196,8 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `format_task_with_context(task, ...)`                       | Append location, timezone, and current date to a task message.                                                                           |
 | `format_stop_and_summarize(task)`                           | Ask the model to summarize when hitting max steps or an error.                                                                           |
 | `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                                 |
-| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5's lowercase key names to Playwright format.                                                                       |
-| `yutori.navigator.tools`                                    | Packaged JS reference implementations for the Navigator n1.5 expanded tools (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
+| `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator lowercase key names to Playwright format.                                                                              |
+| `yutori.navigator.tools`                                    | Packaged JS reference implementations for browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`).             |
 | `N2ComputerAgent` / `yutori.navigator.macos.MacOSComputer`  | Published 0.9.2+ helpers for Navigator n2 desktop CUA loops.                                                                             |
 
 
@@ -365,7 +367,7 @@ Run `yutori --help` or `yutori <command> --help` for full options.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples, including Navigator agent loops for both Navigator n1 and Navigator n1.5.
+See [examples/](examples/) for complete working examples, including Navigator browser loops and n2 computer-use helpers.
 
 ## Contributing
 

@@ -78,10 +78,8 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         Returns:
             Dictionary with ``num_active_scouts``, ``active_scout_ids``,
             ``rate_limits``, ``navigator_rate_limits``, and ``activity``
-            counts. The response also includes ``n1_rate_limits`` and
-            ``activity.n1_calls`` as deprecated aliases of
-            ``navigator_rate_limits`` / ``navigator_calls`` and will be
-            removed in a future release; prefer the ``navigator_*`` names.
+            counts. The response may also include deprecated legacy aliases
+            for navigator usage fields; prefer the ``navigator_*`` names.
         """
         return await self._request("get", "/usage", params=build_query_params(period=period))
 
