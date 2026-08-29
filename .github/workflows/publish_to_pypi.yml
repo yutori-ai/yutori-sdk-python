@@ -132,7 +132,10 @@ jobs:
 
   release-assets:
     name: Upload release checksums and installers
-    needs: [build, publish]
+    # Keep the public install/uninstall URLs available even if the independent
+    # PyPI publishing job fails. Both jobs consume the exact artifacts produced
+    # by `build`.
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
