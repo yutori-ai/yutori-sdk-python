@@ -1,9 +1,8 @@
-"""Tests for the n2 loop's evaluation-harness policies (``N2LoopOptions.harness()``).
+"""Tests for the n2 loop's default policies, which are the evaluation harness's.
 
-These pin the observation stream the model sees when the SDK loop is configured
-like Yutori's evaluation harness: a blind start, one PNG 1280x720 frame per GUI
-turn appended to the turn's last tool result, image-less shell turns,
-``[i:name]`` batch results, every tool call executed in order, prior-turn
+These pin the observation stream the model sees: a blind start, one PNG 1280x720
+frame per GUI turn appended to the turn's last tool result, image-less shell
+turns, ``[i:name]`` batch results, every tool call executed in order, prior-turn
 reasoning re-sent as message fields, questions routed to a caller, and run
 budgets.
 """
@@ -21,7 +20,6 @@ from yutori.navigator import (
     N2_TASK_GUIDELINES,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
-    N2LoopOptions,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     parse_n2_tool_calls,
@@ -103,7 +101,6 @@ def _images(message: dict[str, Any]) -> list[str]:
 
 
 def _agent(computer, completions, **kwargs) -> N2ComputerAgent:
-    kwargs.setdefault("options", N2LoopOptions.harness())
     kwargs.setdefault("screenshot_delay", 0)
     return N2ComputerAgent(computer=computer, completions=completions, **kwargs)
 
@@ -121,7 +118,7 @@ def test_reasoning_is_resent_as_assistant_message_fields():
         {"type": "function_call", "call_id": "c1", "name": "bash", "arguments": '{"command":"ls"}'},
         {"type": "function_call_output", "call_id": "c1", "output": "file.txt"},
     ]
-    messages = convert_n2_items_to_completion_messages(items, reasoning_as_field=True)
+    messages = convert_n2_items_to_completion_messages(items)
     assert [message["role"] for message in messages] == ["user", "assistant", "tool"]
     assistant = messages[1]
     assert assistant["content"] == "on it"
@@ -131,21 +128,15 @@ def test_reasoning_is_resent_as_assistant_message_fields():
 
     # Reasoning that directly precedes a tool call (no visible text) rides on the acting message.
     items_without_text = [items[0], items[1], items[3], items[4]]
-    messages = convert_n2_items_to_completion_messages(items_without_text, reasoning_as_field=True)
+    messages = convert_n2_items_to_completion_messages(items_without_text)
     assert messages[1]["reasoning_content"] == "think first" and messages[1]["content"] == ""
 
-    # The default keeps the historical separate assistant text message.
-    legacy = convert_n2_items_to_completion_messages(items)
-    assert legacy[1] == {"role": "assistant", "content": "think first"}
 
-
-def test_parse_executes_every_call_when_asked():
+def test_parse_executes_every_call():
     message = {"content": "", "tool_calls": [_bash("ls", "b1"), _bash("pwd", "b2")]}
-    output = parse_n2_tool_calls(message, 1000, 1000, execute_all=True)
+    output = parse_n2_tool_calls(message, 1000, 1000)
     assert [item["call_id"] for item in output] == ["b1", "b2"]
     assert all(item.get("_computer_actions") for item in output)
-    refused = parse_n2_tool_calls(message, 1000, 1000)
-    assert "Refused stale parallel tool call" in refused[-1]["output"]
 
 
 async def test_execute_renders_harness_batch_text_without_a_frame():
@@ -164,9 +155,7 @@ async def test_execute_renders_harness_batch_text_without_a_frame():
         1080,
     )[-1]
     desktop = Desktop()
-    result = await execute_n2_computer_call(
-        item, desktop, callbacks=_CallbackDispatcher([]), result_format="harness", capture_screenshot=False
-    )
+    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
     assert result == [
         {
             "type": "function_call_output",
@@ -192,9 +181,7 @@ async def test_execute_reports_a_halted_batch_the_harness_way():
         1920,
         1080,
     )[-1]
-    result = await execute_n2_computer_call(
-        item, Desktop(), callbacks=_CallbackDispatcher([]), result_format="harness", capture_screenshot=False
-    )
+    result = await execute_n2_computer_call(item, Desktop(), callbacks=_CallbackDispatcher([]))
     assert result[0]["output"] == (
         "[0:left_click] \n"
         "batch stopped at actions[1] (1:right_click): ERROR: RuntimeError: driver refused right click "
@@ -206,27 +193,21 @@ async def test_execute_renders_bash_dict_results_with_exit_codes():
     desktop = Desktop()
     desktop.bash_result = {"output": "boom\n", "exit_code": 2}
     item = parse_n2_tool_calls({"content": "", "tool_calls": [_bash("false")]}, 1920, 1080)[-1]
-    result = await execute_n2_computer_call(
-        item, desktop, callbacks=_CallbackDispatcher([]), result_format="harness", capture_screenshot=False
-    )
+    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
     assert result[0]["output"] == "Exit code 2\nboom\n"
 
     desktop.bash_result = {"output": "", "exit_code": 0}
-    result = await execute_n2_computer_call(
-        item, desktop, callbacks=_CallbackDispatcher([]), result_format="harness", capture_screenshot=False
-    )
+    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
     assert result[0]["output"] == "(Bash completed with no output)"
 
     # A plain-string result is passed through with the harness's 30k cap.
     desktop.bash_result = "x" * 30_010
-    result = await execute_n2_computer_call(
-        item, desktop, callbacks=_CallbackDispatcher([]), result_format="harness", capture_screenshot=False
-    )
+    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
     assert result[0]["output"].endswith("\n\n[... output truncated, 10 more chars ...]")
 
 
 # ---------------------------------------------------------------------------
-# The loop under harness options
+# The loop
 # ---------------------------------------------------------------------------
 
 
@@ -370,9 +351,7 @@ async def test_question_cap_and_terminal_markers_bypass_the_caller():
         return "go on"
 
     completions = FakeCompletions([{"content": "q1", "tool_calls": []}, {"content": "q2", "tool_calls": []}])
-    agent = _agent(
-        Desktop(), completions, on_question=always_answer, options=N2LoopOptions.harness(max_consecutive_questions=1)
-    )
+    agent = _agent(Desktop(), completions, on_question=always_answer, max_consecutive_questions=1)
     async for _ in agent.run("task"):
         pass
     assert asked == ["q1"] and agent.stopped_by == "final_answer"
@@ -424,28 +403,6 @@ async def test_compactor_can_rewrite_the_trajectory_before_a_model_call():
     assert len(third) == 3
 
 
-async def test_default_options_keep_the_established_behaviour():
-    completions = FakeCompletions(
-        [
-            {"content": "", "tool_calls": [_bash("ls", "b1"), _bash("pwd", "b2")]},
-            {"content": "done", "tool_calls": []},
-        ]
-    )
-    desktop = Desktop()
-    desktop.bash_result = "hello"
-    agent = N2ComputerAgent(computer=desktop, completions=completions, screenshot_delay=0)
-    async for _ in agent.run("task"):
-        pass
-    first = completions.requests[0]
-    assert first["messages"][-1]["content"][1] == {"type": "text", "text": "Current desktop screen"}
-    assert first["max_completion_tokens"] == 16384
-    assert "system" not in {message["role"] for message in first["messages"]}
-    assert [call[0] for call in desktop.calls].count("bash") == 1  # second call refused, not executed
-    second = completions.requests[1]["messages"]
-    assert any("Refused stale parallel tool call" in str(message.get("content")) for message in second)
-    assert agent.stopped_by == "final_answer"
-
-
 # ---------------------------------------------------------------------------
 # Gaps found by the mirror-harness parity study
 # ---------------------------------------------------------------------------
@@ -455,7 +412,7 @@ def _read(file_path: str, call_id: str = "r1") -> dict[str, Any]:
     return {"id": call_id, "function": {"name": "read", "arguments": json.dumps({"file_path": file_path})}}
 
 
-async def test_requests_carry_a_long_api_timeout_and_the_harness_wait_default():
+async def test_requests_carry_a_long_api_timeout_and_the_five_second_wait_default():
     completions = FakeCompletions(
         [
             {"content": "", "tool_calls": [_batch({"name": "wait", "arguments": {}})]},
@@ -470,18 +427,11 @@ async def test_requests_carry_a_long_api_timeout_and_the_harness_wait_default():
     # The harness converter waits 5 s when the model gives no duration.
     assert ("wait", 5000) in desktop.calls
 
-    completions = FakeCompletions(
-        list(completions._turns)
-        or [
-            {"content": "", "tool_calls": [_batch({"name": "wait", "arguments": {}})]},
-            {"content": "[DONE]", "tool_calls": []},
-        ]
-    )
-    desktop = Desktop()
-    async for _ in _agent(desktop, completions, options=N2LoopOptions(api_timeout_seconds=None)).run("task"):
+    # `None` leaves the client's own timeout in charge.
+    completions = FakeCompletions([{"content": "[DONE]", "tool_calls": []}])
+    async for _ in _agent(Desktop(), completions, api_timeout_seconds=None).run("task"):
         pass
     assert "timeout" not in completions.requests[0]
-    assert ("wait", 1000) in desktop.calls
 
 
 async def test_context_guard_ends_the_run_before_an_oversized_request():
@@ -493,15 +443,15 @@ async def test_context_guard_ends_the_run_before_an_oversized_request():
 
     turns = [{"content": "", "tool_calls": [_bash("ls", f"b{i}")]} for i in range(3)]
     completions = BigContextCompletions(turns)
-    agent = _agent(Desktop(), completions)  # harness(): 128k window, 20480 output, 4096 margin
+    agent = _agent(Desktop(), completions)  # defaults: 128k window, 20480 output, 4096 margin
     async for _ in agent.run("task"):
         pass
     assert len(completions.requests) == 1
     assert agent.stopped_by == "context_limit"
 
-    # Off by default: the plain loop keeps calling.
+    # `None` disables the guard: the loop keeps calling.
     completions = BigContextCompletions(list(turns) + [{"content": "done", "tool_calls": []}])
-    agent = _agent(Desktop(), completions, options=N2LoopOptions())
+    agent = _agent(Desktop(), completions, context_window_tokens=None)
     async for _ in agent.run("task"):
         pass
     assert len(completions.requests) == 4 and agent.stopped_by == "final_answer"
@@ -518,7 +468,7 @@ async def test_a_slow_tool_call_reports_the_harness_timeout_text():
     completions = FakeCompletions(
         [{"content": "", "tool_calls": [_bash("sleep 5", "b1")]}, {"content": "[DONE]", "tool_calls": []}]
     )
-    agent = _agent(SlowDesktop(), completions, options=N2LoopOptions.harness(tool_call_timeout_seconds=0.05))
+    agent = _agent(SlowDesktop(), completions, tool_call_timeout_seconds=0.05)
     steps = [step async for step in agent.run("task")]
     outputs = [item for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
     assert outputs[0]["output"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
@@ -573,18 +523,13 @@ async def test_handlers_that_accept_model_action_receive_the_untranslated_call()
         {"content": "", "tool_calls": [_batch({"name": "key_press", "arguments": {"key": "ctrl+shift+t"}})]},
         1920,
         1080,
-        execute_all=True,
     )
-    await execute_n2_computer_call(
-        items[-1], desktop, callbacks=_CallbackDispatcher({}), result_format="harness", capture_screenshot=False
-    )
+    await execute_n2_computer_call(items[-1], desktop, callbacks=_CallbackDispatcher({}))
     assert desktop.calls == [("keypress", ("ctrl", "shift", "t"), {"action": "key_press", "key": "ctrl+shift+t"})]
 
     # Handlers without the parameter are called exactly as before.
     plain = Desktop()
-    await execute_n2_computer_call(
-        items[-1], plain, callbacks=_CallbackDispatcher({}), result_format="harness", capture_screenshot=False
-    )
+    await execute_n2_computer_call(items[-1], plain, callbacks=_CallbackDispatcher({}))
     assert plain.calls == [("keypress", ("ctrl", "shift", "t"))]
 
 
@@ -596,8 +541,6 @@ async def test_text_an_adapter_already_truncated_is_not_cut_again():
         items[-1],
         desktop,
         callbacks=_CallbackDispatcher({}),
-        result_format="harness",
         shell_result_max_chars=50,
-        capture_screenshot=False,
     )
     assert result[0]["output"] == desktop.bash_result["output"]

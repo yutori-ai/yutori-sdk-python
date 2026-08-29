@@ -4,6 +4,13 @@ This SDK-owned loop lets computer-use hosts drive n2 without another agent
 framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
+- The loop's defaults are the evaluation harness's — the loop the published n2
+  benchmark numbers were measured under: a blind start with one PNG 1280x720
+  frame per GUI turn appended to that turn's last tool result, every tool call
+  of a turn executed in order, ``[i:name]`` batch results and the evaluation
+  tools' shell/file text, prior-turn reasoning re-sent as message fields, the
+  trained task-guideline system prompt, and its budgets. Every policy is a
+  constructor keyword for callers who need something else.
 - The model call goes through the SDK's own chat-completions surface (or any
   object with a compatible async ``create``); the SDK chat namespace's bundled
   client already retries transient failures, so the loop adds no second retry
@@ -36,7 +43,6 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any, Literal, Optional, Protocol, Union
 
 from .macos.sanitize import sanitize_command_preview
@@ -72,9 +78,7 @@ from .n2_actions import (
 from .n2_payload import (
     DEFAULT_IMAGE_PROFILE,
     DEFAULT_MAX_MESSAGES_BYTES,
-    HARNESS_IMAGE_PROFILE,
     MAX_REQUEST_BODY_BYTES,
-    OLDER_IMAGE_OMITTED_TEXT,
     N2ImageProfile,
     convert_request_images,
     fit_n2_request_images_to_budget,
@@ -90,17 +94,10 @@ from .n2_results import (
     N2_TASK_GUIDELINES,
     READ_MAX_OUTPUT_CHARS,
     format_action_error,
-    format_bash_result,
     format_batch_result,
     parse_terminal_marker,
-    truncate_output,
+    render_tool_output,
 )
-
-# Shell results follow the n2 server contract: bounded output with an explicit
-# truncation marker, and a recoverable tool error when the handler lacks the
-# optional shell capability.
-SHELL_RESULT_MAX_CHARS = 8_000
-SHELL_RESULT_TRUNCATION_SUFFIX = "\n[result truncated]"
 
 # The two shell tools the n2 tool sets serve, each mapped to the optional
 # handler method that runs it. They are separate rather than one normalized
@@ -122,111 +119,24 @@ BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
 
 ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
-N2_MAX_COMPLETION_TOKENS = 16_384
-HARNESS_MAX_COMPLETION_TOKENS = 20_480
+# Loop budgets (the evaluation harness's values); each is a constructor keyword.
+N2_MAX_COMPLETION_TOKENS = 20_480
 # A thinking n2 turn can take minutes; the SDK client's general default (30 s) is
 # far too short and a timeout costs the whole run.
 N2_API_TIMEOUT_SECONDS = 600.0
-HARNESS_DEFAULT_WAIT_SECONDS = 5.0
-HARNESS_CONTEXT_WINDOW_TOKENS = 128_000
-HARNESS_TOOL_CALL_TIMEOUT_SECONDS = 900.0
+# The served context window, and the headroom kept below it so the run ends
+# cleanly instead of on a rejected request.
+N2_CONTEXT_WINDOW_TOKENS = 128_000
+N2_CONTEXT_MARGIN_TOKENS = 4_096
+N2_TOOL_CALL_TIMEOUT_SECONDS = 900.0
+N2_MAX_CONSECUTIVE_QUESTIONS = 5
+_INITIAL_SCREENSHOT_CAPTION = "Current desktop screen"
 _FINAL_MARKER = re.compile(r"\s*\[(?:DONE|INFEASIBLE)\]\s*", re.IGNORECASE)
 
 # Tools whose execution changes what is on screen. After a turn that ran one of
 # these, the on-demand screenshot policy attaches a fresh frame; a turn of only
 # shell, file or browser-navigation calls gets no image.
 _NON_GUI_TOOL_NAMES = frozenset({BASH_TOOL_NAME, *SHELL_COMMAND_TOOL_NAMES, *FILE_TOOL_NAMES, "goto_url"})
-
-
-@dataclass(frozen=True)
-class N2LoopOptions:
-    """Policies of the n2 agent loop that shape what the model observes.
-
-    The defaults are the loop's established behaviour. :meth:`harness` returns
-    the settings of Yutori's evaluation harness — the loop the published n2
-    benchmark numbers were measured under — for callers who want to reproduce
-    those runs.
-
-    - ``screenshot_policy``: ``"always"`` captures a frame before the first turn
-      and after every executed call; ``"on_demand"`` starts blind and attaches
-      one frame after a turn only when that turn ran a GUI action, appended to
-      the turn's last tool result.
-    - ``initial_screenshot_caption``: the text sent alongside the bootstrap
-      frame under ``"always"``; ``None`` sends the image alone.
-    - ``tool_result_format``: ``"metadata"`` reports a batch as a JSON summary
-      (completed/failed/skipped/duration); ``"harness"`` reports one
-      ``[i:name]`` line per member and renders shell/file output the way the
-      evaluation tools do (see :mod:`yutori.navigator.n2_results`).
-    - ``execute_all_tool_calls``: run every tool call of a turn in order (the
-      harness) instead of only the first.
-    - ``reasoning_in_history``: re-send a turn's reasoning as the assistant
-      message's ``reasoning``/``reasoning_content`` fields (``"field"``, what the
-      serving template expects) or as a separate assistant text message.
-    - ``image_profile``: how frames are re-encoded for the wire.
-    - ``omitted_image_text``: text left in place of a screenshot pruned by the
-      two-message image window (the harness sends ``[older image omitted]``);
-      ``None`` drops the image part.
-    - ``shell_result_max_chars`` / ``file_result_max_chars``: output caps.
-    - ``system_prompt``: sent as a system message; the server appends it to its
-      own prompt. :data:`N2_TASK_GUIDELINES` restores the trained terminal-marker
-      and ask-a-question clauses.
-    - ``max_consecutive_questions``: cap on back-to-back model questions routed
-      to ``N2ComputerAgent(on_question=...)`` before the run ends.
-    - ``default_wait_seconds``: ``wait`` duration when the model omits one (the
-      harness's converter waits 5 s).
-    - ``api_timeout_seconds``: per-request timeout sent with each model call. An
-      n2 turn that thinks and emits a long batch can take minutes; ``None`` leaves
-      the client's own default.
-    - ``context_window_tokens``: when set, the run ends with
-      ``stopped_by="context_limit"`` instead of a rejected request once the last
-      response's ``prompt_tokens`` plus the output budget and
-      ``context_margin_tokens`` would exceed it. A ``compactor`` runs first.
-    - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
-      ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
-    """
-
-    screenshot_policy: Literal["always", "on_demand"] = "always"
-    initial_screenshot_caption: Optional[str] = "Current desktop screen"
-    tool_result_format: Literal["metadata", "harness"] = "metadata"
-    execute_all_tool_calls: bool = False
-    reasoning_in_history: Literal["assistant_text", "field"] = "assistant_text"
-    image_profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE
-    omitted_image_text: Optional[str] = None
-    max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS
-    reasoning_effort: Optional[str] = None
-    shell_result_max_chars: int = SHELL_RESULT_MAX_CHARS
-    file_result_max_chars: int = SHELL_RESULT_MAX_CHARS
-    system_prompt: Optional[str] = None
-    max_consecutive_questions: int = 5
-    default_wait_seconds: float = 1.0
-    api_timeout_seconds: Optional[float] = N2_API_TIMEOUT_SECONDS
-    context_window_tokens: Optional[int] = None
-    context_margin_tokens: int = 4096
-    tool_call_timeout_seconds: Optional[float] = None
-
-    @classmethod
-    def harness(cls, **overrides: Any) -> "N2LoopOptions":
-        """The evaluation harness's policies: blind start, on-demand PNG 1280x720
-        frames, ``[i:name]`` results, every call executed, reasoning as fields,
-        a 20,480-token output budget and the trained task-guideline clauses."""
-        values: dict[str, Any] = dict(
-            screenshot_policy="on_demand",
-            initial_screenshot_caption=None,
-            tool_result_format="harness",
-            execute_all_tool_calls=True,
-            reasoning_in_history="field",
-            image_profile=HARNESS_IMAGE_PROFILE,
-            omitted_image_text=OLDER_IMAGE_OMITTED_TEXT,
-            max_completion_tokens=HARNESS_MAX_COMPLETION_TOKENS,
-            shell_result_max_chars=BASH_MAX_OUTPUT_CHARS,
-            file_result_max_chars=READ_MAX_OUTPUT_CHARS,
-            system_prompt=N2_TASK_GUIDELINES,
-            default_wait_seconds=HARNESS_DEFAULT_WAIT_SECONDS,
-            context_window_tokens=HARNESS_CONTEXT_WINDOW_TOKENS,
-            tool_call_timeout_seconds=HARNESS_TOOL_CALL_TIMEOUT_SECONDS,
-        )
-        values.update(overrides)
-        return cls(**values)
 
 
 QuestionCallback = Callable[[str], Awaitable[Optional[str]]]
@@ -315,24 +225,19 @@ def make_function_call_item(
     }
 
 
-def convert_n2_items_to_completion_messages(
-    items: list[dict[str, Any]],
-    *,
-    reasoning_as_field: bool = False,
-) -> list[dict[str, Any]]:
+def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert the n2 trajectory's responses items to Chat Completions messages.
 
     The n2 subset of the reference converter: user messages (string or parts),
     assistant messages, reasoning summaries, function calls folded into the
     preceding assistant message's ``tool_calls``, and tool results — a plain
     string, or an image dict whose optional ``result`` rides as a text part
-    before the screenshot.
+    before its image(s).
 
-    A turn's reasoning is re-sent either as a separate assistant text message
-    (the default) or, with ``reasoning_as_field``, as the ``reasoning`` and
-    ``reasoning_content`` fields of the assistant message it belongs to — the
-    shape the serving chat template renders back into the model's thinking
-    block, and what the evaluation harness sends.
+    A turn's reasoning is re-sent as the ``reasoning`` and ``reasoning_content``
+    fields of the assistant message it belongs to — the shape the serving chat
+    template renders back into the model's thinking block. Reasoning with no
+    assistant message to ride on becomes an assistant text message.
     """
     completion_messages: list[dict[str, Any]] = []
     pending_reasoning: Optional[str] = None
@@ -397,11 +302,9 @@ def convert_n2_items_to_completion_messages(
                 for part in item.get("summary", []) or []
                 if isinstance(part, dict) and part.get("type") == "summary_text"
             ]
-            if texts and reasoning_as_field:
+            if texts:
                 flush_pending_reasoning()
                 pending_reasoning = "\n".join(texts)
-            elif texts:
-                completion_messages.append({"role": "assistant", "content": "\n".join(texts)})
 
         elif item_type == "function_call":
             if not completion_messages or completion_messages[-1].get("role") != "assistant":
@@ -478,34 +381,6 @@ def _browser_not_supported_error(action_type: str) -> str:
     return f"{action_type} is only supported by a browser computer environment."
 
 
-def truncate_shell_result(output: str, max_chars: int = SHELL_RESULT_MAX_CHARS) -> str:
-    """Bound shell output to the n2 wire contract's cap (8,000 characters by default)."""
-    if len(output) <= max_chars:
-        return output
-    return f"{output[: max_chars - len(SHELL_RESULT_TRUNCATION_SUFFIX)]}{SHELL_RESULT_TRUNCATION_SUFFIX}"
-
-
-def _render_tool_output(result: Any, *, result_format: str, max_chars: int) -> str:
-    """Turn an adapter's shell/file return value into the text the model sees.
-
-    Adapters return either the finished text, or — for ``bash`` under the
-    harness format — a dict ``{"output", "exit_code", "timed_out", "timeout"}``
-    that is rendered with :func:`format_bash_result`.
-    """
-    if isinstance(result, dict) and "output" in result and result_format == "harness":
-        return format_bash_result(
-            str(result.get("output") or ""),
-            result.get("exit_code"),
-            timed_out=bool(result.get("timed_out")),
-            timeout_seconds=result.get("timeout"),
-            max_chars=max_chars,
-        )
-    text = "" if result is None else str(result)
-    if result_format == "harness":
-        return truncate_output(text, max_chars)
-    return truncate_shell_result(text, max_chars)
-
-
 def _accepts_kwarg(func: Any, name: str) -> bool:
     try:
         params = inspect.signature(func).parameters
@@ -549,8 +424,6 @@ def parse_n2_tool_calls(
     execution_deadline: "float | None" = None,
     allow_click_modifiers: bool = False,
     allow_scroll_modifiers: "bool | None" = None,
-    execute_all: bool = False,
-    default_wait_seconds: float = 1.0,
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
@@ -558,13 +431,9 @@ def parse_n2_tool_calls(
     text when tool calls accompany it, then one function_call item per tool
     call — followed immediately by a recoverable ``[ERROR]`` result when the
     call fails validation, so history stays consistent and the model can
-    correct itself. A turn with no tool calls yields a terminal assistant
-    message ("Task completed." when the model sent nothing at all).
-
-    By default only the first tool call of a turn is executable and the rest are
-    answered with a refusal (one observed frame, one action). With
-    ``execute_all`` every call is translated, to be executed in order — the
-    evaluation harness's behaviour.
+    correct itself. Every tool call of a turn is translated, to be executed in
+    order. A turn with no tool calls yields a terminal assistant message
+    ("Task completed." when the model sent nothing at all).
     """
     if tool_set not in SUPPORTED_N2_TOOL_SETS:
         raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -579,11 +448,7 @@ def parse_n2_tool_calls(
     if tool_calls and content_text:
         output.append(make_output_text_item(content_text))
 
-    # The model may return parallel calls despite the desktop freshness contract.
-    # Unless ``execute_all`` is set, only the first consumes this turn; a
-    # computer_batch is the sole way to run multiple actions from one frame.
-    executable_calls = tool_calls if execute_all else tool_calls[:1]
-    for tool_call in executable_calls:
+    for tool_call in tool_calls:
         function = tool_call.get("function") or {}
         name = function.get("name") or ""
         arguments = function.get("arguments", "{}")
@@ -610,7 +475,6 @@ def parse_n2_tool_calls(
                     tool_set=tool_set,
                     allow_click_modifiers=allow_click_modifiers,
                     allow_scroll_modifiers=allow_scroll_modifiers,
-                    default_wait_seconds=default_wait_seconds,
                 )
                 call_item = _function_call_with_execution(
                     name,
@@ -669,7 +533,6 @@ def parse_n2_tool_calls(
                     native_height,
                     allow_click_modifiers=allow_click_modifiers,
                     allow_scroll_modifiers=allow_scroll_modifiers,
-                    default_wait_seconds=default_wait_seconds,
                 )
                 call_item = _function_call_with_execution(
                     name, args, call_id, translated, execution_deadline=execution_deadline
@@ -684,32 +547,6 @@ def parse_n2_tool_calls(
                     "output": f"[ERROR] Invalid {name} call: {error}",
                 }
             )
-
-    for index, tool_call in enumerate(tool_calls[len(executable_calls) :], start=len(executable_calls)):
-        function = tool_call.get("function") or {}
-        name = function.get("name") or "unknown"
-        call_id = tool_call.get("id") or f"call_{index}"
-        arguments = function.get("arguments", "{}")
-        output.extend(
-            [
-                {
-                    "type": "function_call",
-                    "id": tool_call.get("id") or call_id,
-                    "call_id": call_id,
-                    "name": name,
-                    "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
-                    "status": "completed",
-                },
-                {
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": (
-                        "[ERROR] Refused stale parallel tool call. Only the first call from a desktop frame "
-                        "may execute; use computer_batch for multiple actions."
-                    ),
-                },
-            ]
-        )
 
     if not tool_calls:
         output.append(make_output_text_item(_strip_final_markers(content_text) or "Task completed."))
@@ -817,27 +654,20 @@ async def execute_n2_computer_call(
     confirmation_callback: "ConfirmationCallback | None" = None,
     screenshot_delay: float = 0.5,
     presentation: "N2Presentation | None" = None,
-    result_format: Literal["metadata", "harness"] = "metadata",
-    capture_screenshot: bool = True,
-    shell_result_max_chars: "int | None" = None,
-    file_result_max_chars: "int | None" = None,
+    capture_screenshot: bool = False,
+    shell_result_max_chars: int = BASH_MAX_OUTPUT_CHARS,
+    file_result_max_chars: int = READ_MAX_OUTPUT_CHARS,
 ) -> list[dict[str, Any]]:
     """Execute one validated Yutori call and report its result.
 
-    With ``capture_screenshot`` (the default) the result carries exactly one
-    post-action frame; without it the result is text only, for loops that
-    attach one frame per turn instead (the on-demand screenshot policy).
-    ``result_format`` selects the JSON metadata summary or the evaluation
-    harness's ``[i:name]`` rendering; the ``*_max_chars`` caps bound shell and
-    file output and default to the selected format's caps (8,000 characters, or
-    the harness's 30,000 for shell and 256 KiB for file output).
+    The result is the evaluation tools' text: ``[i:name]`` lines for a batch
+    (plus the halt line when a member failed), the command's output for shell
+    calls, the file tool's text (or text plus image) for file calls, capped at
+    the ``*_max_chars`` budgets. By default the result is text only, for the
+    loop's one-frame-per-turn policy; with ``capture_screenshot`` it carries one
+    post-action frame.
     """
     call_id = item.get("call_id")
-    harness = result_format == "harness"
-    if shell_result_max_chars is None:
-        shell_result_max_chars = BASH_MAX_OUTPUT_CHARS if harness else SHELL_RESULT_MAX_CHARS
-    if file_result_max_chars is None:
-        file_result_max_chars = READ_MAX_OUTPUT_CHARS if harness else SHELL_RESULT_MAX_CHARS
 
     async def finish_with_error(message: str, observation: Any = None) -> list[dict[str, Any]]:
         output: Any = f"[ERROR] {message}"
@@ -913,7 +743,6 @@ async def execute_n2_computer_call(
                 arguments = {}
         record_action(str(item.get("name") or ""), arguments if isinstance(arguments, dict) else {})
 
-    batch_size = len(batch_actions) if isinstance(batch_actions, list) else 1
     action_counts: dict[int, int] = {}
     if isinstance(batch_actions, list):
         for action in actions:
@@ -931,7 +760,6 @@ async def execute_n2_computer_call(
     shell_output_text: "str | None" = None
     file_output_text: "str | None" = None
     file_output_image: "str | None" = None
-    started_at = time.monotonic()
     presented_member: "int | None" = None
     held_keys: list[str] = []
     release_after_next_action: list[str] = []
@@ -1038,9 +866,7 @@ async def execute_n2_computer_call(
                 if shell_method is None:
                     raise RuntimeError(_shell_not_supported_error(str(action_type)))
                 shell_result = await shell_method(**action_args)
-                shell_output_text = _render_tool_output(
-                    shell_result, result_format=result_format, max_chars=shell_result_max_chars
-                )
+                shell_output_text = render_tool_output(shell_result, max_chars=shell_result_max_chars)
             elif action_type in FILE_ACTION_HANDLERS:
                 file_method = getattr(computer, FILE_ACTION_HANDLERS[action_type], None)
                 if file_method is None:
@@ -1051,9 +877,7 @@ async def execute_n2_computer_call(
                 if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
                     file_output_image = file_result.get("image_url")
                     file_result = file_result.get("text") or ""
-                file_output_text = _render_tool_output(
-                    file_result, result_format=result_format, max_chars=file_result_max_chars
-                )
+                file_output_text = render_tool_output(file_result, max_chars=file_result_max_chars)
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -1123,7 +947,7 @@ async def execute_n2_computer_call(
                         observation = None
                 return await finish_with_error(str(error), observation)
             failed_index = batch_index if isinstance(batch_index, int) else 0
-            stopped_reason = format_action_error(error) if harness else str(error)
+            stopped_reason = format_action_error(error)
             break
 
     held_key_cleanup_error = await release_keys(list(held_keys))
@@ -1139,37 +963,20 @@ async def execute_n2_computer_call(
             except Exception as error:  # noqa: BLE001 - report a driver cleanup failure to the model
                 stopped_reason = stopped_reason or f"Failed to release held mouse button: {error}"
 
-    completed = len(completed_members)
-    failed = 1 if failed_index is not None else 0
-    skipped = max(0, batch_size - completed - failed)
-    metadata = {
-        "completed": completed,
-        "failed": failed,
-        "skipped": skipped,
-        "failed_action_index": failed_index,
-        "status": "completed" if stopped_reason is None else "stopped",
-        "error": stopped_reason,
-        "duration_ms": round((time.monotonic() - started_at) * 1000),
-    }
-
-    def result_text() -> "str | dict[str, Any] | None":
-        """The text part of this call's result, in the selected format."""
+    def result_text() -> str:
+        """The text part of this call's result."""
         if shell_output_text is not None:
-            if stopped_reason is None or harness:
-                return shell_output_text
-            return {**metadata, "output": shell_output_text}
+            return shell_output_text
         if isinstance(batch_actions, list):
-            if not harness:
-                return metadata
             names = [str(member.get("action") or "?") for member in batch_actions]
             outcomes = [member_outcomes.get(index, "") for index in range(len(names))]
             error_index = failed_index if stopped_reason is not None else None
             if stopped_reason is not None and error_index is None:
-                error_index = min(completed, len(names) - 1)
+                error_index = min(len(completed_members), len(names) - 1)
             return format_batch_result(names, outcomes, error_index=error_index, error_text=stopped_reason)
         if stopped_reason is not None:
-            return f"ERROR: {stopped_reason}" if harness else metadata
-        return ACTION_EXECUTED_TEXT if harness else None
+            return f"ERROR: {stopped_reason}"
+        return ACTION_EXECUTED_TEXT
 
     if file_output_text is not None and not isinstance(batch_actions, list):
         file_output: Any = file_output_text
@@ -1181,15 +988,7 @@ async def execute_n2_computer_call(
         return result
 
     if not capture_screenshot and screenshot_observation is None:
-        text = result_text()
-        output_text = (
-            ""
-            if text is None
-            else text
-            if isinstance(text, str)
-            else json.dumps(text, separators=(",", ":"), ensure_ascii=False)
-        )
-        result = [{"type": "function_call_output", "call_id": call_id, "output": output_text}]
+        result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
         await callbacks.fire("on_computer_call_end", item, result)
         await _present(
             presentation,
@@ -1228,28 +1027,10 @@ async def execute_n2_computer_call(
         if stopped_reason is None:
             stopped_reason = f"Screenshot callback failed: {error}"
 
-    metadata["duration_ms"] = round((time.monotonic() - started_at) * 1000)
-    if stopped_reason is not None:
-        metadata["status"] = "stopped"
-        metadata["error"] = stopped_reason
-    output: dict[str, Any] = {
-        "type": "input_image",
-        "image_url": data_url,
-    }
-    # Shell keeps the standard post-action screenshot and additionally returns
-    # the command's (already truncated) output text. A late failure (e.g. the
-    # screenshot callback) must not discard output from a command that already
-    # ran — carry both.
-    text = result_text()
-    if text is not None:
-        output["result"] = text
-    result = [
-        {
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        }
-    ]
+    # The frame rides with the call's text (a late failure such as the screenshot
+    # callback must not discard output from a command that already ran).
+    output: dict[str, Any] = {"type": "input_image", "image_url": data_url, "result": result_text()}
+    result = [{"type": "function_call_output", "call_id": call_id, "output": output}]
     await callbacks.fire("on_computer_call_end", item, result)
     await _present(
         presentation,
@@ -1283,19 +1064,40 @@ class N2ComputerAgent:
 
     ``run()`` yields step dicts: ``{"output": [items...], "usage": {...},
     "message": {...}}`` for each model turn (``message`` is the raw assistant
-    message), then ``{"output": [result frame]}`` per executed tool call. It
+    message), then ``{"output": [result items]}`` per executed tool call. It
     terminates when the model answers with a plain assistant message, a
-    callback's ``on_run_continue`` returns False, or a ``max_steps`` /
+    callback's ``on_run_continue`` returns False, a ``max_steps`` /
     ``agent_timeout_seconds`` budget is spent, or the next request would exceed
-    ``options.context_window_tokens``; ``stopped_by`` records which
-    (``"done"``, ``"infeasible"``, ``"final_answer"``, ``"max_steps"``,
-    ``"timeout"``, ``"context_limit"``, ``"callback"``).
+    ``context_window_tokens``; ``stopped_by`` records which (``"done"``,
+    ``"infeasible"``, ``"final_answer"``, ``"max_steps"``, ``"timeout"``,
+    ``"context_limit"``, ``"callback"``).
 
-    ``options`` (an :class:`N2LoopOptions`) selects the loop's observation
-    policies; ``N2LoopOptions.harness()`` reproduces the evaluation harness.
-    ``on_question`` receives a final answer that carries no terminal marker and
-    may return the user's reply to continue the run (the harness's user
-    simulator); ``compactor`` may rewrite the trajectory before a model call.
+    The loop's policies default to the evaluation harness's and are all
+    keywords:
+
+    - ``screenshot_policy``: ``"on_demand"`` starts blind and attaches one frame
+      after a turn only when that turn ran a GUI action, appended to the turn's
+      last tool result (the model asks for a frame with a ``screenshot`` batch
+      member). ``"always"`` captures a frame before the first turn and after
+      every executed call, for hosts that poll for screen changes themselves.
+    - ``system_prompt``: sent as a system message, which the server appends to
+      its own prompt; :data:`N2_TASK_GUIDELINES` carries the trained
+      ask-a-question / ``[DONE]`` / ``[INFEASIBLE]`` clauses.
+    - ``image_profile``: how frames are re-encoded (PNG at exactly 1280x720).
+    - ``max_completion_tokens`` / ``reasoning_effort``: the model call's output
+      budget and, when set, ``reasoning_effort`` passthrough.
+    - ``shell_result_max_chars`` / ``file_result_max_chars``: tool output caps.
+    - ``api_timeout_seconds``: per-request timeout sent with each model call;
+      ``None`` leaves the client's own default.
+    - ``context_window_tokens``: the run ends with ``stopped_by="context_limit"``
+      once the last response's ``prompt_tokens`` plus the output budget and a
+      margin would exceed it; ``None`` disables the check. A ``compactor`` runs
+      first and may rewrite the trajectory before a model call.
+    - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
+      ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
+    - ``on_question`` receives a final answer that carries no terminal marker and
+      may return the user's reply to continue the run (up to
+      ``max_consecutive_questions`` in a row).
     """
 
     def __init__(
@@ -1316,10 +1118,20 @@ class N2ComputerAgent:
         temperature: "float | None" = None,
         supports_click_modifiers: bool = False,
         supports_scroll_modifiers: "bool | None" = None,
-        options: "N2LoopOptions | None" = None,
-        on_question: "QuestionCallback | None" = None,
+        screenshot_policy: Literal["on_demand", "always"] = "on_demand",
+        system_prompt: "str | None" = N2_TASK_GUIDELINES,
+        image_profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE,
+        max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS,
+        reasoning_effort: "str | None" = None,
+        shell_result_max_chars: int = BASH_MAX_OUTPUT_CHARS,
+        file_result_max_chars: int = READ_MAX_OUTPUT_CHARS,
+        api_timeout_seconds: "float | None" = N2_API_TIMEOUT_SECONDS,
+        context_window_tokens: "int | None" = N2_CONTEXT_WINDOW_TOKENS,
+        tool_call_timeout_seconds: "float | None" = N2_TOOL_CALL_TIMEOUT_SECONDS,
         max_steps: "int | None" = None,
         agent_timeout_seconds: "float | None" = None,
+        on_question: "QuestionCallback | None" = None,
+        max_consecutive_questions: int = N2_MAX_CONSECUTIVE_QUESTIONS,
         compactor: "N2Compactor | None" = None,
     ):
         if tool_set not in SUPPORTED_N2_TOOL_SETS:
@@ -1350,10 +1162,20 @@ class N2ComputerAgent:
         self._base_url = base_url
         self._owned_client: Any = None
         self.timings: dict[str, float] = {"model_ms": 0}
-        self.options = options or N2LoopOptions()
-        self.on_question = on_question
+        self.screenshot_policy = screenshot_policy
+        self.system_prompt = system_prompt
+        self.image_profile = image_profile
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
+        self.shell_result_max_chars = shell_result_max_chars
+        self.file_result_max_chars = file_result_max_chars
+        self.api_timeout_seconds = api_timeout_seconds
+        self.context_window_tokens = context_window_tokens
+        self.tool_call_timeout_seconds = tool_call_timeout_seconds
         self.max_steps = max_steps
         self.agent_timeout_seconds = agent_timeout_seconds
+        self.on_question = on_question
+        self.max_consecutive_questions = max_consecutive_questions
         self.compactor = compactor
         self.stopped_by: "str | None" = None
         self.last_usage: dict[str, Any] = {}
@@ -1411,19 +1233,17 @@ class N2ComputerAgent:
         return self._native_size
 
     async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
-        options = self.options
-        completion_messages = convert_n2_items_to_completion_messages(
-            copy.deepcopy(items), reasoning_as_field=options.reasoning_in_history == "field"
-        )
+        completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
 
         latest_url = latest_image_url(completion_messages)
-        if latest_url is None and options.screenshot_policy == "always":
+        if latest_url is None and self.screenshot_policy == "always":
             observation = await self.computer.screenshot()
             latest_url, native_width, native_height, screenshot_b64 = _observation_data(observation)
             await self._callbacks.fire("on_screenshot", screenshot_b64, "screenshot_before")
-            content: list[dict[str, Any]] = [{"type": "image_url", "image_url": {"url": latest_url}}]
-            if options.initial_screenshot_caption:
-                content.append({"type": "text", "text": options.initial_screenshot_caption})
+            content: list[dict[str, Any]] = [
+                {"type": "image_url", "image_url": {"url": latest_url}},
+                {"type": "text", "text": _INITIAL_SCREENSHOT_CAPTION},
+            ]
             completion_messages.append({"role": "user", "content": content})
         elif latest_url is None:
             # Blind start: the model's first turn sees the task alone and asks
@@ -1436,14 +1256,14 @@ class N2ComputerAgent:
                 native_height = current_observation.native_height
             else:
                 native_width, native_height = image_dimensions(latest_url)
-        if options.system_prompt:
-            completion_messages.insert(0, {"role": "system", "content": options.system_prompt})
+        if self.system_prompt:
+            completion_messages.insert(0, {"role": "system", "content": self.system_prompt})
         # Strip historical screenshots before compression so long-running
         # trajectories do not repeatedly re-encode images that will not be
         # sent. Apply the byte budget after conversion because it measures the
         # actual request representation.
-        completion_messages = retain_n2_image_window(completion_messages, omitted_text=options.omitted_image_text)
-        convert_request_images(completion_messages, options.image_profile)
+        completion_messages = retain_n2_image_window(completion_messages)
+        convert_request_images(completion_messages, self.image_profile)
         completion_messages = fit_n2_request_images_to_budget(completion_messages, DEFAULT_MAX_MESSAGES_BYTES)
 
         request_bytes = serialized_messages_bytes(completion_messages)
@@ -1457,15 +1277,15 @@ class N2ComputerAgent:
             "model": self.model,
             "messages": completion_messages,
             "tool_set": self.tool_set,
-            "max_completion_tokens": options.max_completion_tokens,
+            "max_completion_tokens": self.max_completion_tokens,
             "parallel_tool_calls": True,
         }
         if self.temperature is not None:
             api_kwargs["temperature"] = self.temperature
-        if options.reasoning_effort is not None:
-            api_kwargs["reasoning_effort"] = options.reasoning_effort
-        if options.api_timeout_seconds is not None:
-            api_kwargs["timeout"] = options.api_timeout_seconds
+        if self.reasoning_effort is not None:
+            api_kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.api_timeout_seconds is not None:
+            api_kwargs["timeout"] = self.api_timeout_seconds
         await self._callbacks.fire("on_api_start", api_kwargs)
         model_started_at = time.monotonic()
         try:
@@ -1488,8 +1308,6 @@ class N2ComputerAgent:
             execution_deadline=self.execution_deadline,
             allow_click_modifiers=self.supports_click_modifiers,
             allow_scroll_modifiers=self.supports_scroll_modifiers,
-            execute_all=options.execute_all_tool_calls,
-            default_wait_seconds=options.default_wait_seconds,
         )
         for output_item in output:
             if output_item.get("type") == "reasoning":
@@ -1521,7 +1339,6 @@ class N2ComputerAgent:
 
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
         """Run the agent until the model finishes, a callback stops it, or a budget is spent."""
-        options = self.options
         old_items = self._initial_items(messages)
         new_items: list[dict[str, Any]] = []
         run_kwargs = {
@@ -1561,10 +1378,10 @@ class N2ComputerAgent:
                         self.last_usage = {}
                 prompt_tokens = self.last_usage.get("prompt_tokens")
                 if (
-                    options.context_window_tokens is not None
+                    self.context_window_tokens is not None
                     and isinstance(prompt_tokens, int)
-                    and prompt_tokens + options.max_completion_tokens + options.context_margin_tokens
-                    > options.context_window_tokens
+                    and prompt_tokens + self.max_completion_tokens + N2_CONTEXT_MARGIN_TOKENS
+                    > self.context_window_tokens
                 ):
                     # The next request would be rejected; end the run cleanly so the
                     # caller can still score the final state.
@@ -1595,7 +1412,7 @@ class N2ComputerAgent:
                     ):
                         executable.append(item)
 
-                on_demand = options.screenshot_policy == "on_demand"
+                on_demand = self.screenshot_policy == "on_demand"
                 executed_gui = False
                 for index, item in enumerate(executable):
                     execution = execute_n2_computer_call(
@@ -1605,14 +1422,13 @@ class N2ComputerAgent:
                         confirmation_callback=self.action_confirmation_callback,
                         screenshot_delay=self.screenshot_delay,
                         presentation=self.presentation,
-                        result_format=options.tool_result_format,
                         capture_screenshot=not on_demand,
-                        shell_result_max_chars=options.shell_result_max_chars,
-                        file_result_max_chars=options.file_result_max_chars,
+                        shell_result_max_chars=self.shell_result_max_chars,
+                        file_result_max_chars=self.file_result_max_chars,
                     )
                     try:
-                        if options.tool_call_timeout_seconds is not None:
-                            partial_items = await asyncio.wait_for(execution, options.tool_call_timeout_seconds)
+                        if self.tool_call_timeout_seconds is not None:
+                            partial_items = await asyncio.wait_for(execution, self.tool_call_timeout_seconds)
                         else:
                             partial_items = await execution
                     except asyncio.TimeoutError:
@@ -1622,7 +1438,7 @@ class N2ComputerAgent:
                                 "call_id": item.get("call_id"),
                                 "output": (
                                     f"ERROR_TIMEOUT: {item.get('call_id')} timed out after "
-                                    f"{options.tool_call_timeout_seconds:g} seconds"
+                                    f"{self.tool_call_timeout_seconds:g} seconds"
                                 ),
                             }
                         ]
@@ -1648,7 +1464,7 @@ class N2ComputerAgent:
                     self.on_question is not None
                     and marker is None
                     and text.strip()
-                    and question_streak < options.max_consecutive_questions
+                    and question_streak < self.max_consecutive_questions
                 ):
                     answer = await self.on_question(text)
                     if answer is not None:

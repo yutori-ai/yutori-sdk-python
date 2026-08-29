@@ -486,48 +486,43 @@ from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text (`[DONE]` / `[INFEASIBLE]` markers are recognised), a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
 `computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
-### Reproducing the evaluation harness
+### Loop policies
 
-`N2ComputerAgent(options=N2LoopOptions.harness())` runs the loop with the policies of Yutori's evaluation harness — the loop the published n2 benchmark numbers were measured under. The defaults (`N2LoopOptions()`) keep the loop's established behavior; `harness()` accepts keyword overrides for any field.
+The loop's defaults are Yutori's evaluation harness's — the loop the published n2 benchmark numbers were measured under — so a plain `N2ComputerAgent(computer=..., api_key=...)` observes and acts the way the model was trained: a blind start with one PNG 1280×720 frame per GUI turn appended to that turn's last tool result (the model asks for a frame with a `screenshot` batch member), every tool call of a turn executed in order, `[i:name]` batch results and the evaluation tools' shell/file text, prior-turn reasoning re-sent as the assistant message's `reasoning`/`reasoning_content` fields, older frames replaced by `[older image omitted]`, and the trained task-guideline system prompt. Each policy is a constructor keyword for callers who need something else:
 
-| `N2LoopOptions` field | Default | `harness()` | What it controls |
-|---|---|---|---|
-| `screenshot_policy` | `"always"` | `"on_demand"` | `always`: a frame before the first turn and after every executed call. `on_demand`: the run starts blind (the model asks for a frame with a `screenshot` batch member) and one frame is captured after a turn only when it ran a GUI action, appended to that turn's last tool result; shell and file turns get no image. |
-| `initial_screenshot_caption` | `"Current desktop screen"` | `None` | Text sent with the bootstrap frame under `always`. |
-| `tool_result_format` | `"metadata"` | `"harness"` | `metadata`: a batch reports a JSON summary (`completed`/`failed`/`skipped`/`duration_ms`). `harness`: one `[i:name]` line per member, `batch stopped at actions[i] (...)` on failure, and shell/file output rendered like the evaluation tools (`Exit code N`, `(Bash completed with no output)`, 30,000-character cap). |
-| `execute_all_tool_calls` | `False` | `True` | Execute every tool call of a turn in order instead of refusing all but the first. |
-| `reasoning_in_history` | `"assistant_text"` | `"field"` | Re-send prior-turn reasoning as the assistant message's `reasoning`/`reasoning_content` fields (what the serving template renders back into the thinking block) rather than as a separate assistant text message. |
-| `image_profile` | WebP q80 within 1280×800 | PNG at exactly 1280×720 (same-aspect frames; other images are fitted, not stretched) | `N2ImageProfile(format, size, quality, exact)`; `DEFAULT_IMAGE_PROFILE` / `HARNESS_IMAGE_PROFILE`. |
-| `omitted_image_text` | `None` | `"[older image omitted]"` | Text left where the two-message image window pruned a frame; `None` drops the image part. |
-| `max_completion_tokens` | `16384` | `20480` | Output budget per model call. |
-| `reasoning_effort` | `None` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
-| `shell_result_max_chars` / `file_result_max_chars` | `8000` / `8000` | `30000` / `262144` | Output caps. |
-| `system_prompt` | `None` | `N2_TASK_GUIDELINES` | Sent as a system message (the server appends it to its own prompt). `N2_TASK_GUIDELINES` restores the trained ask-a-question and `[DONE]`/`[INFEASIBLE]` clauses. |
-| `max_consecutive_questions` | `5` | `5` | Cap on back-to-back questions routed to `on_question`. |
-| `default_wait_seconds` | `1.0` | `5.0` | `wait` duration when the model gives none. |
-| `api_timeout_seconds` | `600` | `600` | Per-request timeout sent with each model call (a thinking turn can take minutes). `None` uses the client's default. |
-| `context_window_tokens` / `context_margin_tokens` | `None` / `4096` | `128000` / `4096` | When set, the run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + margin would exceed the window, instead of a rejected request. A `compactor` runs first. |
-| `tool_call_timeout_seconds` | `None` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. |
+| Keyword | Default | What it controls |
+|---|---|---|
+| `screenshot_policy` | `"on_demand"` | `"always"` instead captures a frame before the first turn and after every executed call, for hosts that poll for screen changes themselves. |
+| `system_prompt` | `N2_TASK_GUIDELINES` | Sent as a system message; the server appends it to its own prompt. `None` sends none. |
+| `image_profile` | `DEFAULT_IMAGE_PROFILE` (PNG, exactly 1280×720) | `N2ImageProfile(format, size, quality, exact)`. Frames of another aspect ratio, and images returned by `read`, are fitted inside `size` rather than stretched. |
+| `max_completion_tokens` | `20480` | Output budget per model call. |
+| `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
+| `shell_result_max_chars` / `file_result_max_chars` | `30000` / `262144` | Tool output caps (`[... output truncated, N more chars ...]`). |
+| `api_timeout_seconds` | `600` | Per-request timeout sent with each model call (a thinking turn can take minutes). `None` uses the client's default. |
+| `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it, instead of on a rejected request. `None` disables the check. |
+| `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
+| `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets (`stopped_by == "max_steps"` / `"timeout"`). |
+| `on_question` / `max_consecutive_questions` | `None` / `5` | `on_question(text) -> str | None` receives a final answer that carries no terminal marker and may return the user's reply to continue the run (the harness's user simulator), up to the cap in a row. |
+| `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
 
-Related `N2ComputerAgent` arguments: `on_question(text) -> str | None` receives a final answer that carries no terminal marker and may return the user's reply to continue the run (the harness's user simulator; `None` ends the run); `max_steps` and `agent_timeout_seconds` bound the run; `compactor` is any object with `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call to rewrite the trajectory. After `run()`, `agent.stopped_by` is one of `done`, `infeasible`, `final_answer`, `max_steps`, `timeout`, `callback`, and `agent.last_usage` is the last response's usage.
-
-Two hooks for adapters: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text — the turn's frame is appended after it; and any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments, for backends that prefer the untranslated key expression or scroll `amount`.
+Two hooks for adapters: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text — the turn's frame is appended after it; and any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments, for backends that prefer the untranslated key expression or scroll `amount`. A `run_bash_command` handler may return `{"output", "exit_code", "timed_out", "timeout"}` and let the loop render it.
 
 Adapters that want to emit exactly the evaluation tools' text can use the pure helpers in `yutori.navigator.n2_results` (all exported from `yutori.navigator`):
 
 | Helper | Description |
 |---|---|
 | `format_batch_result(member_names, outcomes, *, error_index=None, error_text=None)` | `[i:name]` lines plus the halt line; `(empty batch)` for none. |
-| `format_bash_result(output, exit_code, *, timed_out=False, timeout_seconds=None, max_chars=30000)` | Output, `Exit code N\n…`, `Command timed out after Ns`, or `(Bash completed with no output)`. A `run_bash_command` adapter may also return `{"output", "exit_code", "timed_out", "timeout"}` and let the loop render it. |
+| `format_bash_result(output, exit_code, *, timed_out=False, timeout_seconds=None, max_chars=30000)` | Output, `Exit code N\n…`, `Command timed out after Ns`, `(Bash completed with no output)`, capped with the truncation marker. |
 | `format_background_bash_result(task_id, output_path, pid)` | The detached-command result block. |
-| `format_cat_n(text, *, offset=1, limit=2000)` / `format_read_result(...)` | `cat -n` rendering of a 1-based line window; the `read` tool's result incl. the empty-file note and 256 KiB cap. |
+| `format_cat_n(text, *, offset=1, limit=2000)` / `format_read_result(...)` | `cat -n` rendering of a 1-based line window; the `read` tool's result incl. the empty-file and out-of-range notes. |
 | `format_write_result(file_path, *, created)` | `File created successfully at: …` / `The file … has been updated successfully.` |
-| `apply_edit(content, file_path, old_string, new_string, *, replace_all=False)` | Exact-string replacement returning `(new_content, result_text)`; raises `N2EditError` with the model-visible message. |
-| `truncate_output(text, max_chars)` | The `[... output truncated, N more chars ...]` cap. |
+| `apply_edit(content, file_path, old_string, new_string, *, replace_all=False)` | Exact-string replacement returning `(new_content, result_text)`; raises `N2EditError` with the tool's error text. |
+| `render_tool_output(result, *, max_chars)` | What the loop does with a shell/file handler's return value: a bash result dict → `format_bash_result`, anything else → text capped with `truncate_output`. |
+| `truncate_output(text, max_chars)` | The `[... output truncated, N more chars ...]` cap; idempotent on text already carrying the marker. |
 | `parse_terminal_marker(text)` | `"done"` / `"infeasible"` / `None`. |
 
 ### Screenshot helpers

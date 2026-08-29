@@ -51,14 +51,11 @@ from .models import (
     TOOL_SET_EXPANDED,
 )
 from .n2 import (
-    HARNESS_MAX_COMPLETION_TOKENS,
     N2Compactor,
     N2ComputerAgent,
-    N2LoopOptions,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     parse_n2_tool_calls,
-    truncate_shell_result,
 )
 from .n2_actions import (
     SUPPORTED_N2_TOOL_SETS,
@@ -78,7 +75,6 @@ from .n2_actions import (
 )
 from .n2_payload import (
     DEFAULT_IMAGE_PROFILE,
-    HARNESS_IMAGE_PROFILE,
     OLDER_IMAGE_OMITTED_TEXT,
     N2ImageProfile,
     prepare_n2_image_data_url,
@@ -95,6 +91,7 @@ from .n2_results import (
     format_read_result,
     format_write_result,
     parse_terminal_marker,
+    render_tool_output,
     truncate_output,
 )
 from .payload import (
@@ -116,14 +113,11 @@ __all__ = [
     "N2ActionValidationError",
     "N2ComputerAgent",
     "N2Compactor",
-    "N2LoopOptions",
     "N2ImageProfile",
     "N2EditError",
     "N2_TASK_GUIDELINES",
     "DEFAULT_IMAGE_PROFILE",
-    "HARNESS_IMAGE_PROFILE",
     "OLDER_IMAGE_OMITTED_TEXT",
-    "HARNESS_MAX_COMPLETION_TOKENS",
     "SUPPORTED_N2_TOOL_SETS",
     "DEFAULT_MAX_REQUEST_BYTES",
     "RunHooksBase",
@@ -174,7 +168,7 @@ __all__ = [
     "translate_n2_write",
     "trim_images_to_fit",
     "trimmed_messages_to_fit",
-    "truncate_shell_result",
+    "render_tool_output",
     "truncate_output",
     "apply_edit",
     "format_background_bash_result",

@@ -12,7 +12,7 @@ put the returned text on the wire.
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
 BASH_MAX_OUTPUT_CHARS = 30_000
 READ_MAX_OUTPUT_CHARS = 256 * 1024
@@ -52,6 +52,24 @@ def truncate_output(text: str, max_chars: int) -> str:
     if len(text) <= max_chars or _TRUNCATION_MARKER.search(text):
         return text
     return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
+
+
+def render_tool_output(result: Any, *, max_chars: int) -> str:
+    """Turn an adapter's shell/file return value into the text the model sees.
+
+    Adapters return either the finished text, or — for ``bash`` — a dict
+    ``{"output", "exit_code", "timed_out", "timeout"}`` that is rendered with
+    :func:`format_bash_result`. Either way the text is capped at ``max_chars``.
+    """
+    if isinstance(result, dict) and "output" in result:
+        return format_bash_result(
+            str(result.get("output") or ""),
+            result.get("exit_code"),
+            timed_out=bool(result.get("timed_out")),
+            timeout_seconds=result.get("timeout"),
+            max_chars=max_chars,
+        )
+    return truncate_output("" if result is None else str(result), max_chars)
 
 
 def format_action_error(error: BaseException) -> str:

@@ -29,6 +29,8 @@ from .models import (
 N2_COORDINATE_SCALE = 1000
 N2_MAX_BATCH_ACTIONS = 20
 N2_MAX_WAIT_SECONDS = 300
+# A `wait` without a duration waits this long (the evaluation harness's converter).
+N2_DEFAULT_WAIT_SECONDS = 5.0
 N2_MAX_SCROLL_AMOUNT = 50
 
 SUPPORTED_N2_TOOL_SETS = frozenset(
@@ -394,7 +396,6 @@ def translate_n2_action(
     batch_index: "int | None" = None,
     allow_click_modifiers: bool = False,
     allow_scroll_modifiers: "bool | None" = None,
-    default_wait_seconds: float = 1.0,
 ) -> list[dict[str, Any]]:
     """Strictly validate and translate one Yutori action to computer-handler calls."""
     if not isinstance(args, dict):
@@ -511,7 +512,7 @@ def translate_n2_action(
         return [internal("hold_key", key=sequence[0][0], ms=round(float(duration) * 1000))]
 
     if action == "wait":
-        duration = args.get("duration", default_wait_seconds)
+        duration = args.get("duration", N2_DEFAULT_WAIT_SECONDS)
         if (
             isinstance(duration, bool)
             or not isinstance(duration, (int, float))
@@ -735,7 +736,6 @@ def translate_n2_batch(
     tool_set: str = TOOL_SET_COMPUTER_USE_LATEST,
     allow_click_modifiers: bool = False,
     allow_scroll_modifiers: "bool | None" = None,
-    default_wait_seconds: float = 1.0,
 ) -> "tuple[list[dict[str, Any]], list[dict[str, Any]]]":
     """Validate a complete batch before returning any executable actions."""
     if not isinstance(args, dict) or set(args) != {"actions"}:
@@ -775,7 +775,6 @@ def translate_n2_batch(
                 batch_index=index,
                 allow_click_modifiers=allow_click_modifiers,
                 allow_scroll_modifiers=allow_scroll_modifiers,
-                default_wait_seconds=default_wait_seconds,
             )
         )
         # The flattened member, not the raw one: confirmation prompts then render

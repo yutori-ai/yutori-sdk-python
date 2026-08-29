@@ -1,9 +1,9 @@
 """Screenshot encoding and request budgeting for the Navigator n2 loop.
 
 n2 requests carry full-frame screenshots re-encoded per an :class:`N2ImageProfile`
-(by default aspect-preserving WebP bounded by 1280x800; the evaluation harness
-used PNG at exactly 1280x720), keep images only in the two newest image-bearing
-messages, and must fit a 10 MB serialized request. Coordinates stay in the
+(by default PNG at exactly 1280x720, as the evaluation harness sends them), keep
+images only in the two newest image-bearing messages (older ones leave an
+``[older image omitted]`` marker), and must fit a 10 MB serialized request. Coordinates stay in the
 model's 0-1000 space mapped against the ORIGINAL capture's native dimensions, so
 the model decides on the downscaled image while actions land on the native one.
 """
@@ -20,27 +20,23 @@ from PIL import Image
 
 from .payload import estimate_messages_size_bytes
 
-N2_MODEL_IMAGE_MAX_WIDTH = 1280
-N2_MODEL_IMAGE_MAX_HEIGHT = 800
-N2_MODEL_IMAGE_QUALITY = 80
-
 
 @dataclass(frozen=True)
 class N2ImageProfile:
     """How screenshots are re-encoded before they reach the model.
 
-    ``exact=False`` shrinks the frame to fit inside ``size`` while keeping its
-    aspect ratio (never upscaling); ``exact=True`` resizes frames of the same
-    aspect ratio to ``size`` exactly, which is what the evaluation harness does
-    (1920x1080 captures become 1280x720 PNGs). Images of another aspect ratio
-    (a ``read`` of an image file) are fitted inside ``size`` instead so they are
-    never distorted. ``quality`` applies to lossy formats only.
+    The default is the evaluation harness's: frames of the target aspect ratio
+    are resized to exactly ``size`` (1920x1080 captures become 1280x720 PNGs);
+    images of another aspect ratio (a ``read`` of an image file) are fitted
+    inside ``size`` instead so they are never distorted. ``exact=False`` fits
+    every image inside ``size`` while keeping its aspect ratio (never
+    upscaling). ``quality`` applies to lossy formats only.
     """
 
-    format: str = "WEBP"
-    size: tuple[int, int] = (N2_MODEL_IMAGE_MAX_WIDTH, N2_MODEL_IMAGE_MAX_HEIGHT)
-    quality: Optional[int] = N2_MODEL_IMAGE_QUALITY
-    exact: bool = False
+    format: str = "PNG"
+    size: tuple[int, int] = (1280, 720)
+    quality: Optional[int] = None
+    exact: bool = True
 
     @property
     def media_type(self) -> str:
@@ -48,7 +44,6 @@ class N2ImageProfile:
 
 
 DEFAULT_IMAGE_PROFILE = N2ImageProfile()
-HARNESS_IMAGE_PROFILE = N2ImageProfile(format="PNG", size=(1280, 720), quality=None, exact=True)
 
 MAX_REQUEST_BODY_BYTES = 10_000_000
 REQUEST_ENVELOPE_ALLOWANCE_BYTES = 500_000
@@ -72,7 +67,7 @@ def image_dimensions(url: str) -> "tuple[int, int]":
 
 
 def prepare_n2_image_data_url(url: str, profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE) -> str:
-    """Re-encode a full-frame screenshot per ``profile`` (default: WebP bounded by 1280x800)."""
+    """Re-encode a full-frame screenshot per ``profile`` (default: PNG at exactly 1280x720)."""
     image_bytes, _ = _decode_data_url(url)
     with Image.open(io.BytesIO(image_bytes)) as source:
         image = source.convert("RGB")
@@ -132,12 +127,12 @@ serialized_messages_bytes = estimate_messages_size_bytes
 
 
 def retain_n2_image_window(
-    messages: list[dict[str, Any]], *, omitted_text: Optional[str] = None
+    messages: list[dict[str, Any]], *, omitted_text: Optional[str] = OLDER_IMAGE_OMITTED_TEXT
 ) -> list[dict[str, Any]]:
     """Copy messages and strip images outside the two newest image messages.
 
-    With ``omitted_text`` each pruned image is replaced in place by that text
-    block (the harness sends :data:`OLDER_IMAGE_OMITTED_TEXT`); otherwise the
+    Each pruned image is replaced in place by the ``omitted_text`` block (by
+    default :data:`OLDER_IMAGE_OMITTED_TEXT`, what the harness sends); with ``None`` the
     image part is dropped.
     """
     request_messages = copy.deepcopy(messages)

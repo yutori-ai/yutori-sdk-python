@@ -265,7 +265,10 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
         for item in step["output"]
         if item.get("type") == "function_call_output" and item.get("call_id") == "current"
     )
-    assert result["output"]["result"]["completed"] == 15
+    # A GUI turn: the [i:name] member lines ride with the turn's frame.
+    member_lines = result["output"]["result"].splitlines()
+    assert len(member_lines) == 15 and member_lines[0] == "[0:left_click] "
+    assert result["output"]["type"] == "input_image"
     assert ("mouse_down", 120, 40, "left") in sandbox.calls
     assert ("mouse_up", 120, 40, "left") in sandbox.calls
     assert ("key_down", "ctrl") in sandbox.calls
