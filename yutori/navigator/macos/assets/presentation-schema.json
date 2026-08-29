@@ -1,0 +1,35 @@
+{
+  "protocol_version": 2,
+  "renderer_protocol_version": 3,
+  "presentation_events": {
+    "reasoning": ["text"],
+    "action": ["name", "arguments"],
+    "batch_member": ["name", "arguments", "batch"],
+    "action_done": ["call_id"],
+    "final": ["text"],
+    "shell": ["event"]
+  },
+  "shell_event": {
+    "required": ["task_id", "command", "run_in_background", "state"],
+    "optional": ["exit_code"],
+    "states": ["starting", "running", "completed", "failed", "timed_out", "cancelled"]
+  },
+  "renderer_operations": {
+    "mount": ["snapshot"],
+    "showThought": ["markdown"],
+    "clearThought": [],
+    "moveCursor": ["point"],
+    "previewAction": ["presentation"],
+    "destroy": []
+  },
+  "host_commands": {
+    "arm": [],
+    "reveal": [],
+    "pulse": ["point"],
+    "captureHide": ["capture_id"],
+    "captureReveal": ["capture_id"],
+    "encode": ["data", "max_long_side", "quality"],
+    "backgroundTasks": ["tasks", "overflow"],
+    "retire": []
+  }
+}

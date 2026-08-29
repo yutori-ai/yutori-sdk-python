@@ -1,0 +1,15 @@
+[project]
+name = "yutori-navigator-n2-cookbooks"
+version = "0.1.0"
+description = "Public Cua cookbooks for stable Yutori Navigator n2"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "cua==0.1.6",
+    "yutori==0.9.3",
+]
+
+[project.optional-dependencies]
+macos = ["yutori[macos]==0.9.3"]
+
+[tool.uv.sources]
+yutori = { path = "../..", editable = true }

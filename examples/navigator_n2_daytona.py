@@ -12,7 +12,7 @@ Everything Daytona-specific lives in `DaytonaComputer`. Swap it for your own
 adapter to drive a different desktop.
 
 Usage:
-    pip install 'yutori>=0.9.2' daytona      # Python 3.10+
+    pip install 'yutori>=0.9.3' daytona      # Python 3.10+
     yutori auth login                         # or export YUTORI_API_KEY=...
     export DAYTONA_API_KEY=...                # https://app.daytona.io
 
@@ -30,10 +30,8 @@ import shlex
 import sys
 import uuid
 
-from daytona import AsyncDaytona, CreateSandboxFromSnapshotParams
-
 from yutori import AsyncYutoriClient
-from yutori.navigator import TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
+from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -177,6 +175,8 @@ class StepLimit:
 
 
 async def main(task: str) -> None:
+    from daytona import AsyncDaytona, CreateSandboxFromSnapshotParams
+
     limit = StepLimit()
     # The client resolves credentials up front: a missing key must not cost a desktop.
     async with AsyncYutoriClient() as client, AsyncDaytona() as daytona:
@@ -187,8 +187,10 @@ async def main(task: str) -> None:
             agent = N2ComputerAgent(
                 computer=computer,
                 completions=client.chat.completions,
-                model="n2",  # SDK 0.9.2 still defaults to the deprecated "n2-preview" alias
-                tool_set=TOOL_SET_COMPUTER_USE_LATEST,
+                model="n2",
+                # Daytona does not expose current n2 file tools, so this example
+                # explicitly replays the compatible 20260812 batch-plus-bash set.
+                tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
                 callbacks=[limit],
             )
 

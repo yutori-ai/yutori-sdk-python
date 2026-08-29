@@ -3,4 +3,6 @@
 # or tests/_client_fixtures.py — files those tests import — leaving sdist
 # consumers (e.g. distro packagers) with a suite that cannot even collect.
 graft tests
+graft examples
+recursive-include yutori/navigator/macos/assets *
 global-exclude __pycache__ *.py[cod]

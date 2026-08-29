@@ -8,7 +8,7 @@ A dense reference to everything the Yutori Python SDK and CLI expose. The [READM
 |--------|---------|
 | `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `APIConnectionError`, `AuthenticationError`, `YutoriSDKError`) |
 | `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator n1.5 / Navigator n2 chat completions) |
-| `yutori.navigator.macos` | Native macOS driver (`MacOSComputer`) for Navigator n2 loops — what Yutori MCP runs (SDK 0.9.2+) |
+| `yutori.navigator.macos` | Native macOS driver (`MacOSComputer`) for Navigator n2 loops — what Yutori MCP runs (SDK 0.9.3+) |
 | `yutori.navigator.tools` | Packaged JavaScript reference implementations for the Navigator n1.5 expanded browser tools |
 
 All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator helpers are optional and do not change the shape of `client.chat.completions.create(...)`.
@@ -107,7 +107,8 @@ from yutori.navigator import (
 | `NAVIGATOR_N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable Navigator n1.5 model (current default). |
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
-| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260815"` | Navigator n2 tool set implemented by the SDK's `N2ComputerAgent`: `computer_batch`, `screenshot`, `bash`, and held click/scroll modifiers. Pin it explicitly — the server default has moved on (`-20260825` adds `read`/`write`/`edit`). |
+| `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
+| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260825"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. It supports all 15 batch primitives, including held mouse/key actions and screenshot. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
@@ -189,7 +190,7 @@ response = client.chat.completions.create(
 )
 ```
 
-`N2ComputerAgent` (0.9.2+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a complete agent on a Daytona sandbox desktop built on it; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
+`N2ComputerAgent` (0.9.3+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a complete agent on a Daytona sandbox desktop built on it; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ### `client.browsing` — Browsing API
 
@@ -478,14 +479,14 @@ from yutori.navigator import (
 
 ### Navigator n2 loop
 
-Importable from SDK 0.9.2+:
+Importable from SDK 0.9.3+:
 
 ```python
 from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model=..., instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). Pass `model="n2"` explicitly: 0.9.2 still defaults to the deprecated `n2-preview` alias.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
 `computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
@@ -663,7 +664,7 @@ Optional extras:
 |-------|----------|---------|
 | `dev` | `pytest`, `pytest-asyncio`, `ruff`, `build` | Development tooling. |
 | `examples` | `loguru`, `playwright`, `pydantic`, `tenacity` | Running the `examples/` scripts. Pydantic is also the library to install if you want to pass Pydantic models to `output_schema=`. |
-| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops in published SDK 0.9.2+. |
+| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops in published SDK 0.9.3+. |
 
 ## Error handling example
 

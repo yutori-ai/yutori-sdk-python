@@ -1,0 +1,212 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#n2-overlay-effects {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.n2-overlay-click-pulse {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border: 3px solid #1dcd98;
+  border-radius: 50%;
+  box-shadow: 0 0 20px rgba(29, 205, 152, 0.6);
+  transform: translate(-50%, -50%) scale(0.3);
+  opacity: 0;
+  animation: n2ClickPulse 250ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+#n2-background-rail {
+  position: fixed;
+  top: 58px;
+  right: 16px;
+  width: 310px;
+  display: grid;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.n2-background-row,
+.n2-background-overflow {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgba(208, 252, 235, 0.42);
+  border-radius: 12px;
+  color: rgba(240, 255, 250, 0.96);
+  background:
+    radial-gradient(circle at 24% 12%, rgba(236, 255, 248, 0.2), transparent 48%),
+    linear-gradient(145deg, rgba(24, 170, 126, 0.76), rgba(8, 70, 53, 0.7));
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow:
+    inset 3px 4px 9px rgba(255, 255, 255, 0.07),
+    inset -5px -6px 11px rgba(3, 22, 17, 0.16),
+    0 8px 24px rgba(3, 22, 17, 0.18);
+  animation: n2RailIn 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.n2-background-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.n2-background-id {
+  flex: none;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+.n2-background-state {
+  margin-left: auto;
+  text-transform: capitalize;
+}
+
+.n2-background-command {
+  margin-top: 3px;
+  overflow: hidden;
+  color: rgba(240, 255, 250, 0.8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.n2-background-overflow {
+  min-height: auto;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.yutori-overlay-cursor {
+  transition-duration: 150ms, 150ms, 120ms !important;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.yutori-overlay-badge {
+  background:
+    radial-gradient(circle at 24% 12%, rgba(236, 255, 248, 0.22), transparent 48%),
+    linear-gradient(145deg, rgba(24, 170, 126, 0.78), rgba(8, 70, 53, 0.72)) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow:
+    inset 3px 4px 9px rgba(255, 255, 255, 0.08),
+    inset -5px -6px 11px rgba(3, 22, 17, 0.16),
+    inset -2px -3px 4px rgba(210, 255, 238, 0.3),
+    0 8px 24px rgba(3, 22, 17, 0.2) !important;
+}
+
+.yutori-overlay-badge::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 60%,
+    rgba(118, 226, 188, 0.09) 82%,
+    rgba(208, 252, 235, 0.34) 94%,
+    transparent 100%
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.yutori-overlay-rim {
+  background: linear-gradient(
+    145deg,
+    rgba(208, 252, 235, 0.82),
+    rgba(29, 205, 152, 0.44) 48%,
+    rgba(3, 22, 17, 0.42)
+  ) !important;
+}
+
+.yutori-overlay-thought {
+  animation: n2OverlayTextIn 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.yutori-overlay-thought-inner {
+  color: rgba(240, 255, 250, 0.96) !important;
+  background: none !important;
+  text-shadow: 0 1px 2px rgba(3, 22, 17, 0.34);
+  -webkit-text-fill-color: rgba(240, 255, 250, 0.96) !important;
+}
+
+@keyframes n2ClickPulse {
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes n2OverlayTextIn {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes n2RailIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .yutori-overlay-badge,
+  .n2-background-row,
+  .n2-background-overflow {
+    background: rgba(8, 70, 53, 0.96) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .yutori-overlay-rim {
+    background: rgba(240, 255, 250, 0.94) !important;
+  }
+  .yutori-overlay-thought-inner,
+  .n2-background-row,
+  .n2-background-overflow {
+    color: white !important;
+    border-color: white;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yutori-overlay-cursor,
+  .yutori-overlay-badge,
+  .yutori-overlay-badge-slot,
+  .yutori-overlay-thought,
+  .yutori-overlay-logo,
+  .n2-overlay-click-pulse,
+  .n2-background-row,
+  .n2-background-overflow {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

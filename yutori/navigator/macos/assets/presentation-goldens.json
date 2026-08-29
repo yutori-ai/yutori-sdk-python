@@ -1,0 +1,58 @@
+{
+  "source": "Historical n2-cua reasoning-overlay behavior captured as static data",
+  "vectors": [
+    {
+      "name": "reasoning",
+      "event": {"type": "reasoning", "text": "Selecting all text."},
+      "contains": {"op": "showThought", "markdown": "Selecting all text."}
+    },
+    {
+      "name": "final-clears-capsule",
+      "event": {"type": "final", "text": "All set."},
+      "contains": {"op": "clearThought"}
+    },
+    {
+      "name": "command-chord",
+      "event": {"type": "action", "name": "key_press", "arguments": {"key": "cmd+tab"}},
+      "contains": {
+        "op": "previewAction",
+        "presentation": {
+          "badge": {"type": "command", "keys": ["Tab"]},
+          "queue": null,
+          "transientEffects": []
+        }
+      }
+    },
+    {
+      "name": "copy-chord",
+      "event": {"type": "action", "name": "key_press", "arguments": {"key": "cmd+c"}},
+      "contains": {
+        "op": "previewAction",
+        "presentation": {
+          "badge": {"type": "glyph", "glyph": "copy"},
+          "queue": null,
+          "transientEffects": []
+        }
+      }
+    },
+    {
+      "name": "wait-mark",
+      "event": {"type": "action", "name": "wait", "arguments": {"duration": 3}},
+      "contains": {
+        "op": "previewAction",
+        "presentation": {
+          "badge": {"type": "loop"},
+          "queue": null,
+          "transientEffects": []
+        }
+      }
+    },
+    {
+      "name": "capture-handshake",
+      "commands": [
+        {"op": "captureHide", "capture_id": 7},
+        {"op": "captureReveal", "capture_id": 7}
+      ]
+    }
+  ]
+}
