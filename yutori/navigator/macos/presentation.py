@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
+from .process_lifecycle import terminate_process_gracefully
 from .types import (
     CancellationLatch,
     MacOSPresentationCapabilities,
@@ -800,18 +801,7 @@ class MacOSPresentationController:
     async def _terminate_process(self) -> None:
         process, self._process = self._process, None
         if process is not None:
-            if process.stdin is not None:
-                process.stdin.close()
-            if process.returncode is None:
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=_PROCESS_EXIT_TIMEOUT_SECONDS)
-                except asyncio.TimeoutError:
-                    process.terminate()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=0.5)
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        await process.wait()
+            await terminate_process_gracefully(process, exit_timeout=_PROCESS_EXIT_TIMEOUT_SECONDS, kill_timeout=0.5)
         current = asyncio.current_task()
         tasks = [task for task in (self._reader_task, self._stderr_task) if task is not None and task is not current]
         for task in tasks:
