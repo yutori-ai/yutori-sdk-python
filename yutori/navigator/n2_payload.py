@@ -12,10 +12,11 @@ from __future__ import annotations
 import base64
 import copy
 import io
-import json
 from typing import Any
 
 from PIL import Image
+
+from .payload import estimate_messages_size_bytes
 
 N2_MODEL_IMAGE_MAX_WIDTH = 1280
 N2_MODEL_IMAGE_MAX_HEIGHT = 800
@@ -79,8 +80,7 @@ def _strip_images_from_message(message: dict[str, Any]) -> None:
     message["content"] = [part for part in content if not (isinstance(part, dict) and part.get("type") == "image_url")]
 
 
-def serialized_messages_bytes(messages: list[dict[str, Any]]) -> int:
-    return len(json.dumps(messages, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+serialized_messages_bytes = estimate_messages_size_bytes
 
 
 def retain_n2_image_window(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

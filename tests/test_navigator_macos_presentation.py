@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import FrozenInstanceError
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from yutori.navigator.macos import presentation as presentation_module
 from yutori.navigator.macos.presentation import MacOSPresentationController, MacOSPresentationError
 from yutori.navigator.macos.types import (
     MacOSPresentationCapabilities,
     MacOSPresentationStatus,
-    ShellPresentationEvent,
 )
 
 
@@ -124,56 +120,6 @@ async def test_reasoning_action_and_batch_map_to_renderer_operations(monkeypatch
         and operation["presentation"]["badge"] == {"type": "command", "keys": ["Tab"]}
         for operation in operations
     )
-
-
-async def test_render_operations_are_deduplicated(monkeypatch):
-    controller = _active_controller()
-    envelopes: list[dict] = []
-
-    async def send(envelope, **_kwargs):
-        envelopes.append(envelope)
-        return {"ok": True}
-
-    monkeypatch.setattr(controller, "_send_envelope", send)
-    operation = {"op": "showThought", "markdown": "same"}
-    await controller._send_operation(operation)
-    await controller._send_operation(operation)
-    assert envelopes == [{"operation": operation}]
-
-
-async def test_background_rail_limits_rows_and_tracks_terminal_counts(monkeypatch):
-    controller = _active_controller()
-    commands: list[dict] = []
-
-    async def send_command(command, **_kwargs):
-        commands.append(command)
-        return {"ok": True}
-
-    async def no_wait(_seconds):
-        return True
-
-    monkeypatch.setattr(controller, "_send_command", send_command)
-    monkeypatch.setattr(controller, "_sleep", no_wait)
-    for index in range(5):
-        await controller.present(
-            {
-                "type": "shell",
-                "event": ShellPresentationEvent(f"task-{index}", f"command {index}", True, "running"),
-            }
-        )
-    latest = commands[-1]
-    assert latest["op"] == "backgroundTasks"
-    assert len(latest["tasks"]) == 3
-    assert latest["overflow"] == 2
-
-    await controller.present(
-        {
-            "type": "shell",
-            "event": ShellPresentationEvent("task-0", "command 0", True, "completed", 0),
-        }
-    )
-    await asyncio.sleep(0)
-    assert controller.background_counts == {"started": 5, "completed": 1, "failed": 0, "cancelled": 0}
 
 
 async def test_capture_ids_are_monotonic_and_a_stale_transition_degrades(monkeypatch):
@@ -299,29 +245,3 @@ async def test_cancelled_request_does_not_poison_the_next_overlay_reply(monkeypa
     host = asyncio.create_task(controller._read_host())
     assert await second == {"id": 2, "ok": True}
     await host
-
-
-async def test_static_historical_golden_vectors_are_consumed_without_node(monkeypatch):
-    golden_path = Path(presentation_module.__file__).with_name("assets") / "presentation-goldens.json"
-    vectors = json.loads(golden_path.read_text(encoding="utf-8"))["vectors"]
-    for vector in vectors:
-        if "event" not in vector:
-            continue
-        controller = _active_controller()
-        operations: list[dict] = []
-
-        async def send_operation(operation, **_kwargs):
-            operations.append(operation)
-            return {"ok": True}
-
-        async def send_command(_command, **_kwargs):
-            return {"ok": True}
-
-        async def no_lead():
-            return True
-
-        monkeypatch.setattr(controller, "_send_operation", send_operation)
-        monkeypatch.setattr(controller, "_send_command", send_command)
-        monkeypatch.setattr(controller, "_lead", no_lead)
-        await controller.present(vector["event"])
-        assert vector["contains"] in operations, vector["name"]

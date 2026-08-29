@@ -8,7 +8,7 @@ import io
 
 from PIL import Image
 
-from yutori.navigator.macos.no_progress import NoProgressWatchdog, action_signature
+from yutori.navigator.macos.no_progress import action_signature
 from yutori.navigator.macos.types import CancellationLatch, N2Observation
 
 
@@ -31,35 +31,6 @@ def test_action_signature_never_retains_text_or_command_contents():
     assert "private text" not in signature
     assert "echo secret" not in signature
     assert "text-short" in signature
-
-
-def test_period_one_and_two_cycles_trigger_within_six_samples():
-    period_one = NoProgressWatchdog()
-    period_one.record_frame(_frame(20, 0))
-    for capture_id in range(1, 4):
-        period_one.record_action("left_click", {"coordinates": [500, 500]})
-        period_one.record_frame(_frame(20, capture_id))
-    assert period_one.triggers == 1
-
-    period_two = NoProgressWatchdog()
-    period_two.record_frame(_frame(20, 0))
-    for capture_id in range(1, 7):
-        action = "left_click" if capture_id % 2 else "key_press"
-        period_two.record_action(action, {"coordinates": [500, 500]})
-        period_two.record_frame(_frame(20 if capture_id % 2 else 21, capture_id))
-    assert period_two.triggers == 1
-
-
-def test_wait_and_background_shell_reset_cycle_detection():
-    watchdog = NoProgressWatchdog()
-    watchdog.record_frame(_frame(20, 0))
-    for capture_id in range(1, 3):
-        watchdog.record_action("left_click", {"coordinates": [500, 500]})
-        watchdog.record_frame(_frame(20, capture_id))
-    watchdog.record_action("wait", {"duration": 1})
-    watchdog.record_action("bash", {"command": "sleep 1", "run_in_background": True})
-    watchdog.record_frame(_frame(20, 3))
-    assert watchdog.triggers == 0
 
 
 async def test_cancellation_latch_uses_same_tick_priority_and_then_stays_latched():

@@ -26,8 +26,6 @@ _ASSET_NAMES = (
     "navigator-overlay.css",
     "navigator-overlay.iife.js",
     "macos-overlay.js",
-    "presentation-schema.json",
-    "presentation-goldens.json",
     "provenance.json",
 )
 _COMPILE_TIMEOUT_SECONDS = 60

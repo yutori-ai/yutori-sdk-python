@@ -15,7 +15,7 @@ from typing import Any
 
 from PIL import Image
 
-from examples.navigator_n2.remote_sandbox import _GLOB_SCRIPT, _GREP_SCRIPT, CuaSandboxComputer
+from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 
@@ -146,44 +146,59 @@ def test_cookbook_aliases_include_current_and_historical_n2_tool_sets() -> None:
     )
 
 
-def test_public_cua_file_search_scripts_execute_without_shell_interpolation(tmp_path: Path) -> None:
+def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_path: Path) -> None:
     notes = tmp_path / "notes.txt"
     notes.write_text("first\nmatch\n", encoding="utf-8")
     ignored = tmp_path / ".git" / "ignored.txt"
     ignored.parent.mkdir()
     ignored.write_text("match\n", encoding="utf-8")
 
-    def run(script: str, arguments: dict[str, Any]) -> str:
+    def run(**arguments: Any) -> str:
         encoded = base64.b64encode(json.dumps(arguments).encode()).decode()
         result = subprocess.run(
-            [sys.executable, "-c", script, str(tmp_path), encoded],
+            [sys.executable, "-c", _FILE_TOOL_SCRIPT, encoded],
             check=True,
             capture_output=True,
             text=True,
         )
         return result.stdout
 
+    common = {"cwd": str(tmp_path)}
     grep_output = run(
-        _GREP_SCRIPT,
-        {
-            "pattern": "match",
-            "path": str(tmp_path),
-            "glob": None,
-            "file_type": None,
-            "output_mode": "content",
-            "ignore_case": False,
-            "show_line_numbers": None,
-            "before_context": None,
-            "after_context": None,
-            "context": None,
-            "head_limit": 250,
-            "multiline": False,
-        },
+        **common,
+        operation="grep",
+        pattern="match",
+        path=str(tmp_path),
+        glob=None,
+        file_type=None,
+        output_mode="content",
+        ignore_case=False,
+        show_line_numbers=None,
+        before_context=None,
+        after_context=None,
+        context=None,
+        head_limit=250,
+        multiline=False,
     )
     assert f"{notes}:2:match" in grep_output
     assert str(ignored) not in grep_output
 
-    glob_output = run(_GLOB_SCRIPT, {"pattern": "*.txt", "path": str(tmp_path)})
+    read_output = run(**common, operation="read", file_path="notes.txt", offset=1, limit=2)
+    assert "     2\tmatch" in read_output
+
+    run(**common, operation="write", file_path="draft.txt", content="before")
+    edit_output = run(
+        **common,
+        operation="edit",
+        file_path="draft.txt",
+        old_string="before",
+        new_string="after",
+        replace_all=False,
+    )
+    assert edit_output.strip() == "1"
+    assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "after"
+
+    glob_output = run(**common, operation="glob", pattern="*.txt", path=str(tmp_path))
     assert str(notes) in glob_output
 
 

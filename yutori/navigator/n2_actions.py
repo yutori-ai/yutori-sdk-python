@@ -248,6 +248,16 @@ class N2ActionValidationError(ValueError):
     """Raised when an n2 action cannot be safely executed."""
 
 
+def _tool_arguments(args: Any, tool_name: str, allowed_fields: set[str]) -> dict[str, Any]:
+    """Validate a tool-object envelope before checking its individual fields."""
+    if not isinstance(args, dict):
+        raise N2ActionValidationError(f"{tool_name} arguments must be an object")
+    unknown = set(args) - allowed_fields
+    if unknown:
+        raise N2ActionValidationError(f"{tool_name} received unsupported field(s): {', '.join(sorted(unknown))}")
+    return args
+
+
 def normalize_modifier_args(args: dict[str, Any]) -> dict[str, Any]:
     """Fold a ``modifier_keys`` spelling into the trained ``modifier`` one.
 
@@ -518,11 +528,7 @@ def translate_n2_shell_command(args: dict[str, Any]) -> list[dict[str, Any]]:
     string, ``timeout_seconds`` an optional integer in [1, 30] defaulting to 10.
     The executor duck-types the optional ``run_shell_command`` handler method.
     """
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("shell_command arguments must be an object")
-    unknown = set(args) - _SHELL_COMMAND_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"shell_command received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "shell_command", _SHELL_COMMAND_FIELDS)
     command = args.get("command")
     if not isinstance(command, str) or not command.strip():
         raise N2ActionValidationError("shell_command requires a non-empty command string")
@@ -557,11 +563,7 @@ def translate_n2_bash(args: dict[str, Any]) -> list[dict[str, Any]]:
     is that the working directory persists across calls, so a per-call override
     would contradict what the model is told.
     """
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("bash arguments must be an object")
-    unknown = set(args) - _BASH_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"bash received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "bash", _BASH_FIELDS)
     command = args.get("command")
     if not isinstance(command, str) or not command.strip():
         raise N2ActionValidationError("bash requires a non-empty command string")
@@ -596,11 +598,7 @@ def _file_path(args: dict[str, Any], tool_name: str) -> str:
 
 def translate_n2_read(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate a read call for the current desktop file-tool contract."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("read arguments must be an object")
-    unknown = set(args) - _READ_FILE_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"read received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "read", _READ_FILE_FIELDS)
     offset = args.get("offset", N2_FILE_READ_DEFAULT_OFFSET)
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 1:
         raise N2ActionValidationError("read.offset must be a positive 1-based integer")
@@ -612,11 +610,7 @@ def translate_n2_read(args: dict[str, Any]) -> list[dict[str, Any]]:
 
 def translate_n2_write(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate a write call without routing its content through a shell."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("write arguments must be an object")
-    unknown = set(args) - _WRITE_FILE_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"write received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "write", _WRITE_FILE_FIELDS)
     content = args.get("content")
     if not isinstance(content, str):
         raise N2ActionValidationError("write.content must be a string")
@@ -627,11 +621,7 @@ def translate_n2_write(args: dict[str, Any]) -> list[dict[str, Any]]:
 
 def translate_n2_edit(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate an exact-string edit call for a previously observed file."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("edit arguments must be an object")
-    unknown = set(args) - _EDIT_FILE_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"edit received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "edit", _EDIT_FILE_FIELDS)
     old_string = args.get("old_string")
     new_string = args.get("new_string")
     replace_all = args.get("replace_all", False)
@@ -677,11 +667,7 @@ def _optional_nonnegative_integer(args: dict[str, Any], field: str, tool_name: s
 
 def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate the immutable 20260807/20260808 file-search tool contract."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("grep arguments must be an object")
-    unknown = set(args) - _GREP_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"grep received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "grep", _GREP_FIELDS)
     pattern = args.get("pattern")
     if not isinstance(pattern, str):
         raise N2ActionValidationError("grep.pattern must be a string")
@@ -716,11 +702,7 @@ def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
 
 def translate_n2_glob(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate the immutable 20260807/20260808 file-name search contract."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("glob arguments must be an object")
-    unknown = set(args) - _GLOB_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"glob received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "glob", _GLOB_FIELDS)
     pattern = args.get("pattern")
     if not isinstance(pattern, str):
         raise N2ActionValidationError("glob.pattern must be a string")
@@ -732,11 +714,7 @@ def translate_n2_glob(args: dict[str, Any]) -> list[dict[str, Any]]:
 
 def translate_n2_goto_url(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate the browser-only navigation tool in the immutable 20260818 set."""
-    if not isinstance(args, dict):
-        raise N2ActionValidationError("goto_url arguments must be an object")
-    unknown = set(args) - _GOTO_URL_FIELDS
-    if unknown:
-        raise N2ActionValidationError(f"goto_url received unsupported field(s): {', '.join(sorted(unknown))}")
+    args = _tool_arguments(args, "goto_url", _GOTO_URL_FIELDS)
     url = args.get("url")
     if not isinstance(url, str) or not url:
         raise N2ActionValidationError("goto_url.url must be a non-empty string")

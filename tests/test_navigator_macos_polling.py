@@ -7,7 +7,6 @@ import time
 
 from PIL import Image
 
-from yutori.navigator.macos.no_progress import NoProgressWatchdog
 from yutori.navigator.macos.polling import (
     FRAME_POLL_ACTION_MAX_MS,
     frame_poll_interval_ms,
@@ -95,18 +94,3 @@ async def test_polling_uses_at_most_half_the_remaining_deadline():
     )
     assert result.outcome == "exhausted"
     assert result.waited_ms < 100
-
-
-def test_no_progress_detects_period_one_and_resets_for_wait():
-    watchdog = NoProgressWatchdog()
-    frame = _frame((20, 20, 20))
-    watchdog.record_frame(frame)
-    for _ in range(3):
-        watchdog.record_action("left_click", {"coordinates": [500, 500]})
-        watchdog.record_frame(frame)
-    assert watchdog.triggers == 1
-    watchdog.record_action("wait", {"duration": 1})
-    for _ in range(2):
-        watchdog.record_action("left_click", {"coordinates": [500, 500]})
-        watchdog.record_frame(frame)
-    assert watchdog.triggers == 1
