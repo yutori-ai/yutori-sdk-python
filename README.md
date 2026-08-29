@@ -163,39 +163,30 @@ The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests supp
 
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. It answers with `computer_batch` calls — an ordered sequence of GUI actions, answered with one screenshot taken after the last one — and `bash` calls, answered with the command's output. Use `model="n2"` and pin the tool set:
+Navigator n2 operates a full desktop. It answers with `computer_batch` calls — an ordered sequence of GUI actions, answered with one screenshot taken after the last one — and `bash` calls, answered with the command's output. Implement the computer environment, then pass it to the SDK's agent loop:
 
 ```python
 from yutori import AsyncYutoriClient
-from yutori.navigator import TOOL_SET_COMPUTER_USE_LATEST, screenshot_to_data_url
+from yutori.navigator import N2ComputerAgent
+
+# Implement the async screenshot and input methods for your environment.
+computer = MyComputer(...)
 
 async with AsyncYutoriClient() as client:
-    # A full-screen capture, kept at the display's own size (the default resize_to is a browser viewport).
-    image_url = screenshot_to_data_url(screenshot_bytes, resize_to=(screen_width, screen_height))
-
-    response = await client.chat.completions.create(
-        model="n2",
-        tool_set=TOOL_SET_COMPUTER_USE_LATEST,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Open Calculator and compute 17 * 23."},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ],
-            }
-        ],
+    agent = N2ComputerAgent(
+        computer=computer,
+        completions=client.chat.completions,
     )
 
-    message = response.choices[0].message
-    print(message.content)  # Model's thoughts
-    for tool_call in message.tool_calls or []:
-        # Run the batch's actions in order on the desktop (or run the bash
-        # command), append one tool result per call, and call the model again...
-        ...
+    async for step in agent.run("Open Calculator and compute 17 * 23."):
+        for item in step.get("output") or []:
+            if item.get("type") == "message":
+                for part in item.get("content") or []:
+                    if isinstance(part, dict) and part.get("text"):
+                        print(part["text"])
 ```
 
-`N2ComputerAgent` runs this loop for you against any desktop you can screenshot and drive. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through it.
+`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through it. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
 
 <details>
 <summary>Drive your own local Mac</summary>
