@@ -287,7 +287,8 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                         parts.append({"type": "text", "text": part.get("text")})
                 completion_messages.append({"role": "user", "content": parts})
             elif isinstance(content, str):
-                completion_messages.append({"role": "user", "content": content})
+                # Text rides as a single part, the shape the reference builder sends.
+                completion_messages.append({"role": "user", "content": [{"type": "text", "text": content}]})
 
         elif role == "assistant" or item_type == "message":
             content = item.get("content", [])
@@ -350,7 +351,13 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 content.append({"type": "image_url", "image_url": {"url": output.get("image_url")}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
-                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output).strip()})
+                completion_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": [{"type": "text", "text": str(output).strip()}],
+                    }
+                )
 
     return completion_messages
 

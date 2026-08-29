@@ -224,7 +224,7 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
     # Turn 1: no frame — the system prompt, then the task alone; default budgets.
     first = completions.requests[0]
     assert first["messages"][0] == {"role": "system", "content": "Ask questions as text; end with [DONE]."}
-    assert first["messages"][1] == {"role": "user", "content": "open the terminal"}
+    assert first["messages"][1] == {"role": "user", "content": [{"type": "text", "text": "open the terminal"}]}
     assert not any(_images(message) for message in first["messages"])
     assert first["max_completion_tokens"] == 20480
     assert first["tool_set"] == TOOL_SET_COMPUTER_USE_LATEST
@@ -258,12 +258,16 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
     tool_messages = [message for message in third["messages"] if message["role"] == "tool"]
     assert [message["tool_call_id"] for message in tool_messages] == ["c1", "b1", "c1"]
     bash_result, batch_result = tool_messages[1], tool_messages[2]
-    assert bash_result["content"] == "hello" and not _images(bash_result)
+    assert bash_result["content"] == [{"type": "text", "text": "hello"}] and not _images(bash_result)
     assert batch_result["content"][0]["text"] == "[0:left_click]" and len(_images(batch_result)) == 1
 
     # Turn 4: a bash-only turn adds no frame, and the text-only answer ends the run.
     fourth = completions.requests[3]
-    assert fourth["messages"][-1] == {"role": "tool", "tool_call_id": "b2", "content": "hello"}
+    assert fourth["messages"][-1] == {
+        "role": "tool",
+        "tool_call_id": "b2",
+        "content": [{"type": "text", "text": "hello"}],
+    }
     # Only two image-bearing tool messages exist, so nothing was pruned yet.
     assert sum(1 for message in fourth["messages"] if _images(message)) == 2
     assert desktop.calls.count(("screenshot",)) == 2
@@ -284,10 +288,9 @@ async def test_pruned_frames_leave_the_harness_marker_in_place():
     last = completions.requests[-1]["messages"]
     tool_messages = [message for message in last if message["role"] == "tool"]
     assert [len(_images(message)) for message in tool_messages] == [0, 1, 1]
-    assert tool_messages[0]["content"] == [
-        {"type": "text", "text": "[0:left_click]"},
-        {"type": "text", "text": "[older image omitted]"},
-    ]
+    # The marker concatenates into the preceding text part, one merged block —
+    # the reference builder's rendering of a pruned frame.
+    assert tool_messages[0]["content"] == [{"type": "text", "text": "[0:left_click][older image omitted]"}]
 
 
 async def test_harness_loop_sizes_a_blind_start_from_the_handler_dimensions():
@@ -322,7 +325,7 @@ async def test_a_text_only_turn_ends_the_run_and_resume_continues_the_same_conve
     steps = [step async for step in agent.resume("Use ~/Documents")]
     second = completions.requests[1]["messages"]
     assert second[-2] == {"role": "assistant", "content": "Which folder should I use?"}
-    assert second[-1] == {"role": "user", "content": "Use ~/Documents"}
+    assert second[-1] == {"role": "user", "content": [{"type": "text", "text": "Use ~/Documents"}]}
     assert agent.stopped_by == "final_answer"
     assert steps[-1]["output"][-1]["content"][0]["text"] == "Saved it. [DONE]"
     # The trajectory holds the whole conversation, including the resumed part.
@@ -374,8 +377,8 @@ async def test_compactor_can_rewrite_the_trajectory_before_a_model_call():
         pass
     assert compactor.seen == [{}, {"prompt_tokens": 6}, {"prompt_tokens": 7}]
     third = completions.requests[2]["messages"]
-    assert third[0] == {"role": "user", "content": "task"}
-    assert third[1]["content"].startswith("<working_checkpoint>")
+    assert third[0] == {"role": "user", "content": [{"type": "text", "text": "task"}]}
+    assert third[1]["content"][0]["text"].startswith("<working_checkpoint>")
     assert len(third) == 2
 
 
@@ -448,7 +451,9 @@ async def test_a_slow_tool_call_reports_the_harness_timeout_text():
     steps = [step async for step in agent.run("task")]
     outputs = [item for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
     assert outputs[0]["output"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
-    assert completions.requests[1]["messages"][-1]["content"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
+    assert completions.requests[1]["messages"][-1]["content"] == [
+        {"type": "text", "text": "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"}
+    ]
 
 
 async def test_a_read_result_may_carry_its_own_image():
@@ -564,7 +569,7 @@ async def test_a_failed_turn_frame_reports_instead_of_killing_the_run():
         pass
     assert agent.stopped_by == "final_answer"
     tool_message = [m for m in completions.requests[1]["messages"] if m["role"] == "tool"][-1]
-    assert "[ERROR] Post-action screenshot failed: capture failed" in tool_message["content"]
+    assert tool_message["content"][0]["text"].endswith("[ERROR] Post-action screenshot failed: capture failed")
 
 
 def test_a_legacy_reasoning_item_between_turns_stays_its_own_message():

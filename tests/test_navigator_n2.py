@@ -366,7 +366,7 @@ def test_converter_folds_calls_and_carries_shell_text_before_the_screenshot():
         {"type": "function_call_output", "call_id": "c2", "output": "[ERROR] nope"},
     ]
     messages = convert_n2_items_to_completion_messages(items)
-    assert messages[0] == {"role": "user", "content": "task"}
+    assert messages[0] == {"role": "user", "content": [{"type": "text", "text": "task"}]}
     # A legacy standalone reasoning item stays assistant text; the call folds into it.
     assert messages[1]["role"] == "assistant" and messages[1]["content"] == "thinking"
     assert "reasoning_content" not in messages[1]
@@ -375,7 +375,11 @@ def test_converter_folds_calls_and_carries_shell_text_before_the_screenshot():
     assert tool_message["role"] == "tool" and tool_message["tool_call_id"] == "c1"
     assert tool_message["content"][0] == {"type": "text", "text": "file.txt"}
     assert tool_message["content"][1]["type"] == "image_url"
-    assert messages[3] == {"role": "tool", "tool_call_id": "c2", "content": "[ERROR] nope"}
+    assert messages[3] == {
+        "role": "tool",
+        "tool_call_id": "c2",
+        "content": [{"type": "text", "text": "[ERROR] nope"}],
+    }
 
 
 def test_parse_tool_calls_attaches_executions_and_feeds_back_validation_errors():
@@ -981,10 +985,14 @@ async def test_agent_runs_a_click_turn_then_finishes():
     assert first_request["parallel_tool_calls"] is True
     assert first_request["timeout"] == 600.0
     assert "temperature" not in first_request
-    assert first_request["messages"][0] == {"role": "user", "content": "be careful"}
-    assert first_request["messages"][1] == {"role": "user", "content": "open calculator"}
+    assert first_request["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "be careful"}]}
+    assert first_request["messages"][1] == {"role": "user", "content": [{"type": "text", "text": "open calculator"}]}
     assert "system" not in {message["role"] for message in first_request["messages"]}
-    assert not any(isinstance(message.get("content"), list) for message in first_request["messages"])
+    assert not any(
+        part.get("type") == "image_url"
+        for message in first_request["messages"]
+        for part in (message.get("content") if isinstance(message.get("content"), list) else [])
+    )
 
     # Turn 1 yields the model step, then the execution result — a GUI turn, so it carries the frame.
     assert steps[0]["usage"]["prompt_tokens"] == 5
