@@ -211,6 +211,10 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 
 See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, coordinate system, and request fields.
 
+The SDK also accepts the immutable `computer_use_tools-20260818` browser set for replay. It is not a desktop set: its
+extra `goto_url` call requires a computer handler that implements `async goto_url(url: str)`. The bundled desktop and
+public Cua sandbox adapters deliberately return a recoverable unsupported-environment result for that browser-only call.
+
 ### Agent-loop helpers
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:

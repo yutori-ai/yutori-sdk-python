@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
 
+from yutori.navigator.macos import transport as transport_module
 from yutori.navigator.macos.transport import (
     CuaDriverConnectionError,
     CuaDriverToolError,
     CuaDriverTransport,
     CuaDriverUncertainActionError,
+    find_cua_driver_binary,
 )
 
 
@@ -18,6 +21,17 @@ def _running_transport() -> CuaDriverTransport:
     transport = CuaDriverTransport()
     transport._process = SimpleNamespace(returncode=None)
     return transport
+
+
+def test_driver_resolution_prefers_the_pinned_package_binary_over_path(tmp_path, monkeypatch):
+    package_binary = tmp_path / "package-cua-driver"
+    stale_path_binary = tmp_path / "stale-cua-driver"
+    package_binary.touch()
+    stale_path_binary.touch()
+    monkeypatch.setitem(sys.modules, "cua_driver", SimpleNamespace(get_binary_path=lambda: package_binary))
+    monkeypatch.setattr(transport_module.shutil, "which", lambda _name: str(stale_path_binary))
+
+    assert find_cua_driver_binary() == package_binary
 
 
 async def test_read_only_call_restarts_and_retries_once(monkeypatch):

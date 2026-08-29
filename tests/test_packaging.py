@@ -132,28 +132,43 @@ def _write_dependency_stubs(stub_root: Path) -> None:
 
 @pytest.mark.slow
 def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
-    dist_dir = tmp_path / "dist"
-    dist_dir.mkdir()
+    provided_dist_dir = os.environ.get("YUTORI_TEST_DISTRIBUTIONS_DIR")
+    if provided_dist_dir:
+        dist_dir = Path(provided_dist_dir)
+    else:
+        dist_dir = tmp_path / "dist"
+        dist_dir.mkdir()
 
-    # Build from a copy of the source tree so the test never mutates the
-    # repo (a stale ./build dir would otherwise have to be deleted to keep
-    # setuptools from leaking removed files into the wheel).
-    src_dir = tmp_path / "src"
-    src_dir.mkdir()
-    shutil.copytree(ROOT / "yutori", src_dir / "yutori", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(ROOT / "tests", src_dir / "tests", ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
-    shutil.copytree(ROOT / "examples", src_dir / "examples", ignore=shutil.ignore_patterns("__pycache__", "uv.lock"))
-    for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
-        shutil.copy2(ROOT / fname, src_dir / fname)
+        # Build from a copy of the source tree so the test never mutates the
+        # repo (a stale ./build dir would otherwise have to be deleted to keep
+        # setuptools from leaking removed files into the wheel).
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        shutil.copytree(ROOT / "yutori", src_dir / "yutori", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(
+            ROOT / "tests",
+            src_dir / "tests",
+            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
+        )
+        shutil.copytree(
+            ROOT / "examples",
+            src_dir / "examples",
+            ignore=shutil.ignore_patterns("__pycache__", "uv.lock"),
+        )
+        (src_dir / "examples" / "navigator_n2" / "uv.lock").write_text(
+            "developer-local lockfile\n", encoding="utf-8"
+        )
+        for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
+            shutil.copy2(ROOT / fname, src_dir / fname)
 
-    # One default `python -m build` produces the sdist and then builds the
-    # wheel FROM it — covering the sdist→wheel path with half the build work
-    # of separate --wheel/--sdist invocations.
-    subprocess.run(
-        [sys.executable, "-m", "build", "--outdir", str(dist_dir)],
-        cwd=src_dir,
-        check=True,
-    )
+        # One default `python -m build` produces the sdist and then builds the
+        # wheel FROM it — covering the sdist→wheel path with half the build work
+        # of separate --wheel/--sdist invocations.
+        subprocess.run(
+            [sys.executable, "-m", "build", "--outdir", str(dist_dir)],
+            cwd=src_dir,
+            check=True,
+        )
 
     # The sdist must carry a collectable test suite (MANIFEST.in grafts
     # tests/ — setuptools' default glob ships tests/test_*.py without the
@@ -175,6 +190,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
         if source_path.is_file() and "__pycache__" not in source_path.parts and source_path.name != "uv.lock":
             required = source_path.relative_to(ROOT).as_posix()
             assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
+    assert f"{sdist_root}/examples/navigator_n2/uv.lock" not in sdist_names
 
     wheels = sorted(dist_dir.glob("yutori-*.whl"))
     assert wheels, "expected build to produce a wheel"

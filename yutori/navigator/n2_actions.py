@@ -18,6 +18,7 @@ from .models import (
     TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS,
     TOOL_SET_COMPUTER_USE_BASH_BATCH_SCREENSHOT,
     TOOL_SET_COMPUTER_USE_BATCH,
+    TOOL_SET_COMPUTER_USE_BROWSER_BATCH,
     TOOL_SET_COMPUTER_USE_FILES,
     TOOL_SET_COMPUTER_USE_FILES_BATCH,
     TOOL_SET_COMPUTER_USE_HYBRID,
@@ -34,6 +35,7 @@ SUPPORTED_N2_TOOL_SETS = frozenset(
     {
         TOOL_SET_COMPUTER_USE,
         TOOL_SET_COMPUTER_USE_BATCH,
+        TOOL_SET_COMPUTER_USE_BROWSER_BATCH,
         TOOL_SET_COMPUTER_USE_HYBRID,
         TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
         TOOL_SET_COMPUTER_USE_FILES,
@@ -83,11 +85,18 @@ TOOL_SETS_WITH_FILE_TOOLS = frozenset(
         TOOL_SET_COMPUTER_USE_LATEST,
     }
 )
+TOOL_SETS_WITH_LEGACY_FILE_SEARCH = frozenset(
+    {
+        TOOL_SET_COMPUTER_USE_FILES,
+        TOOL_SET_COMPUTER_USE_FILES_BATCH,
+    }
+)
 TOOL_SETS_WITH_BATCH = SUPPORTED_N2_TOOL_SETS - {
     TOOL_SET_COMPUTER_USE,
     TOOL_SET_COMPUTER_USE_HYBRID,
     TOOL_SET_COMPUTER_USE_FILES,
 }
+TOOL_SETS_WITH_BROWSER_NAVIGATION = frozenset({TOOL_SET_COMPUTER_USE_BROWSER_BATCH})
 TOOL_SETS_WITH_STANDALONE_SCREENSHOT = SUPPORTED_N2_TOOL_SETS - {TOOL_SET_COMPUTER_USE_LATEST}
 TOOL_SETS_WITH_SHELL_COMMAND = frozenset(
     {
@@ -114,13 +123,31 @@ N2_BASH_DEFAULT_TIMEOUT_SECONDS = 120
 N2_BASH_MAX_TIMEOUT_SECONDS = 600
 _BASH_FIELDS = {"command", "timeout", "run_in_background"}
 
-FILE_TOOL_NAMES = frozenset({"read", "write", "edit"})
-N2_FILE_READ_DEFAULT_OFFSET = 0
+FILE_TOOL_NAMES = frozenset({"read", "write", "edit", "grep", "glob"})
+LEGACY_FILE_SEARCH_TOOL_NAMES = frozenset({"grep", "glob"})
+N2_FILE_READ_DEFAULT_OFFSET = 1
 N2_FILE_READ_DEFAULT_LIMIT = 2_000
 N2_FILE_WRITE_MAX_CHARS = 256_000
+N2_GREP_DEFAULT_HEAD_LIMIT = 250
 _READ_FILE_FIELDS = {"file_path", "offset", "limit"}
 _WRITE_FILE_FIELDS = {"file_path", "content"}
 _EDIT_FILE_FIELDS = {"file_path", "old_string", "new_string", "replace_all"}
+_GREP_FIELDS = {
+    "pattern",
+    "path",
+    "glob",
+    "type",
+    "output_mode",
+    "-i",
+    "-n",
+    "-B",
+    "-A",
+    "-C",
+    "head_limit",
+    "multiline",
+}
+_GLOB_FIELDS = {"pattern", "path"}
+_GOTO_URL_FIELDS = {"url"}
 
 # Neither shell tool may ever join this set: a model-driven shell command is
 # always confirmable.
@@ -457,7 +484,9 @@ def translate_n2_action(
         sequence = parse_n2_key_expression(args.get("key"))
         if len(sequence) != 1 or len(sequence[0]) != 1:
             raise N2ActionValidationError("hold_key.key must name exactly one key")
-        duration = args.get("duration", 1)
+        if "duration" not in args:
+            return [internal("hold_key_until_next_action", key=sequence[0][0])]
+        duration = args["duration"]
         if (
             isinstance(duration, bool)
             or not isinstance(duration, (int, float))
@@ -573,8 +602,8 @@ def translate_n2_read(args: dict[str, Any]) -> list[dict[str, Any]]:
     if unknown:
         raise N2ActionValidationError(f"read received unsupported field(s): {', '.join(sorted(unknown))}")
     offset = args.get("offset", N2_FILE_READ_DEFAULT_OFFSET)
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-        raise N2ActionValidationError("read.offset must be a non-negative integer")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 1:
+        raise N2ActionValidationError("read.offset must be a positive 1-based integer")
     limit = args.get("limit", N2_FILE_READ_DEFAULT_LIMIT)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         raise N2ActionValidationError("read.limit must be a positive integer")
@@ -621,6 +650,97 @@ def translate_n2_edit(args: dict[str, Any]) -> list[dict[str, Any]]:
             replace_all=replace_all,
         )
     ]
+
+
+def _optional_string(args: dict[str, Any], field: str, tool_name: str) -> str | None:
+    value = args.get(field)
+    if value is not None and not isinstance(value, str):
+        raise N2ActionValidationError(f"{tool_name}.{field} must be a string or null")
+    return value
+
+
+def _optional_boolean(
+    args: dict[str, Any], field: str, tool_name: str, *, default: bool | None = False
+) -> bool | None:
+    value = args.get(field, default)
+    if value is not None and not isinstance(value, bool):
+        raise N2ActionValidationError(f"{tool_name}.{field} must be a boolean or null")
+    return value
+
+
+def _optional_nonnegative_integer(args: dict[str, Any], field: str, tool_name: str) -> int | None:
+    value = args.get(field)
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+        raise N2ActionValidationError(f"{tool_name}.{field} must be a non-negative integer or null")
+    return value
+
+
+def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate the immutable 20260807/20260808 file-search tool contract."""
+    if not isinstance(args, dict):
+        raise N2ActionValidationError("grep arguments must be an object")
+    unknown = set(args) - _GREP_FIELDS
+    if unknown:
+        raise N2ActionValidationError(f"grep received unsupported field(s): {', '.join(sorted(unknown))}")
+    pattern = args.get("pattern")
+    if not isinstance(pattern, str):
+        raise N2ActionValidationError("grep.pattern must be a string")
+    output_mode = args.get("output_mode", "files_with_matches")
+    if output_mode is None:
+        output_mode = "files_with_matches"
+    if output_mode not in {"content", "files_with_matches", "count"}:
+        raise N2ActionValidationError("grep.output_mode must be content, files_with_matches, count, or null")
+    head_limit = args.get("head_limit", N2_GREP_DEFAULT_HEAD_LIMIT)
+    if head_limit is not None and (
+        isinstance(head_limit, bool) or not isinstance(head_limit, int) or head_limit < 0
+    ):
+        raise N2ActionValidationError("grep.head_limit must be a non-negative integer or null")
+    return [
+        internal_file_action(
+            "grep_files",
+            pattern=pattern,
+            path=_optional_string(args, "path", "grep"),
+            glob_pattern=_optional_string(args, "glob", "grep"),
+            file_type=_optional_string(args, "type", "grep"),
+            output_mode=output_mode,
+            ignore_case=bool(_optional_boolean(args, "-i", "grep")),
+            show_line_numbers=_optional_boolean(args, "-n", "grep", default=None),
+            before_context=_optional_nonnegative_integer(args, "-B", "grep"),
+            after_context=_optional_nonnegative_integer(args, "-A", "grep"),
+            context=_optional_nonnegative_integer(args, "-C", "grep"),
+            head_limit=head_limit,
+            multiline=bool(_optional_boolean(args, "multiline", "grep")),
+        )
+    ]
+
+
+def translate_n2_glob(args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate the immutable 20260807/20260808 file-name search contract."""
+    if not isinstance(args, dict):
+        raise N2ActionValidationError("glob arguments must be an object")
+    unknown = set(args) - _GLOB_FIELDS
+    if unknown:
+        raise N2ActionValidationError(f"glob received unsupported field(s): {', '.join(sorted(unknown))}")
+    pattern = args.get("pattern")
+    if not isinstance(pattern, str):
+        raise N2ActionValidationError("glob.pattern must be a string")
+    if "path" in args and not isinstance(args["path"], str):
+        raise N2ActionValidationError("glob.path must be a string")
+    path = args.get("path")
+    return [internal_file_action("glob_files", pattern=pattern, path=path)]
+
+
+def translate_n2_goto_url(args: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate the browser-only navigation tool in the immutable 20260818 set."""
+    if not isinstance(args, dict):
+        raise N2ActionValidationError("goto_url arguments must be an object")
+    unknown = set(args) - _GOTO_URL_FIELDS
+    if unknown:
+        raise N2ActionValidationError(f"goto_url received unsupported field(s): {', '.join(sorted(unknown))}")
+    url = args.get("url")
+    if not isinstance(url, str) or not url:
+        raise N2ActionValidationError("goto_url.url must be a non-empty string")
+    return [{"type": "goto_url", "url": url}]
 
 
 def internal_file_action(action_type: str, **kwargs: Any) -> dict[str, Any]:

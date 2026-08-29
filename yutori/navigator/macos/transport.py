@@ -31,20 +31,23 @@ class CuaDriverUncertainActionError(CuaDriverError):
 
 
 def find_cua_driver_binary() -> Path:
-    discovered = shutil.which("cua-driver")
-    if discovered:
-        return Path(discovered)
     try:
         from cua_driver import get_binary_path
 
         candidate = Path(get_binary_path())
-    except (ImportError, OSError) as error:
-        raise CuaDriverError(
-            "cua-driver is not installed; install `yutori[macos]` or run `yutori-mcp computer-use setup`."
-        ) from error
-    if not candidate.is_file():
-        raise CuaDriverError(f"cua-driver binary is missing: {candidate}")
-    return candidate
+    except (ImportError, OSError):
+        candidate = None
+    else:
+        if not candidate.is_file():
+            raise CuaDriverError(f"The installed cua-driver binary is missing: {candidate}")
+        return candidate
+
+    discovered = shutil.which("cua-driver")
+    if discovered:
+        return Path(discovered)
+    raise CuaDriverError(
+        "cua-driver is not installed; install `yutori[macos]` or run `yutori-mcp computer-use setup`."
+    )
 
 
 class CuaDriverTransport:

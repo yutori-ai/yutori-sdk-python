@@ -14,6 +14,9 @@ from PIL import Image
 
 from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS,
+    TOOL_SET_COMPUTER_USE_BROWSER_BATCH,
+    TOOL_SET_COMPUTER_USE_FILES,
+    TOOL_SET_COMPUTER_USE_FILES_BATCH,
     TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ActionValidationError,
@@ -27,6 +30,7 @@ from yutori.navigator import (
     translate_n2_action,
     translate_n2_bash,
     translate_n2_batch,
+    translate_n2_read,
     translate_n2_shell_command,
     truncate_shell_result,
 )
@@ -162,6 +166,15 @@ def test_wait_bounds_and_millisecond_conversion():
         translate_n2_action("wait", {"duration": 301}, 100, 100)
 
 
+def test_hold_key_without_a_duration_is_held_through_the_next_action():
+    assert translate_n2_action("hold_key", {"key": "ctrl"}, 100, 100) == [
+        {"type": "hold_key_until_next_action", "key": "ctrl"}
+    ]
+    assert translate_n2_action("hold_key", {"key": "ctrl", "duration": 0}, 100, 100) == [
+        {"type": "hold_key", "key": "ctrl", "ms": 0}
+    ]
+
+
 def test_shell_command_validation_mirrors_the_server_schema():
     assert translate_n2_shell_command({"command": "ls", "cwd": "/tmp"}) == [
         {"type": "run_shell_command", "command": "ls", "timeout_seconds": 10, "cwd": "/tmp"}
@@ -182,6 +195,28 @@ def test_bash_validation_has_its_own_contract():
         translate_n2_bash({"command": "ls", "timeout": 601})
     with pytest.raises(N2ActionValidationError, match="unsupported field"):
         translate_n2_bash({"command": "ls", "cwd": "/tmp"})
+
+
+def test_read_uses_the_served_one_based_line_offset():
+    assert translate_n2_read({"file_path": "notes.txt"}) == [
+        {"type": "read_file", "file_path": "notes.txt", "offset": 1, "limit": 2_000}
+    ]
+    with pytest.raises(N2ActionValidationError, match="1-based"):
+        translate_n2_read({"file_path": "notes.txt", "offset": 0})
+
+
+def test_historical_glob_rejects_a_null_path_like_the_served_schema():
+    output = parse_n2_tool_calls(
+        {
+            "tool_calls": [
+                {"id": "glob", "function": {"name": "glob", "arguments": '{"pattern":"*.py","path":null}'}}
+            ]
+        },
+        100,
+        100,
+        tool_set=TOOL_SET_COMPUTER_USE_FILES,
+    )
+    assert output[-1]["output"].startswith("[ERROR] Invalid glob call:")
 
 
 def test_batch_accepts_both_envelopes_and_is_all_or_nothing():
@@ -399,6 +434,12 @@ class FakeComputer:
     async def keypress(self, keys):
         self.calls.append(("keypress", tuple(keys)))
 
+    async def key_down(self, key):
+        self.calls.append(("key_down", key))
+
+    async def key_up(self, key):
+        self.calls.append(("key_up", key))
+
     async def type(self, text):
         self.calls.append(("type", text))
 
@@ -422,6 +463,17 @@ class FakeComputer:
     async def edit_file(self, file_path, old_string, new_string, replace_all):
         self.calls.append(("edit", file_path, old_string, new_string, replace_all))
         return f"Edited {file_path}: replaced 1 occurrence(s)."
+
+    async def grep_files(self, **kwargs):
+        self.calls.append(("grep", kwargs))
+        return "notes.txt"
+
+    async def glob_files(self, **kwargs):
+        self.calls.append(("glob", kwargs))
+        return "notes.txt"
+
+    async def goto_url(self, url):
+        self.calls.append(("goto_url", url))
 
 
 class FakePresentation:
@@ -522,7 +574,7 @@ async def test_execute_shell_failures_are_recoverable_tool_errors():
 @pytest.mark.parametrize(
     ("name", "arguments", "expected_call", "expected_output"),
     [
-        ("read", {"file_path": "notes.txt"}, ("read", "notes.txt", 0, 2_000), "     1\tcontents"),
+        ("read", {"file_path": "notes.txt"}, ("read", "notes.txt", 1, 2_000), "     1\tcontents"),
         (
             "write",
             {"file_path": "notes.txt", "content": "hello"},
@@ -551,6 +603,97 @@ async def test_current_file_tools_return_one_text_result_without_a_screenshot(
 
     assert result == [{"type": "function_call_output", "call_id": "file", "output": expected_output}]
     assert computer.calls == [expected_call]
+
+
+@pytest.mark.parametrize("tool_set", [TOOL_SET_COMPUTER_USE_FILES, TOOL_SET_COMPUTER_USE_FILES_BATCH])
+@pytest.mark.parametrize(
+    ("name", "arguments", "expected_output"),
+    [
+        ("grep", {"pattern": "TODO"}, "notes.txt"),
+        ("glob", {"pattern": "**/*.py"}, "notes.txt"),
+    ],
+)
+async def test_historical_file_search_tools_are_executable(tool_set, name, arguments, expected_output):
+    computer = FakeComputer()
+    item = parse_n2_tool_calls(
+        {"tool_calls": [{"id": name, "function": {"name": name, "arguments": json.dumps(arguments)}}]},
+        100,
+        100,
+        tool_set=tool_set,
+    )[-1]
+
+    result = await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0)
+
+    assert result == [{"type": "function_call_output", "call_id": name, "output": expected_output}]
+    assert computer.calls[0][0] == name
+
+
+def test_current_file_tool_set_does_not_claim_historical_file_search_tools():
+    for name, arguments in (("grep", {"pattern": "TODO"}), ("glob", {"pattern": "*.py"})):
+        output = parse_n2_tool_calls(
+            {"tool_calls": [{"id": name, "function": {"name": name, "arguments": json.dumps(arguments)}}]},
+            100,
+            100,
+        )
+        assert output[-1]["output"].startswith(f"[ERROR] Invalid {name} call:")
+
+
+async def test_browser_tool_set_requires_and_uses_a_browser_navigation_handler():
+    computer = FakeComputer()
+    item = parse_n2_tool_calls(
+        {
+            "tool_calls": [
+                {"id": "navigate", "function": {"name": "goto_url", "arguments": '{"url":"https://example.com"}'}}
+            ]
+        },
+        100,
+        100,
+        tool_set=TOOL_SET_COMPUTER_USE_BROWSER_BATCH,
+    )[-1]
+
+    await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0)
+
+    assert ("goto_url", "https://example.com") in computer.calls
+
+    class NoBrowser:
+        async def screenshot(self):
+            return _png_b64()
+
+    result = await execute_n2_computer_call(item, NoBrowser(), callbacks=_CallbackDispatcher(None), screenshot_delay=0)
+    assert result[0]["output"] == "[ERROR] goto_url is only supported by a browser computer environment."
+
+
+async def test_hold_key_without_duration_stays_down_for_one_batch_member_and_is_cleaned_up():
+    computer = FakeComputer()
+    item = parse_n2_tool_calls(
+        {
+            "tool_calls": [
+                {
+                    "id": "hold",
+                    "function": {
+                        "name": "computer_batch",
+                        "arguments": json.dumps(
+                            {
+                                "actions": [
+                                    {"action": "hold_key", "key": "ctrl"},
+                                    {"action": "left_click", "coordinates": [100, 100]},
+                                ]
+                            }
+                        ),
+                    },
+                }
+            ]
+        },
+        100,
+        100,
+    )[-1]
+
+    await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0)
+
+    key_down = computer.calls.index(("key_down", "ctrl"))
+    click = next(index for index, call in enumerate(computer.calls) if call[0] == "click")
+    key_up = computer.calls.index(("key_up", "ctrl"))
+    assert key_down < click < key_up
 
 
 def test_current_tool_set_rejects_standalone_gui_and_screenshot_calls():

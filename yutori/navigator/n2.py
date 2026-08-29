@@ -44,13 +44,16 @@ from .models import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST
 from .n2_actions import (
     BASH_TOOL_NAME,
     FILE_TOOL_NAMES,
+    LEGACY_FILE_SEARCH_TOOL_NAMES,
     SAFE_WITHOUT_CONFIRMATION,
     SHELL_COMMAND_TOOL_NAMES,
     SUPPORTED_N2_TOOL_SETS,
     TOOL_SETS_WITH_BASH,
     TOOL_SETS_WITH_BATCH,
+    TOOL_SETS_WITH_BROWSER_NAVIGATION,
     TOOL_SETS_WITH_CLICK_MODIFIERS,
     TOOL_SETS_WITH_FILE_TOOLS,
+    TOOL_SETS_WITH_LEGACY_FILE_SEARCH,
     TOOL_SETS_WITH_SHELL_COMMAND,
     TOOL_SETS_WITH_STANDALONE_SCREENSHOT,
     N2ActionValidationError,
@@ -58,6 +61,9 @@ from .n2_actions import (
     translate_n2_bash,
     translate_n2_batch,
     translate_n2_edit,
+    translate_n2_glob,
+    translate_n2_goto_url,
+    translate_n2_grep,
     translate_n2_read,
     translate_n2_shell_command,
     translate_n2_write,
@@ -92,7 +98,10 @@ FILE_ACTION_HANDLERS = {
     "read_file": "read_file",
     "write_file": "write_file",
     "edit_file": "edit_file",
+    "grep_files": "grep_files",
+    "glob_files": "glob_files",
 }
+BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
 
 ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
@@ -275,11 +284,21 @@ def _shell_not_supported_error(action_type: str) -> str:
 
 
 def _file_tool_name(action_type: str) -> str:
-    return action_type.removesuffix("_file")
+    return {
+        "read_file": "read",
+        "write_file": "write",
+        "edit_file": "edit",
+        "grep_files": "grep",
+        "glob_files": "glob",
+    }.get(action_type, action_type)
 
 
 def _file_not_supported_error(action_type: str) -> str:
     return f"{_file_tool_name(action_type)} is not supported by this computer environment."
+
+
+def _browser_not_supported_error(action_type: str) -> str:
+    return f"{action_type} is only supported by a browser computer environment."
 
 
 def truncate_shell_result(output: str) -> str:
@@ -401,12 +420,23 @@ def parse_n2_tool_calls(
             elif name in FILE_TOOL_NAMES:
                 if tool_set not in TOOL_SETS_WITH_FILE_TOOLS:
                     raise N2ActionValidationError(f"{tool_set} does not expose {name}")
+                if name in LEGACY_FILE_SEARCH_TOOL_NAMES and tool_set not in TOOL_SETS_WITH_LEGACY_FILE_SEARCH:
+                    raise N2ActionValidationError(f"{tool_set} does not expose {name}")
                 translators = {
                     "read": translate_n2_read,
                     "write": translate_n2_write,
                     "edit": translate_n2_edit,
+                    "grep": translate_n2_grep,
+                    "glob": translate_n2_glob,
                 }
                 translated = translators[name](args)
+                call_item = _function_call_with_execution(
+                    name, args, call_id, translated, execution_deadline=execution_deadline
+                )
+            elif name == "goto_url":
+                if tool_set not in TOOL_SETS_WITH_BROWSER_NAVIGATION:
+                    raise N2ActionValidationError(f"{tool_set} does not expose goto_url")
+                translated = translate_n2_goto_url(args)
                 call_item = _function_call_with_execution(
                     name, args, call_id, translated, execution_deadline=execution_deadline
                 )
@@ -599,14 +629,26 @@ async def execute_n2_computer_call(
     await callbacks.fire("on_computer_call_start", item)
     for action in actions:
         action_type = str(action.get("type"))
-        handler_name = SHELL_ACTION_HANDLERS.get(action_type) or FILE_ACTION_HANDLERS.get(action_type)
+        handler_name = (
+            SHELL_ACTION_HANDLERS.get(action_type)
+            or FILE_ACTION_HANDLERS.get(action_type)
+            or BROWSER_ACTION_HANDLERS.get(action_type)
+        )
         if handler_name is not None and not callable(getattr(computer, handler_name, None)):
             message = (
                 _shell_not_supported_error(action_type)
                 if action_type in SHELL_ACTION_HANDLERS
-                else _file_not_supported_error(action_type)
+                else (
+                    _file_not_supported_error(action_type)
+                    if action_type in FILE_ACTION_HANDLERS
+                    else _browser_not_supported_error(action_type)
+                )
             )
             return await finish_with_error(message)
+        if action_type == "hold_key_until_next_action" and not (
+            callable(getattr(computer, "key_down", None)) and callable(getattr(computer, "key_up", None))
+        ):
+            return await finish_with_error("hold_key without a duration is not supported by this computer environment.")
     try:
         confirmed = await _confirm_computer_item(item, confirmation_callback)
     except Exception as error:  # noqa: BLE001 - a broken hook must not kill the run
@@ -651,6 +693,20 @@ async def execute_n2_computer_call(
     file_output_text: "str | None" = None
     started_at = time.monotonic()
     presented_member: "int | None" = None
+    held_keys: list[str] = []
+    release_after_next_action: list[str] = []
+
+    async def release_keys(keys: list[str]) -> "Exception | None":
+        first_error: "Exception | None" = None
+        for key in reversed(keys):
+            try:
+                await computer.key_up(key)
+            except Exception as error:  # noqa: BLE001 - release every key before reporting one failure
+                first_error = first_error or error
+            finally:
+                while key in held_keys:
+                    held_keys.remove(key)
+        return first_error
 
     batch_presentation = None
     if isinstance(batch_actions, list):
@@ -696,6 +752,8 @@ async def execute_n2_computer_call(
             break
         cancellation = getattr(computer, "cancellation", None)
         if cancellation is not None and cancellation.cancelled:
+            await release_keys(list(held_keys))
+            release_after_next_action.clear()
             raise asyncio.CancelledError(cancellation.cause)
 
         action_type = action.get("type")
@@ -718,7 +776,15 @@ async def execute_n2_computer_call(
                 cancellation = getattr(computer, "cancellation", None)
                 if cancellation is not None and cancellation.cancelled:
                     raise asyncio.CancelledError(cancellation.cause)
-            if action_type == "screenshot":
+            if action_type == "hold_key_until_next_action":
+                previous_keys = list(release_after_next_action)
+                await computer.key_down(action_args["key"])
+                held_keys.append(action_args["key"])
+                release_after_next_action[:] = [action_args["key"]]
+                cleanup_error = await release_keys(previous_keys)
+                if cleanup_error is not None:
+                    raise RuntimeError(f"Failed to release held key: {cleanup_error}")
+            elif action_type == "screenshot":
                 if not isinstance(batch_actions, list):
                     screenshot_observation = await computer.screenshot()
             elif action_type in SHELL_ACTION_HANDLERS:
@@ -733,6 +799,13 @@ async def execute_n2_computer_call(
                     raise RuntimeError(_file_not_supported_error(str(action_type)))
                 file_result = await file_method(**action_args)
                 file_output_text = truncate_shell_result("" if file_result is None else str(file_result))
+            elif action_type in BROWSER_ACTION_HANDLERS:
+                browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
+                if browser_method is None:
+                    raise RuntimeError(_browser_not_supported_error(str(action_type)))
+                action_result = await browser_method(**action_args)
+                if isinstance(action_result, dict) and action_result.get("success") is False:
+                    raise RuntimeError(str(action_result.get("error") or action_result))
             elif (
                 action_type == "wait"
                 and not isinstance(batch_actions, list)
@@ -762,11 +835,24 @@ async def execute_n2_computer_call(
                 if isinstance(action_result, dict) and action_result.get("success") is False:
                     raise RuntimeError(str(action_result.get("error") or action_result))
 
+            if action_type != "hold_key_until_next_action" and release_after_next_action:
+                keys = list(release_after_next_action)
+                release_after_next_action.clear()
+                cleanup_error = await release_keys(keys)
+                if cleanup_error is not None:
+                    raise RuntimeError(f"Failed to release held key: {cleanup_error}")
+
             member_index = batch_index if isinstance(batch_index, int) else 0
             action_counts[member_index] = action_counts.get(member_index, 1) - 1
             if action_counts[member_index] == 0:
                 completed_members.add(member_index)
+        except asyncio.CancelledError:
+            await release_keys(list(held_keys))
+            release_after_next_action.clear()
+            raise
         except Exception as error:  # noqa: BLE001 - classified below
+            await release_keys(list(held_keys))
+            release_after_next_action.clear()
             if action_type in SHELL_ACTION_HANDLERS:
                 # Handler failures (timeouts included) surface as recoverable
                 # tool errors rather than crashing the loop, so the model can
@@ -774,6 +860,8 @@ async def execute_n2_computer_call(
                 return await finish_with_error(f"{_shell_tool_name(str(action_type))} failed: {error}")
             if action_type in FILE_ACTION_HANDLERS:
                 return await finish_with_error(f"{_file_tool_name(str(action_type))} failed: {error}")
+            if action_type in BROWSER_ACTION_HANDLERS:
+                return await finish_with_error(f"{action_type} failed: {error}")
             if getattr(error, "recoverable", False):
                 observation = getattr(error, "observation", None)
                 if observation is None:
@@ -785,6 +873,11 @@ async def execute_n2_computer_call(
             failed_index = batch_index if isinstance(batch_index, int) else 0
             stopped_reason = str(error)
             break
+
+    held_key_cleanup_error = await release_keys(list(held_keys))
+    release_after_next_action.clear()
+    if held_key_cleanup_error is not None:
+        stopped_reason = stopped_reason or f"Failed to release held key: {held_key_cleanup_error}"
 
     if isinstance(batch_actions, list):
         release_held_mouse_button = getattr(computer, "release_held_mouse_button", None)

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
+import glob
 import io
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -39,6 +42,8 @@ _SHELL_EMPTY_SUCCESS_OUTPUT = "Command exited with code 0 and produced no output
 _MAX_OBSERVATION_LONG_SIDE = 1920
 _OBSERVATION_QUALITY = 80
 _SHELL_ENV_BLOCKLIST = {"BASH_ENV", "ENV", "YUTORI_API_KEY"}
+_VCS_DIRECTORIES = {".git", ".hg", ".svn"}
+_GLOB_RESULT_LIMIT = 100
 
 
 class MacOSComputerError(RuntimeError):
@@ -159,6 +164,13 @@ def _split_bash_cwd(text: str, sentinel: str) -> tuple[str, "str | None"]:
     return (output, reported or None) if marker else (text, None)
 
 
+def _path_mtime_descending(path: Path) -> tuple[float, str]:
+    try:
+        return (-path.stat().st_mtime, str(path))
+    except OSError:
+        return (0, str(path))
+
+
 def _process_identity(pid: int) -> "_ProcessIdentity | None":
     try:
         completed = subprocess.run(
@@ -214,6 +226,7 @@ class MacOSComputer:
         self._known_secrets = tuple(secret for secret in values if secret)
         self.presentation: "MacOSPresentationController | None" = None
         self._session_started = False
+        self._emulated_held_keys: list[str] = []
         self._native_size: "tuple[int, int] | None" = None
         self._initial_png: "bytes | None" = None
         self._capture_id = 0
@@ -222,6 +235,8 @@ class MacOSComputer:
         self._bash_cwd = str(Path.home())
         self._file_snapshots: dict[Path, str] = {}
         self._left_mouse_down = False
+        self._held_mouse_start: "tuple[int, int] | None" = None
+        self._pointer: "tuple[int, int] | None" = None
         self._background: dict[str, _BackgroundProcess] = {}
         self._foreground_processes: set[asyncio.subprocess.Process] = set()
         self._shell_events: list[ShellPresentationEvent] = []
@@ -375,6 +390,9 @@ class MacOSComputer:
     async def get_environment(self) -> Literal["mac"]:
         return "mac"
 
+    def _merged_modifiers(self, modifier: "Sequence[str] | None") -> list[str]:
+        return list(dict.fromkeys([*self._emulated_held_keys, *(modifier or ())]))
+
     async def click(
         self,
         x: int,
@@ -385,9 +403,11 @@ class MacOSComputer:
     ) -> None:
         self._refuse_stop_point(x, y)
         arguments = self._desktop_args(x=x, y=y, button=button, count=count)
-        if modifier:
-            arguments["modifier"] = list(modifier)
+        modifiers = self._merged_modifiers(modifier)
+        if modifiers:
+            arguments["modifier"] = modifiers
         await self._mutate("click", arguments)
+        self._pointer = (x, y)
 
     async def double_click(self, x: int, y: int, modifier: "Sequence[str] | None" = None) -> None:
         await self.click(x, y, count=2, modifier=modifier)
@@ -396,11 +416,16 @@ class MacOSComputer:
         await self.click(x, y, count=3, modifier=modifier)
 
     async def move(self, x: int, y: int) -> None:
-        await self._mutate("move_cursor", self._desktop_args(x=x, y=y))
+        self._refuse_stop_point(x, y)
+        self._pointer = (x, y)
+        if not self._left_mouse_down:
+            await self._mutate("move_cursor", self._desktop_args(x=x, y=y))
 
     async def drag(self, path: list[dict[str, int]]) -> None:
         if len(path) < 2:
             raise ValueError("drag path must contain at least two points")
+        if self._emulated_held_keys:
+            raise MacOSRecoverableActionError("The pinned Cua Driver cannot drag with a held modifier.")
         start, end = path[0], path[-1]
         self._refuse_stop_point(start["x"], start["y"])
         self._refuse_stop_point(end["x"], end["y"])
@@ -414,28 +439,35 @@ class MacOSComputer:
                 delivery_mode="foreground",
             ),
         )
+        self._pointer = (end["x"], end["y"])
 
     async def left_mouse_down(self, x: "int | None" = None, y: "int | None" = None) -> None:
         if (x is None) != (y is None):
             raise ValueError("mouse_down coordinates must include both x and y")
-        arguments = self._desktop_args()
-        if x is not None and y is not None:
-            self._refuse_stop_point(x, y)
-            arguments.update(x=x, y=y)
-        await self._mutate("mouse_down", arguments)
+        point = (x, y) if x is not None and y is not None else self._pointer
+        if point is None:
+            raise MacOSRecoverableActionError("mouse_down requires coordinates after the pointer has moved.")
+        self._refuse_stop_point(*point)
+        self._pointer = point
+        self._held_mouse_start = point
         self._left_mouse_down = True
 
     async def left_mouse_up(self, x: "int | None" = None, y: "int | None" = None) -> None:
         if (x is None) != (y is None):
             raise ValueError("mouse_up coordinates must include both x and y")
-        arguments = self._desktop_args()
-        if x is not None and y is not None:
-            self._refuse_stop_point(x, y)
-            arguments.update(x=x, y=y)
+        point = (x, y) if x is not None and y is not None else self._pointer
+        if self._held_mouse_start is None or point is None:
+            raise MacOSRecoverableActionError("mouse_up requires a preceding mouse_down with known coordinates.")
+        self._refuse_stop_point(*point)
+        start = self._held_mouse_start
         try:
-            await self._mutate("mouse_up", arguments)
+            if start == point:
+                await self.click(*point)
+            else:
+                await self.drag([{"x": start[0], "y": start[1]}, {"x": point[0], "y": point[1]}])
         finally:
             self._left_mouse_down = False
+            self._held_mouse_start = None
 
     async def release_held_mouse_button(self) -> None:
         if self._left_mouse_down:
@@ -449,7 +481,7 @@ class MacOSComputer:
         scroll_y: int,
         modifier: "Sequence[str] | None" = None,
     ) -> None:
-        if modifier:
+        if self._merged_modifiers(modifier):
             raise MacOSRecoverableActionError(
                 "scroll with a held modifier is not supported; use key_press and an unmodified scroll"
             )
@@ -468,19 +500,47 @@ class MacOSComputer:
         )
 
     async def type(self, text: str) -> None:
+        if self._emulated_held_keys:
+            raise MacOSRecoverableActionError(
+                "The pinned Cua Driver cannot hold a modifier while typing text."
+            )
         await self._mutate("type_text", self._desktop_args(text=text, delay_ms=0))
 
     async def keypress(self, keys: "Sequence[str] | str") -> None:
         sequence = [keys] if isinstance(keys, str) else list(keys)
+        if self._emulated_held_keys:
+            sequence = self._merged_modifiers(sequence)
         if len(sequence) == 1:
             await self._mutate("press_key", self._desktop_args(key=sequence[0]))
         else:
             await self._mutate("hotkey", self._desktop_args(keys=sequence))
 
+    async def key_down(self, key: str) -> None:
+        """Emulate a single held modifier until the next n2 batch action.
+
+        Cua Driver's pinned public protocol exposes atomic modified clicks and
+        key chords, not low-level key-down/key-up RPCs. Keeping this state in
+        the adapter lets those atomic actions preserve n2's held-modifier
+        semantics without claiming a physical key remains down across RPCs.
+        """
+        if key not in {"ctrl", "shift", "alt", "cmd"}:
+            raise MacOSRecoverableActionError(
+                f"The pinned Cua Driver can only emulate held modifier keys, not {key!r}."
+            )
+        if key not in self._emulated_held_keys:
+            self._emulated_held_keys.append(key)
+
+    async def key_up(self, key: str) -> None:
+        self._emulated_held_keys = [held_key for held_key in self._emulated_held_keys if held_key != key]
+
     async def hold_key(self, key: str, ms: int = 1000) -> None:
         if not 0 <= ms <= 300_000:
             raise ValueError("hold_key must be between 0 and 300 seconds")
-        await self._mutate("hold_key", self._desktop_args(key=key, duration=ms / 1000))
+        await self.key_down(key)
+        try:
+            await self._sleep(ms / 1000)
+        finally:
+            await self.key_up(key)
 
     async def wait(self, ms: int = 1000) -> None:
         if not 0 <= ms <= 300_000:
@@ -577,15 +637,17 @@ class MacOSComputer:
         self._bash_cwd = reported_cwd or self._bash_cwd
         return result
 
-    async def read_file(self, file_path: str, offset: int = 0, limit: int = 2_000) -> str:
+    async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> str:
         self._require_local_shell()
+        if offset < 1:
+            raise ValueError("read.offset must be a positive 1-based line number")
         path = self._resolve_file_path(file_path)
         text = await asyncio.to_thread(self._read_text_file, path)
         self._file_snapshots[path] = text
         lines = text.splitlines()
         return "\n".join(
             f"{line_number:6}\t{line}"
-            for line_number, line in enumerate(lines[offset : offset + limit], start=offset + 1)
+            for line_number, line in enumerate(lines[offset - 1 : offset - 1 + limit], start=offset)
         )
 
     async def write_file(self, file_path: str, content: str) -> str:
@@ -604,11 +666,19 @@ class MacOSComputer:
     ) -> str:
         self._require_local_shell()
         path = self._resolve_file_path(file_path)
+        if old_string == "":
+            if await asyncio.to_thread(path.exists):
+                raise MacOSRecoverableActionError(
+                    f"Cannot create {path}: it already exists; use a non-empty old_string to edit it."
+                )
+            await asyncio.to_thread(self._write_text_file, path, new_string)
+            self._file_snapshots[path] = new_string
+            return f"File created successfully at: {file_path}"
         if path not in self._file_snapshots:
             raise MacOSRecoverableActionError(f"Read or write {path} before editing it.")
         text = await asyncio.to_thread(self._read_text_file, path)
         matches = text.count(old_string)
-        if not old_string or not matches:
+        if not matches:
             raise MacOSRecoverableActionError(f"Could not find the requested text in {path}.")
         if matches > 1 and not replace_all:
             raise MacOSRecoverableActionError(
@@ -619,6 +689,44 @@ class MacOSComputer:
         await asyncio.to_thread(self._write_text_file, path, updated)
         self._file_snapshots[path] = updated
         return f"Edited {path}: replaced {replacements} occurrence(s)."
+
+    async def grep_files(
+        self,
+        pattern: str,
+        path: "str | None" = None,
+        glob_pattern: "str | None" = None,
+        file_type: "str | None" = None,
+        output_mode: str = "files_with_matches",
+        ignore_case: bool = False,
+        show_line_numbers: "bool | None" = None,
+        before_context: "int | None" = None,
+        after_context: "int | None" = None,
+        context: "int | None" = None,
+        head_limit: "int | None" = 250,
+        multiline: bool = False,
+    ) -> str:
+        self._require_local_shell()
+        root = self._resolve_file_path(path or self._bash_cwd)
+        return await asyncio.to_thread(
+            self._grep_files,
+            pattern,
+            root,
+            glob_pattern,
+            file_type,
+            output_mode,
+            ignore_case,
+            show_line_numbers,
+            before_context,
+            after_context,
+            context,
+            head_limit,
+            multiline,
+        )
+
+    async def glob_files(self, pattern: str, path: "str | None" = None) -> str:
+        self._require_local_shell()
+        root = self._resolve_file_path(path or self._bash_cwd)
+        return await asyncio.to_thread(self._glob_files, pattern, root)
 
     async def launch_app(
         self,
@@ -652,6 +760,107 @@ class MacOSComputer:
     def _write_text_file(path: Path, content: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _iter_search_files(root: Path) -> list[Path]:
+        if root.is_file():
+            return [root]
+        if not root.is_dir():
+            return []
+        files: list[Path] = []
+        for directory, child_directories, filenames in os.walk(root):
+            child_directories[:] = [name for name in child_directories if name not in _VCS_DIRECTORIES]
+            files.extend(Path(directory, filename) for filename in filenames)
+        return files
+
+    @classmethod
+    def _grep_files(
+        cls,
+        pattern: str,
+        root: Path,
+        glob_pattern: "str | None",
+        file_type: "str | None",
+        output_mode: str,
+        ignore_case: bool,
+        show_line_numbers: "bool | None",
+        before_context: "int | None",
+        after_context: "int | None",
+        context: "int | None",
+        head_limit: "int | None",
+        multiline: bool,
+    ) -> str:
+        flags = re.MULTILINE | (re.IGNORECASE if ignore_case else 0)
+        if multiline:
+            flags |= re.DOTALL
+        try:
+            regex = re.compile(pattern, flags)
+        except re.error as error:
+            raise ValueError(f"invalid regex: {error}") from error
+
+        def matches_file(file_path: Path) -> bool:
+            if file_type and file_path.suffix != f".{file_type.lstrip('.')}":
+                return False
+            if not glob_pattern:
+                return True
+            try:
+                relative = file_path.relative_to(root if root.is_dir() else root.parent)
+            except ValueError:
+                relative = file_path
+            return fnmatch.fnmatch(str(relative), glob_pattern) or fnmatch.fnmatch(file_path.name, glob_pattern)
+
+        files_with_matches: list[Path] = []
+        counts: list[str] = []
+        content: list[str] = []
+        show_numbers = output_mode == "content" if show_line_numbers is None else show_line_numbers
+        before = after = context if context is not None else None
+        before = before if before is not None else before_context or 0
+        after = after if after is not None else after_context or 0
+
+        for file_path in cls._iter_search_files(root):
+            if not matches_file(file_path):
+                continue
+            try:
+                text = cls._read_text_file(file_path)
+            except (OSError, UnicodeError):
+                continue
+            lines = text.splitlines() or [text]
+            matches = [index for index, line in enumerate(lines) if regex.search(line)]
+            if multiline and regex.search(text):
+                matches = [0]
+            if not matches:
+                continue
+            files_with_matches.append(file_path)
+            counts.append(f"{file_path}:{len(matches)}")
+            if output_mode != "content":
+                continue
+            emitted: set[int] = set()
+            for index in matches:
+                for line_index in range(max(0, index - before), min(len(lines), index + after + 1)):
+                    if line_index in emitted:
+                        continue
+                    emitted.add(line_index)
+                    prefix = f"{file_path}:{line_index + 1}:" if show_numbers else f"{file_path}:"
+                    content.append(prefix + lines[line_index])
+
+        if output_mode == "files_with_matches":
+            result = [str(file_path) for file_path in sorted(files_with_matches, key=_path_mtime_descending)]
+        elif output_mode == "count":
+            result = counts
+        else:
+            result = content
+        if head_limit not in {None, 0}:
+            result = result[:head_limit]
+        return "\n".join(result) if result else "No matches found."
+
+    @staticmethod
+    def _glob_files(pattern: str, root: Path) -> str:
+        search_pattern = pattern if Path(pattern).is_absolute() else str(root / pattern)
+        matches = [Path(match) for match in glob.glob(search_pattern, recursive=True) if Path(match).exists()]
+        matches.sort(key=_path_mtime_descending)
+        result = [str(match) for match in matches[:_GLOB_RESULT_LIMIT]]
+        if len(matches) > _GLOB_RESULT_LIMIT:
+            result.append(f"[... truncated to first {_GLOB_RESULT_LIMIT} of {len(matches)} matches ...]")
+        return "\n".join(result) if result else "No files found."
 
     async def list_windows(self, pid: int) -> dict[str, Any]:
         result = await self._call_tool("list_windows", {"pid": pid}, read_only=True)

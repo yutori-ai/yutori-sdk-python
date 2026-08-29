@@ -4,5 +4,8 @@
 # consumers (e.g. distro packagers) with a suite that cannot even collect.
 graft tests
 graft examples
+# Cookbook lockfiles are intentionally developer-local; the public cookbook
+# pins its Cua dependency in pyproject.toml and must not inherit a local lock.
+exclude examples/navigator_n2/uv.lock
 recursive-include yutori/navigator/macos/assets *
 global-exclude __pycache__ *.py[cod]

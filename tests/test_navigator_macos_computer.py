@@ -280,6 +280,57 @@ async def test_modified_scroll_fails_recoverably_without_driver_input():
     assert not transport.calls
 
 
+async def test_file_tools_preserve_the_served_contract(tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("first\nmatch\nthird\n", encoding="utf-8")
+    computer = MacOSComputer(
+        FakeTransport(),
+        owns_transport=False,
+        presentation=False,
+        allow_local_shell=True,
+    )
+    computer._bash_cwd = str(tmp_path)
+
+    assert await computer.read_file("notes.txt", offset=1, limit=1) == "     1\tfirst"
+    assert await computer.read_file("notes.txt", offset=2, limit=1) == "     2\tmatch"
+    assert await computer.edit_file("created.txt", "", "created") == "File created successfully at: created.txt"
+    assert (tmp_path / "created.txt").read_text() == "created"
+    with pytest.raises(MacOSRecoverableActionError, match="already exists"):
+        await computer.edit_file("created.txt", "", "replacement")
+
+    grep_output = await computer.grep_files("match", output_mode="content")
+    assert f"{notes}:2:match" in grep_output
+    assert str(notes) in await computer.glob_files("*.txt")
+
+
+async def test_held_modifier_is_emulated_by_the_pinned_driver_actions():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        await computer.key_down("ctrl")
+        await computer.click(10, 20)
+        await computer.key_up("ctrl")
+        with pytest.raises(MacOSRecoverableActionError, match="modifier keys"):
+            await computer.key_down("a")
+
+    click = next(call for call in transport.calls if call[0] == "click")
+    assert click[1]["modifier"] == ["ctrl"]
+
+
+async def test_manual_drag_and_timed_held_modifier_use_public_driver_primitives():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        await computer.move(10, 20)
+        await computer.left_mouse_down()
+        await computer.move(30, 40)
+        await computer.left_mouse_up()
+        await computer.hold_key("shift", ms=0)
+
+    drag = next(call for call in transport.calls if call[0] == "drag")
+    assert drag[1]["from_x"] == 10
+    assert drag[1]["to_y"] == 40
+    assert not [call for call in transport.calls if call[0] in {"mouse_down", "mouse_up", "hold_key"}]
+
+
 async def test_uncertain_mutation_captures_a_fresh_observation():
     class UncertainTransport(FakeTransport):
         async def call_tool(self, name, arguments, **kwargs):

@@ -3,21 +3,7 @@
   "sdk_version": "0.9.3",
   "overlay_protocol_version": 2,
   "renderer_protocol_version": 3,
-  "sources": [
-    {
-      "asset": "macos-overlay-host.swift",
-      "origin": "yutori monorepo npm_packages/n2-cua/src/native/macos-overlay-host.swift",
-      "origin_commit": "4b41ac2d6d7c724bc39eda58ea7cc16282f0ade6",
-      "origin_sha256": "0f2e9812b05cd7cbe7de0ec65cc7817e20dbd350d6180afedbbbe75a41b5bd1c",
-      "port": "Python protocol-v2 host with background-task and provisional-navigation support"
-    },
-    {
-      "asset": "navigator-overlay.iife.js",
-      "origin": "yutori monorepo npm_packages/navigator-overlay",
-      "origin_commit": "ab649d02b128989831e66debd8709cfc1aa1c256",
-      "origin_sha256": "7bcc1f79ccb6f622f7f166782258e15032e22fdc61b8b5158da77f6759d7eaa9",
-      "build": "pnpm --filter navigator-overlay build"
-    }
-  ],
+  "source": "Public yutori SDK distribution",
+  "assets": ["macos-overlay-host.swift", "navigator-overlay.iife.js"],
   "integrity": "prepare_macos_overlay records and verifies SHA-256 for every packaged asset and the compiled host"
 }

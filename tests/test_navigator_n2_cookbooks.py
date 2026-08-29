@@ -7,13 +7,15 @@ import importlib
 import io
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from PIL import Image
 
-from examples.navigator_n2.remote_sandbox import CuaSandboxComputer
+from examples.navigator_n2.remote_sandbox import _GLOB_SCRIPT, _GREP_SCRIPT, CuaSandboxComputer
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 
@@ -144,6 +146,47 @@ def test_cookbook_aliases_include_current_and_historical_n2_tool_sets() -> None:
     )
 
 
+def test_public_cua_file_search_scripts_execute_without_shell_interpolation(tmp_path: Path) -> None:
+    notes = tmp_path / "notes.txt"
+    notes.write_text("first\nmatch\n", encoding="utf-8")
+    ignored = tmp_path / ".git" / "ignored.txt"
+    ignored.parent.mkdir()
+    ignored.write_text("match\n", encoding="utf-8")
+
+    def run(script: str, arguments: dict[str, Any]) -> str:
+        encoded = base64.b64encode(json.dumps(arguments).encode()).decode()
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), encoded],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout
+
+    grep_output = run(
+        _GREP_SCRIPT,
+        {
+            "pattern": "match",
+            "path": str(tmp_path),
+            "glob": None,
+            "file_type": None,
+            "output_mode": "content",
+            "ignore_case": False,
+            "show_line_numbers": None,
+            "before_context": None,
+            "after_context": None,
+            "context": None,
+            "head_limit": 250,
+            "multiline": False,
+        },
+    )
+    assert f"{notes}:2:match" in grep_output
+    assert str(ignored) not in grep_output
+
+    glob_output = run(_GLOB_SCRIPT, {"pattern": "*.txt", "path": str(tmp_path)})
+    assert str(notes) in glob_output
+
+
 async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     sandbox = FakeSandbox()
     computer = CuaSandboxComputer(sandbox)
@@ -160,10 +203,10 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
         {"name": "type", "arguments": {"text": "hello"}},
         {"name": "key_press", "arguments": {"key": "ctrl+a"}},
         {"name": "drag", "arguments": {"start_coordinates": [100, 200], "coordinates": [200, 300]}},
+        {"name": "hold_key", "arguments": {"key": "shift"}},
         {"name": "mouse_move", "arguments": {"coordinates": [600, 400]}},
         {"name": "mouse_down", "arguments": {}},
         {"name": "mouse_up", "arguments": {}},
-        {"name": "hold_key", "arguments": {"key": "shift", "duration": 0}},
         {"name": "wait", "arguments": {"duration": 0}},
         {"name": "screenshot", "arguments": {}},
     ]
@@ -208,6 +251,10 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     assert ("key_up", "ctrl") in sandbox.calls
     assert ("key_down", "shift") in sandbox.calls
     assert ("key_up", "shift") in sandbox.calls
+    held_shift_down = [index for index, call in enumerate(sandbox.calls) if call == ("key_down", "shift")][-1]
+    held_shift_up = [index for index, call in enumerate(sandbox.calls) if call == ("key_up", "shift")][-1]
+    mouse_move = sandbox.calls.index(("move", 120, 40))
+    assert held_shift_down < mouse_move < held_shift_up
 
 
 async def test_public_cua_adapter_preserves_bash_cwd_when_the_command_fails() -> None:

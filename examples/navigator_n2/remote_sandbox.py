@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import json
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -21,6 +22,121 @@ except ImportError:
 
 SHELL_RESULT_MAX_CHARS = 8_000
 SHELL_RESULT_TRUNCATION_SUFFIX = "\n[result truncated]"
+
+_GREP_SCRIPT = r"""
+from pathlib import Path
+import base64
+import fnmatch
+import json
+import os
+import re
+import sys
+
+arguments = json.loads(base64.b64decode(sys.argv[2]).decode())
+root = Path(arguments["path"]).expanduser()
+if not root.is_absolute():
+    root = Path(sys.argv[1]) / root
+flags = re.MULTILINE | (re.IGNORECASE if arguments["ignore_case"] else 0)
+if arguments["multiline"]:
+    flags |= re.DOTALL
+try:
+    regex = re.compile(arguments["pattern"], flags)
+except re.error as error:
+    raise SystemExit(f"invalid regex: {error}")
+
+def files_to_search():
+    if root.is_file():
+        return [root]
+    if not root.is_dir():
+        return []
+    files = []
+    for directory, child_directories, filenames in os.walk(root):
+        child_directories[:] = [name for name in child_directories if name not in {".git", ".hg", ".svn"}]
+        files.extend(Path(directory, filename) for filename in filenames)
+    return files
+
+def include(file_path):
+    file_type = arguments["file_type"]
+    if file_type and file_path.suffix != "." + file_type.lstrip("."):
+        return False
+    glob_pattern = arguments["glob"]
+    if not glob_pattern:
+        return True
+    relative_root = root if root.is_dir() else root.parent
+    try:
+        relative = file_path.relative_to(relative_root)
+    except ValueError:
+        relative = file_path
+    return fnmatch.fnmatch(str(relative), glob_pattern) or fnmatch.fnmatch(file_path.name, glob_pattern)
+
+files_with_matches = []
+counts = []
+content = []
+show_numbers = (
+    arguments["output_mode"] == "content"
+    if arguments["show_line_numbers"] is None
+    else arguments["show_line_numbers"]
+)
+before = arguments["context"] if arguments["context"] is not None else arguments["before_context"] or 0
+after = arguments["context"] if arguments["context"] is not None else arguments["after_context"] or 0
+for file_path in files_to_search():
+    if not include(file_path):
+        continue
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        continue
+    lines = text.splitlines() or [text]
+    matches = [index for index, line in enumerate(lines) if regex.search(line)]
+    if arguments["multiline"] and regex.search(text):
+        matches = [0]
+    if not matches:
+        continue
+    files_with_matches.append(file_path)
+    counts.append(f"{file_path}:{len(matches)}")
+    if arguments["output_mode"] != "content":
+        continue
+    emitted = set()
+    for index in matches:
+        for line_index in range(max(0, index - before), min(len(lines), index + after + 1)):
+            if line_index in emitted:
+                continue
+            emitted.add(line_index)
+            prefix = f"{file_path}:{line_index + 1}:" if show_numbers else f"{file_path}:"
+            content.append(prefix + lines[line_index])
+
+if arguments["output_mode"] == "files_with_matches":
+    output = [str(path) for path in sorted(files_with_matches, key=lambda path: (-path.stat().st_mtime, str(path)))]
+elif arguments["output_mode"] == "count":
+    output = counts
+else:
+    output = content
+limit = arguments["head_limit"]
+if limit not in (None, 0):
+    output = output[:limit]
+print("\n".join(output))
+"""
+
+_GLOB_SCRIPT = r"""
+from pathlib import Path
+import base64
+import glob
+import json
+import sys
+
+arguments = json.loads(base64.b64decode(sys.argv[2]).decode())
+root = Path(arguments["path"]).expanduser()
+if not root.is_absolute():
+    root = Path(sys.argv[1]) / root
+pattern = arguments["pattern"]
+search_pattern = pattern if Path(pattern).is_absolute() else str(root / pattern)
+matches = [Path(match) for match in glob.glob(search_pattern, recursive=True) if Path(match).exists()]
+matches.sort(key=lambda path: (-path.stat().st_mtime, str(path)))
+output = [str(path) for path in matches[:100]]
+if len(matches) > 100:
+    output.append(f"[... truncated to first 100 of {len(matches)} matches ...]")
+print("\n".join(output))
+"""
 
 
 def _result_output(result: Any) -> str:
@@ -136,12 +252,18 @@ class CuaSandboxComputer:
     async def keypress(self, keys: Sequence[str] | str) -> None:
         await self.sandbox.keyboard.keypress(keys)
 
-    async def hold_key(self, key: str, ms: int = 1_000) -> None:
+    async def key_down(self, key: str) -> None:
         await self.sandbox.keyboard.key_down(key)
+
+    async def key_up(self, key: str) -> None:
+        await self.sandbox.keyboard.key_up(key)
+
+    async def hold_key(self, key: str, ms: int = 1_000) -> None:
+        await self.key_down(key)
         try:
             await asyncio.sleep(ms / 1_000)
         finally:
-            await self.sandbox.keyboard.key_up(key)
+            await self.key_up(key)
 
     async def wait(self, ms: int = 1_000) -> None:
         await asyncio.sleep(ms / 1_000)
@@ -215,7 +337,9 @@ class CuaSandboxComputer:
             return _format_shell_output(body, int(getattr(result, "returncode", 0) or 0))
         return _shell_result(result)
 
-    async def read_file(self, file_path: str, offset: int = 0, limit: int = 2_000) -> str:
+    async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> str:
+        if offset < 1:
+            raise ValueError("read.offset must be a positive 1-based line number")
         cwd = await self._working_directory()
         script = (
             "from pathlib import Path\n"
@@ -226,7 +350,7 @@ class CuaSandboxComputer:
             "text = data.decode('utf-8-sig') if data.startswith(b'\\xef\\xbb\\xbf') else "
             "(data.decode('utf-16') if data.startswith((b'\\xff\\xfe', b'\\xfe\\xff')) else data.decode('utf-8'))\n"
             "offset, limit = int(sys.argv[3]), int(sys.argv[4])\n"
-            "for number, line in enumerate(text.splitlines()[offset:offset + limit], offset + 1):\n"
+            "for number, line in enumerate(text.splitlines()[offset - 1:offset - 1 + limit], offset):\n"
             "    print(f'{number:6}\\t{line}')\n"
         )
         output = await self._run_python(script, file_path, cwd, str(offset), str(limit))
@@ -256,9 +380,22 @@ class CuaSandboxComputer:
         replace_all: bool = False,
     ) -> str:
         file_key = await self._file_key(file_path)
+        cwd = await self._working_directory()
+        if old_string == "":
+            script = (
+                "from pathlib import Path\n"
+                "import base64, sys\n"
+                "path = Path(sys.argv[1]).expanduser()\n"
+                "if not path.is_absolute(): path = Path(sys.argv[2]) / path\n"
+                "if path.exists(): raise SystemExit('File already exists; use a non-empty old_string to edit it')\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                "path.write_text(base64.b64decode(sys.argv[3]).decode(), encoding='utf-8')\n"
+            )
+            await self._run_python(script, file_path, cwd, base64.b64encode(new_string.encode()).decode())
+            self._file_snapshots.add(file_key)
+            return f"File created successfully at: {file_path}"
         if file_key not in self._file_snapshots:
             raise RuntimeError(f"Read or write {file_path} before editing it.")
-        cwd = await self._working_directory()
         script = (
             "from pathlib import Path\n"
             "import base64, sys\n"
@@ -269,7 +406,7 @@ class CuaSandboxComputer:
             "replace_all = sys.argv[5] == '1'\n"
             "text = path.read_text(encoding='utf-8')\n"
             "matches = text.count(old)\n"
-            "if not old or not matches: raise SystemExit('Requested text was not found')\n"
+            "if not matches: raise SystemExit('Requested text was not found')\n"
             "if matches > 1 and not replace_all: raise SystemExit(f'Found {matches} matches; use replace_all')\n"
             "path.write_text(text.replace(old, new, -1 if replace_all else 1), encoding='utf-8')\n"
             "print(matches if replace_all else 1)\n"
@@ -283,6 +420,50 @@ class CuaSandboxComputer:
             "1" if replace_all else "0",
         )
         return f"Edited {file_path}: replaced {replacements.strip()} occurrence(s)."
+
+    async def grep_files(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob_pattern: str | None = None,
+        file_type: str | None = None,
+        output_mode: str = "files_with_matches",
+        ignore_case: bool = False,
+        show_line_numbers: bool | None = None,
+        before_context: int | None = None,
+        after_context: int | None = None,
+        context: int | None = None,
+        head_limit: int | None = 250,
+        multiline: bool = False,
+    ) -> str:
+        cwd = await self._working_directory()
+        arguments = base64.b64encode(
+            json.dumps(
+                {
+                    "pattern": pattern,
+                    "path": path or cwd,
+                    "glob": glob_pattern,
+                    "file_type": file_type,
+                    "output_mode": output_mode,
+                    "ignore_case": ignore_case,
+                    "show_line_numbers": show_line_numbers,
+                    "before_context": before_context,
+                    "after_context": after_context,
+                    "context": context,
+                    "head_limit": head_limit,
+                    "multiline": multiline,
+                }
+            ).encode()
+        ).decode()
+        script = _GREP_SCRIPT
+        output = await self._run_python(script, cwd, arguments)
+        return output.rstrip() or "No matches found."
+
+    async def glob_files(self, pattern: str, path: str | None = None) -> str:
+        cwd = await self._working_directory()
+        arguments = base64.b64encode(json.dumps({"pattern": pattern, "path": path or cwd}).encode()).decode()
+        output = await self._run_python(_GLOB_SCRIPT, cwd, arguments)
+        return output.rstrip() or "No files found."
 
     async def _working_directory(self) -> str:
         if self._bash_cwd is None:
