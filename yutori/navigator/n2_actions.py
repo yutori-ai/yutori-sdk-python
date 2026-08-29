@@ -29,7 +29,7 @@ from .models import (
 N2_COORDINATE_SCALE = 1000
 N2_MAX_BATCH_ACTIONS = 20
 N2_MAX_WAIT_SECONDS = 300
-# A `wait` without a duration waits this long (the evaluation harness's converter).
+# A `wait` without a duration waits this long.
 N2_DEFAULT_WAIT_SECONDS = 5.0
 N2_MAX_SCROLL_AMOUNT = 50
 

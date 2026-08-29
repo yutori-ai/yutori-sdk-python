@@ -1,10 +1,9 @@
-"""Tests for the n2 loop's default policies, which are the evaluation harness's.
+"""Tests for the n2 loop's observation policies and budgets.
 
-These pin the observation stream the model sees: a blind start, one PNG 1280x720
+These pin the stream the model sees: a start without a frame, one PNG 1280x720
 frame per GUI turn appended to the turn's last tool result, image-less shell
 turns, ``[i:name]`` batch results, every tool call executed in order, prior-turn
-reasoning re-sent as message fields, questions routed to a caller, and run
-budgets.
+reasoning re-sent as message fields, resumable text-only turns, and run budgets.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ import io
 import json
 from typing import Any
 
+import pytest
 from PIL import Image
 
 from yutori.navigator import (
@@ -23,6 +23,7 @@ from yutori.navigator import (
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     parse_n2_tool_calls,
+    parse_terminal_marker,
 )
 from yutori.navigator.n2 import _CallbackDispatcher
 
@@ -231,10 +232,10 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
         ]
     )
     desktop = Desktop()
-    agent = _agent(desktop, completions)
+    agent = _agent(desktop, completions, system_prompt=N2_TASK_GUIDELINES)
     steps = [step async for step in agent.run("open the terminal")]
 
-    # Turn 1: blind start — system prompt first, the task alone, no image, harness budgets.
+    # Turn 1: no frame — the system prompt, then the task alone; default budgets.
     first = completions.requests[0]
     assert first["messages"][0] == {"role": "system", "content": N2_TASK_GUIDELINES}
     assert first["messages"][1] == {"role": "user", "content": "open the terminal"}
@@ -273,16 +274,16 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
     assert bash_result["content"] == "hello\n" and not _images(bash_result)
     assert batch_result["content"][0]["text"] == "[0:left_click]" and len(_images(batch_result)) == 1
 
-    # Turn 4: a bash-only turn adds no frame, and the run ends on the trained marker.
+    # Turn 4: a bash-only turn adds no frame, and the text-only answer ends the run.
     fourth = completions.requests[3]
     assert fourth["messages"][-1] == {"role": "tool", "tool_call_id": "b2", "content": "hello\n"}
     # Only two image-bearing tool messages exist, so nothing was pruned yet.
     assert sum(1 for message in fourth["messages"] if _images(message)) == 2
     assert desktop.calls.count(("screenshot",)) == 2
-    assert agent.stopped_by == "done"
+    assert agent.stopped_by == "final_answer"
     assert agent.last_usage == {"prompt_tokens": 9}
     final = steps[-1]["output"][-1]["content"][0]["text"]
-    assert final == "All set."
+    assert final == "All set. [DONE]"
 
 
 async def test_pruned_frames_leave_the_harness_marker_in_place():
@@ -316,51 +317,38 @@ async def test_harness_loop_sizes_a_blind_start_from_the_handler_dimensions():
     assert ("click", 2559, 0, "left") in desktop.calls
 
 
-async def test_questions_are_routed_to_the_caller_until_a_marker_or_the_cap():
+async def test_a_text_only_turn_ends_the_run_and_resume_continues_the_same_conversation():
     completions = FakeCompletions(
         [
             {"content": "Which folder should I use?", "tool_calls": []},
-            {"content": "And which file name?", "tool_calls": []},
-            {"content": "Understood, stopping here.", "tool_calls": []},
+            {"content": "", "tool_calls": [_bash("ls ~/Documents", "b1")]},
+            {"content": "Saved it. [DONE]", "tool_calls": []},
         ]
     )
-    asked: list[str] = []
-
-    async def answer(question: str):
-        asked.append(question)
-        return "Use ~/Documents" if len(asked) == 1 else None
-
-    agent = _agent(Desktop(), completions, on_question=answer)
+    agent = _agent(Desktop(), completions)
     steps = [step async for step in agent.run("save the report")]
+    # The loop does not interpret the text: no tool calls means the run ends, text untouched.
+    assert agent.stopped_by == "final_answer"
+    assert steps[-1]["output"][-1]["content"][0]["text"] == "Which folder should I use?"
+    assert len(completions.requests) == 1
 
-    assert asked == ["Which folder should I use?", "And which file name?"]
+    steps = [step async for step in agent.resume("Use ~/Documents")]
     second = completions.requests[1]["messages"]
     assert second[-2] == {"role": "assistant", "content": "Which folder should I use?"}
     assert second[-1] == {"role": "user", "content": "Use ~/Documents"}
-    # The unanswered second question ended the run as a final answer.
-    assert len(completions.requests) == 2
     assert agent.stopped_by == "final_answer"
-    assert steps[-1]["output"][-1]["content"][0]["text"] == "And which file name?"
+    assert steps[-1]["output"][-1]["content"][0]["text"] == "Saved it. [DONE]"
+    # The trajectory holds the whole conversation, including the resumed part.
+    kinds = [item.get("role") or item.get("type") for item in agent.trajectory]
+    assert kinds == ["user", "assistant", "user", "function_call", "function_call_output", "assistant"]
+    assert parse_terminal_marker(agent.trajectory[-1]["content"][0]["text"]) == "done"
 
 
-async def test_question_cap_and_terminal_markers_bypass_the_caller():
-    asked: list[str] = []
-
-    async def always_answer(question: str):
-        asked.append(question)
-        return "go on"
-
-    completions = FakeCompletions([{"content": "q1", "tool_calls": []}, {"content": "q2", "tool_calls": []}])
-    agent = _agent(Desktop(), completions, on_question=always_answer, max_consecutive_questions=1)
-    async for _ in agent.run("task"):
-        pass
-    assert asked == ["q1"] and agent.stopped_by == "final_answer"
-
-    completions = FakeCompletions([{"content": "Cannot do this [INFEASIBLE]", "tool_calls": []}])
-    agent = _agent(Desktop(), completions, on_question=always_answer)
-    async for _ in agent.run("task"):
-        pass
-    assert asked == ["q1"] and agent.stopped_by == "infeasible"
+async def test_resume_requires_a_prior_run():
+    agent = _agent(Desktop(), FakeCompletions([]))
+    with pytest.raises(RuntimeError):
+        async for _ in agent.resume("hello"):
+            pass
 
 
 async def test_step_budget_stops_the_run_and_reports_why():
@@ -398,9 +386,9 @@ async def test_compactor_can_rewrite_the_trajectory_before_a_model_call():
         pass
     assert compactor.seen == [{}, {"prompt_tokens": 6}, {"prompt_tokens": 7}]
     third = completions.requests[2]["messages"]
-    assert third[1] == {"role": "user", "content": "task"}
-    assert third[2]["content"].startswith("<working_checkpoint>")
-    assert len(third) == 3
+    assert third[0] == {"role": "user", "content": "task"}
+    assert third[1]["content"].startswith("<working_checkpoint>")
+    assert len(third) == 2
 
 
 # ---------------------------------------------------------------------------

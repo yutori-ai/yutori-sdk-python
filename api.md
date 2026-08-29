@@ -486,32 +486,33 @@ from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text (`[DONE]` / `[INFEASIBLE]` markers are recognised), a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which; `resume(message)` continues the same conversation. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
 `computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
 ### Loop policies
 
-The loop's defaults are Yutori's evaluation harness's — the loop the published n2 benchmark numbers were measured under — so a plain `N2ComputerAgent(computer=..., api_key=...)` observes and acts the way the model was trained: a blind start with one PNG 1280×720 frame per GUI turn appended to that turn's last tool result (the model asks for a frame with a `screenshot` batch member), every tool call of a turn executed in order, `[i:name]` batch results and the evaluation tools' shell/file text, prior-turn reasoning re-sent as the assistant message's `reasoning`/`reasoning_content` fields, older frames replaced by `[older image omitted]`, and the trained task-guideline system prompt. Each policy is a constructor keyword for callers who need something else:
+`run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. `parse_terminal_marker(text)` recognises the `[DONE]` / `[INFEASIBLE]` convention for callers whose prompt (for example `N2_TASK_GUIDELINES`) asks the model to end with one.
+
+What the model observes by default: the run starts without a screenshot (the model requests one with a `screenshot` batch member); each turn that ran a GUI action gets one PNG 1280×720 frame appended to its last tool result; every tool call of a turn is executed in order; tool results are text — `[i:name]` lines for a batch, the command output for `bash`, `cat -n` lines for `read`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. Each policy is a constructor keyword:
 
 | Keyword | Default | What it controls |
 |---|---|---|
-| `screenshot_policy` | `"on_demand"` | `"always"` instead captures a frame before the first turn and after every executed call, for hosts that poll for screen changes themselves. |
-| `system_prompt` | `N2_TASK_GUIDELINES` | Sent as a system message; the server appends it to its own prompt. `None` sends none. |
-| `image_profile` | `DEFAULT_IMAGE_PROFILE` (PNG, exactly 1280×720) | `N2ImageProfile(format, size, quality, exact)`. Frames of another aspect ratio, and images returned by `read`, are fitted inside `size` rather than stretched. |
+| `screenshot_policy` | `"on_demand"` | `"always"` instead captures a frame before the first turn and after every executed call. |
+| `system_prompt` | `None` | Sent as a system message ahead of the conversation (the server appends it to its own system prompt). |
+| `image_profile` | `DEFAULT_IMAGE_PROFILE` (PNG, exactly 1280×720) | `N2ImageProfile(format, size, quality, exact)`. Images of another aspect ratio (a `read` of an image file) are fitted inside `size`, not stretched. |
 | `max_completion_tokens` | `20480` | Output budget per model call. |
 | `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
 | `shell_result_max_chars` / `file_result_max_chars` | `30000` / `262144` | Tool output caps (`[... output truncated, N more chars ...]`). |
-| `api_timeout_seconds` | `600` | Per-request timeout sent with each model call (a thinking turn can take minutes). `None` uses the client's default. |
-| `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it, instead of on a rejected request. `None` disables the check. |
+| `api_timeout_seconds` | `600` | Per-request timeout sent with each model call. `None` uses the client's default. |
+| `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it. `None` disables the check. |
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
-| `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets (`stopped_by == "max_steps"` / `"timeout"`). |
-| `on_question` / `max_consecutive_questions` | `None` / `5` | `on_question(text) -> str | None` receives a final answer that carries no terminal marker and may return the user's reply to continue the run (the harness's user simulator), up to the cap in a row. |
+| `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
 | `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
 
-Two hooks for adapters: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text — the turn's frame is appended after it; and any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments, for backends that prefer the untranslated key expression or scroll `amount`. A `run_bash_command` handler may return `{"output", "exit_code", "timed_out", "timeout"}` and let the loop render it.
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text (the turn's frame is appended after it); any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments; a `run_bash_command` handler may return `{"output", "exit_code", "timed_out", "timeout"}` and let the loop render it.
 
-Adapters that want to emit exactly the evaluation tools' text can use the pure helpers in `yutori.navigator.n2_results` (all exported from `yutori.navigator`):
+Adapters that render their own tool results can use the pure helpers in `yutori.navigator.n2_results` (all exported from `yutori.navigator`):
 
 | Helper | Description |
 |---|---|
@@ -523,7 +524,7 @@ Adapters that want to emit exactly the evaluation tools' text can use the pure h
 | `apply_edit(content, file_path, old_string, new_string, *, replace_all=False)` | Exact-string replacement returning `(new_content, result_text)`; raises `N2EditError` with the tool's error text. |
 | `render_tool_output(result, *, max_chars)` | What the loop does with a shell/file handler's return value: a bash result dict → `format_bash_result`, anything else → text capped with `truncate_output`. |
 | `truncate_output(text, max_chars)` | The `[... output truncated, N more chars ...]` cap; idempotent on text already carrying the marker. |
-| `parse_terminal_marker(text)` | `"done"` / `"infeasible"` / `None`. |
+| `parse_terminal_marker(text)` | `"done"` / `"infeasible"` when the text carries `[DONE]` / `[INFEASIBLE]`, else `None`. |
 
 ### Screenshot helpers
 

@@ -1,12 +1,11 @@
-"""Text renderers for Navigator n2 tool results, matching the evaluation harness.
+"""Text renderers for Navigator n2 tool results.
 
-The n2 checkpoints were trained and evaluated against one specific rendering of
-every tool result: a ``computer_batch`` reports one ``[i:name]`` line per member,
-``bash`` returns its combined output with an ``Exit code N`` header on failure,
-``read`` returns ``cat -n`` lines, and so on. These helpers reproduce those
-strings exactly so an adapter can feed the model the observation stream it was
-measured under. They are pure functions: adapters call them with raw output and
-put the returned text on the wire.
+n2 expects one specific rendering of every tool result: a ``computer_batch``
+reports one ``[i:name]`` line per member, ``bash`` returns its combined output
+with an ``Exit code N`` header on failure, ``read`` returns ``cat -n`` lines, and
+so on. These helpers produce those strings from raw output. They are pure
+functions: the loop calls them for shell/file results, and an adapter that
+renders its own results can call them directly.
 """
 
 from __future__ import annotations
@@ -25,9 +24,9 @@ BASH_NO_OUTPUT_TEXT = "(Bash completed with no output)"
 READ_EMPTY_FILE_TEXT = "[file exists but is empty]"
 ACTION_EXECUTED_TEXT = "Action executed."
 
-# The clauses of the evaluation system prompt that describe trained behaviour —
-# ask without tools, end with the terminal markers — without the benchmark's
-# machine-specific lines (its Ubuntu pin and sudo password).
+# An optional system prompt for task runners: asks the model to pose questions
+# as text-only turns and to end its final answer with `[DONE]` or `[INFEASIBLE]`,
+# so an outer loop can tell questions from completion (see parse_terminal_marker).
 N2_TASK_GUIDELINES = (
     "# Task Guidelines\n"
     "If you find the task needs additional information to be properly completed or you need to ask clarifying "
@@ -44,7 +43,7 @@ _TRUNCATION_MARKER = re.compile(r"\[\.\.\. output truncated, \d+ more chars \.\.
 
 
 def truncate_output(text: str, max_chars: int) -> str:
-    """Cap ``text`` with the harness's ``[... output truncated, N more chars ...]`` marker.
+    """Cap ``text`` with the ``[... output truncated, N more chars ...]`` marker.
 
     Text that already ends with the marker (an adapter capped it at the source)
     is returned unchanged rather than cut a second time.
@@ -84,12 +83,12 @@ def format_batch_result(
     error_index: Optional[int] = None,
     error_text: Optional[str] = None,
 ) -> str:
-    """Render a ``computer_batch`` result the way the evaluation harness does.
+    """Render a ``computer_batch`` result: one ``[i:name]`` line per member.
 
     ``outcomes[i]`` is the text a completed member produced (``""`` for a GUI
     action, the queued-screenshot note for a ``screenshot`` member). When
     ``error_index`` is set, that member failed with ``error_text`` and every later
-    member was skipped; the result ends with the harness's halt line.
+    member was skipped; the result ends with the halt line.
     """
     if not member_names:
         return BATCH_EMPTY_TEXT
@@ -167,7 +166,7 @@ def format_write_result(file_path: str, *, created: bool) -> str:
 
 
 class N2EditError(ValueError):
-    """An ``edit`` that the harness rejects; ``str(error)`` is the exact model-visible message."""
+    """A rejected ``edit``; ``str(error)`` is the model-visible message."""
 
 
 def apply_edit(
@@ -208,7 +207,7 @@ def apply_edit(
 
 
 def parse_terminal_marker(text: str) -> Optional[str]:
-    """Return ``"done"`` / ``"infeasible"`` when a final answer carries the trained marker."""
+    """``"done"`` / ``"infeasible"`` when ``text`` carries a ``[DONE]`` / ``[INFEASIBLE]`` marker, else ``None``."""
     if "[INFEASIBLE]" in text:
         return "infeasible"
     if "[DONE]" in text:

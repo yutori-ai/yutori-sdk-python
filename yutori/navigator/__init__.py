@@ -51,7 +51,6 @@ from .models import (
     TOOL_SET_EXPANDED,
 )
 from .n2 import (
-    N2Compactor,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
@@ -73,6 +72,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
+from .n2_compaction import N2Compactor
 from .n2_payload import (
     DEFAULT_IMAGE_PROFILE,
     OLDER_IMAGE_OMITTED_TEXT,

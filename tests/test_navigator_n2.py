@@ -13,7 +13,6 @@ import pytest
 from PIL import Image
 
 from yutori.navigator import (
-    N2_TASK_GUIDELINES,
     TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS,
     TOOL_SET_COMPUTER_USE_BROWSER_BATCH,
     TOOL_SET_COMPUTER_USE_FILES,
@@ -966,7 +965,7 @@ async def test_agent_runs_a_click_turn_then_finishes():
                     ],
                 }
             ),
-            _turn({"content": "Done. [DONE]", "tool_calls": []}),
+            _turn({"content": "Done.", "tool_calls": []}),
         ]
     )
     computer = FakeComputer()
@@ -989,9 +988,9 @@ async def test_agent_runs_a_click_turn_then_finishes():
     assert first_request["parallel_tool_calls"] is True
     assert first_request["timeout"] == 600.0
     assert "temperature" not in first_request
-    assert first_request["messages"][0] == {"role": "system", "content": N2_TASK_GUIDELINES}
-    assert first_request["messages"][1] == {"role": "user", "content": "be careful"}
-    assert first_request["messages"][2] == {"role": "user", "content": "open calculator"}
+    assert first_request["messages"][0] == {"role": "user", "content": "be careful"}
+    assert first_request["messages"][1] == {"role": "user", "content": "open calculator"}
+    assert "system" not in {message["role"] for message in first_request["messages"]}
     assert not any(isinstance(message.get("content"), list) for message in first_request["messages"])
 
     # Turn 1 yields the model step, then the execution result — a GUI turn, so it carries the frame.
@@ -1043,7 +1042,7 @@ async def test_agent_defaults_to_latest_tool_set_and_preserves_native_observatio
                     ],
                 }
             ),
-            _turn({"content": "Finished [INFEASIBLE]", "tool_calls": []}),
+            _turn({"content": "Finished", "tool_calls": []}),
         ]
     )
     computer = ObservationComputer()

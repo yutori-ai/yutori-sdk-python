@@ -1,7 +1,7 @@
 """Screenshot encoding and request budgeting for the Navigator n2 loop.
 
 n2 requests carry full-frame screenshots re-encoded per an :class:`N2ImageProfile`
-(by default PNG at exactly 1280x720, as the evaluation harness sends them), keep
+(by default PNG at exactly 1280x720), keep
 images only in the two newest image-bearing messages (older ones leave an
 ``[older image omitted]`` marker), and must fit a 10 MB serialized request. Coordinates stay in the
 model's 0-1000 space mapped against the ORIGINAL capture's native dimensions, so
@@ -25,8 +25,8 @@ from .payload import estimate_messages_size_bytes
 class N2ImageProfile:
     """How screenshots are re-encoded before they reach the model.
 
-    The default is the evaluation harness's: frames of the target aspect ratio
-    are resized to exactly ``size`` (1920x1080 captures become 1280x720 PNGs);
+    By default frames of the target aspect ratio are resized to exactly ``size``
+    (1920x1080 captures become 1280x720 PNGs);
     images of another aspect ratio (a ``read`` of an image file) are fitted
     inside ``size`` instead so they are never distorted. ``exact=False`` fits
     every image inside ``size`` while keeping its aspect ratio (never
@@ -105,7 +105,7 @@ def latest_image_url(messages: list[dict[str, Any]]) -> "str | None":
 
 
 OLDER_IMAGE_OMITTED_TEXT = "[older image omitted]"
-"""The marker the evaluation harness leaves where a pruned screenshot used to be."""
+"""The text left where a pruned screenshot used to be."""
 
 
 def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[str] = None) -> None:
@@ -132,7 +132,7 @@ def retain_n2_image_window(
     """Copy messages and strip images outside the two newest image messages.
 
     Each pruned image is replaced in place by the ``omitted_text`` block (by
-    default :data:`OLDER_IMAGE_OMITTED_TEXT`, what the harness sends); with ``None`` the
+    default :data:`OLDER_IMAGE_OMITTED_TEXT`); with ``None`` the
     image part is dropped.
     """
     request_messages = copy.deepcopy(messages)

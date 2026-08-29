@@ -4,13 +4,18 @@ This SDK-owned loop lets computer-use hosts drive n2 without another agent
 framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
-- The loop's defaults are the evaluation harness's — the loop the published n2
-  benchmark numbers were measured under: a blind start with one PNG 1280x720
-  frame per GUI turn appended to that turn's last tool result, every tool call
-  of a turn executed in order, ``[i:name]`` batch results and the evaluation
-  tools' shell/file text, prior-turn reasoning re-sent as message fields, the
-  trained task-guideline system prompt, and its budgets. Every policy is a
-  constructor keyword for callers who need something else.
+- The run starts without a screenshot; the model asks for one with a
+  ``screenshot`` batch member, and each turn that ran a GUI action gets one PNG
+  1280x720 frame appended to its last tool result. Every tool call of a turn is
+  executed in order. Tool results are text (``[i:name]`` lines for a batch, the
+  command output for ``bash``, ``cat -n`` lines for ``read``) with bounded
+  length. Prior-turn reasoning is re-sent as the assistant message's
+  ``reasoning``/``reasoning_content`` fields. Each of these policies, and every
+  budget, is a constructor keyword.
+- A turn without tool calls ends the run (``stopped_by == "final_answer"``).
+  ``resume(message)`` appends a user message to the same trajectory and
+  continues, so a caller decides whether that text was a question, a final
+  answer, or something to steer.
 - The model call goes through the SDK's own chat-completions surface (or any
   object with a compatible async ``create``); the SDK chat namespace's bundled
   client already retries transient failures, so the loop adds no second retry
@@ -39,7 +44,6 @@ import asyncio
 import copy
 import inspect
 import json
-import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -75,6 +79,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
+from .n2_compaction import N2Compactor
 from .n2_payload import (
     DEFAULT_IMAGE_PROFILE,
     DEFAULT_MAX_MESSAGES_BYTES,
@@ -91,11 +96,9 @@ from .n2_results import (
     ACTION_EXECUTED_TEXT,
     BASH_MAX_OUTPUT_CHARS,
     BATCH_SCREENSHOT_MEMBER_TEXT,
-    N2_TASK_GUIDELINES,
     READ_MAX_OUTPUT_CHARS,
     format_action_error,
     format_batch_result,
-    parse_terminal_marker,
     render_tool_output,
 )
 
@@ -119,7 +122,7 @@ BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
 
 ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
-# Loop budgets (the evaluation harness's values); each is a constructor keyword.
+# Loop budgets; each is a constructor keyword.
 N2_MAX_COMPLETION_TOKENS = 20_480
 # A thinking n2 turn can take minutes; the SDK client's general default (30 s) is
 # far too short and a timeout costs the whole run.
@@ -129,37 +132,12 @@ N2_API_TIMEOUT_SECONDS = 600.0
 N2_CONTEXT_WINDOW_TOKENS = 128_000
 N2_CONTEXT_MARGIN_TOKENS = 4_096
 N2_TOOL_CALL_TIMEOUT_SECONDS = 900.0
-N2_MAX_CONSECUTIVE_QUESTIONS = 5
 _INITIAL_SCREENSHOT_CAPTION = "Current desktop screen"
-_FINAL_MARKER = re.compile(r"\s*\[(?:DONE|INFEASIBLE)\]\s*", re.IGNORECASE)
 
 # Tools whose execution changes what is on screen. After a turn that ran one of
 # these, the on-demand screenshot policy attaches a fresh frame; a turn of only
 # shell, file or browser-navigation calls gets no image.
 _NON_GUI_TOOL_NAMES = frozenset({BASH_TOOL_NAME, *SHELL_COMMAND_TOOL_NAMES, *FILE_TOOL_NAMES, "goto_url"})
-
-
-QuestionCallback = Callable[[str], Awaitable[Optional[str]]]
-
-
-class N2Compactor(Protocol):
-    """Rewrites the trajectory before a model call once the context grows too large.
-
-    ``items`` is the full trajectory so far (responses-items dicts as kept by
-    :class:`N2ComputerAgent`); ``last_usage`` is the previous response's usage
-    dict (its ``prompt_tokens`` is the usual trigger). Return a replacement
-    trajectory, or ``None`` to leave it unchanged.
-    """
-
-    async def compact(
-        self,
-        items: list[dict[str, Any]],
-        *,
-        last_usage: dict[str, Any],
-        completions: Any,
-        model: str,
-        tool_set: str,
-    ) -> Optional[list[dict[str, Any]]]: ...
 
 
 class SupportsN2ChatCompletionsCreate(Protocol):
@@ -194,10 +172,6 @@ def make_output_text_item(content: str) -> dict[str, Any]:
         "status": "completed",
         "content": [{"type": "output_text", "text": content, "annotations": []}],
     }
-
-
-def _strip_final_markers(content: str) -> str:
-    return _FINAL_MARKER.sub(" ", content).strip()
 
 
 def _observation_data(observation: Any) -> tuple[str, int, int, str]:
@@ -549,7 +523,7 @@ def parse_n2_tool_calls(
             )
 
     if not tool_calls:
-        output.append(make_output_text_item(_strip_final_markers(content_text) or "Task completed."))
+        output.append(make_output_text_item(content_text or "Task completed."))
 
     return output
 
@@ -873,7 +847,7 @@ async def execute_n2_computer_call(
                     raise RuntimeError(_file_not_supported_error(str(action_type)))
                 file_result = await file_method(**action_args)
                 # A file handler may return {"text", "image_url"} so `read` on an
-                # image file shows the model the image, as the harness's tool does.
+                # image file shows the model the image as well as the text.
                 if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
                     file_output_image = file_result.get("image_url")
                     file_result = file_result.get("text") or ""
@@ -1062,27 +1036,28 @@ class N2ComputerAgent:
     to preserve native multi-click timing; otherwise the loop falls back to
     double-click followed by left-click.
 
-    ``run()`` yields step dicts: ``{"output": [items...], "usage": {...},
+    ``run(task)`` yields step dicts: ``{"output": [items...], "usage": {...},
     "message": {...}}`` for each model turn (``message`` is the raw assistant
     message), then ``{"output": [result items]}`` per executed tool call. It
-    terminates when the model answers with a plain assistant message, a
-    callback's ``on_run_continue`` returns False, a ``max_steps`` /
+    ends when the model answers with text and no tool calls, a callback's
+    ``on_run_continue`` returns False, a ``max_steps`` /
     ``agent_timeout_seconds`` budget is spent, or the next request would exceed
-    ``context_window_tokens``; ``stopped_by`` records which (``"done"``,
-    ``"infeasible"``, ``"final_answer"``, ``"max_steps"``, ``"timeout"``,
-    ``"context_limit"``, ``"callback"``).
+    ``context_window_tokens``; ``stopped_by`` records which (``"final_answer"``,
+    ``"max_steps"``, ``"timeout"``, ``"context_limit"``, ``"callback"``). The
+    full trajectory is kept in ``trajectory``; ``resume(message)`` appends a
+    user message to it and continues the same conversation, so the caller
+    decides what a text-only answer means (a question to answer, a task to
+    steer, or the end).
 
-    The loop's policies default to the evaluation harness's and are all
-    keywords:
+    Loop policies, all keywords:
 
-    - ``screenshot_policy``: ``"on_demand"`` starts blind and attaches one frame
-      after a turn only when that turn ran a GUI action, appended to the turn's
-      last tool result (the model asks for a frame with a ``screenshot`` batch
-      member). ``"always"`` captures a frame before the first turn and after
-      every executed call, for hosts that poll for screen changes themselves.
-    - ``system_prompt``: sent as a system message, which the server appends to
-      its own prompt; :data:`N2_TASK_GUIDELINES` carries the trained
-      ask-a-question / ``[DONE]`` / ``[INFEASIBLE]`` clauses.
+    - ``screenshot_policy``: ``"on_demand"`` starts without a frame and attaches
+      one after a turn only when that turn ran a GUI action, appended to the
+      turn's last tool result (the model asks for a frame with a ``screenshot``
+      batch member). ``"always"`` captures a frame before the first turn and
+      after every executed call.
+    - ``system_prompt``: sent as a system message ahead of the conversation
+      (the server appends it to its own system prompt).
     - ``image_profile``: how frames are re-encoded (PNG at exactly 1280x720).
     - ``max_completion_tokens`` / ``reasoning_effort``: the model call's output
       budget and, when set, ``reasoning_effort`` passthrough.
@@ -1095,9 +1070,6 @@ class N2ComputerAgent:
       first and may rewrite the trajectory before a model call.
     - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
       ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
-    - ``on_question`` receives a final answer that carries no terminal marker and
-      may return the user's reply to continue the run (up to
-      ``max_consecutive_questions`` in a row).
     """
 
     def __init__(
@@ -1119,7 +1091,7 @@ class N2ComputerAgent:
         supports_click_modifiers: bool = False,
         supports_scroll_modifiers: "bool | None" = None,
         screenshot_policy: Literal["on_demand", "always"] = "on_demand",
-        system_prompt: "str | None" = N2_TASK_GUIDELINES,
+        system_prompt: "str | None" = None,
         image_profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE,
         max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS,
         reasoning_effort: "str | None" = None,
@@ -1130,8 +1102,6 @@ class N2ComputerAgent:
         tool_call_timeout_seconds: "float | None" = N2_TOOL_CALL_TIMEOUT_SECONDS,
         max_steps: "int | None" = None,
         agent_timeout_seconds: "float | None" = None,
-        on_question: "QuestionCallback | None" = None,
-        max_consecutive_questions: int = N2_MAX_CONSECUTIVE_QUESTIONS,
         compactor: "N2Compactor | None" = None,
     ):
         if tool_set not in SUPPORTED_N2_TOOL_SETS:
@@ -1174,10 +1144,9 @@ class N2ComputerAgent:
         self.tool_call_timeout_seconds = tool_call_timeout_seconds
         self.max_steps = max_steps
         self.agent_timeout_seconds = agent_timeout_seconds
-        self.on_question = on_question
-        self.max_consecutive_questions = max_consecutive_questions
         self.compactor = compactor
         self.stopped_by: "str | None" = None
+        self.trajectory: list[dict[str, Any]] = []
         self.last_usage: dict[str, Any] = {}
         self._native_size: "tuple[int, int] | None" = None
 
@@ -1338,18 +1307,30 @@ class N2ComputerAgent:
         result_item["output"] = {"type": "input_image", "image_url": data_url, "result": text or None}
 
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
-        """Run the agent until the model finishes, a callback stops it, or a budget is spent."""
-        old_items = self._initial_items(messages)
+        """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
+        self.trajectory = self._initial_items(messages)
+        async for step in self._drive(messages):
+            yield step
+
+    async def resume(self, message: Any) -> "AsyncGenerator[dict[str, Any], None]":
+        """Continue the previous run with one more user message (a string or content parts)."""
+        if not self.trajectory:
+            raise RuntimeError("resume() requires a prior run()")
+        self.trajectory.append({"role": "user", "content": message})
+        async for step in self._drive(message):
+            yield step
+
+    async def _drive(self, run_input: Any) -> "AsyncGenerator[dict[str, Any], None]":
+        old_items = self.trajectory
         new_items: list[dict[str, Any]] = []
         run_kwargs = {
-            "messages": messages,
+            "messages": run_input,
             "model": self.model,
             "tool_set": self.tool_set,
         }
         self.stopped_by = None
         started_at = time.monotonic()
         turns = 0
-        question_streak = 0
         await self._callbacks.fire("on_run_start", run_kwargs, old_items)
         try:
             while new_items[-1].get("role") != "assistant" if new_items else True:
@@ -1451,28 +1432,11 @@ class N2ComputerAgent:
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
 
-                message = result.get("message") or {}
-                if message.get("tool_calls"):
-                    question_streak = 0
-                    continue
-
-                # A turn without tool calls is the final answer — unless it is a
-                # question the caller can answer.
-                text = message.get("content") or ""
-                marker = parse_terminal_marker(text)
-                if (
-                    self.on_question is not None
-                    and marker is None
-                    and text.strip()
-                    and question_streak < self.max_consecutive_questions
-                ):
-                    answer = await self.on_question(text)
-                    if answer is not None:
-                        question_streak += 1
-                        new_items.append({"role": "user", "content": answer})
-                        continue
-                self.stopped_by = marker or "final_answer"
+                if not (result.get("message") or {}).get("tool_calls"):
+                    # A turn without tool calls ends the run; the caller may resume().
+                    self.stopped_by = "final_answer"
         finally:
+            self.trajectory = old_items + new_items
             # Unlike the reference, this fires even when the very first
             # on_run_continue stops the run.
             await self._callbacks.fire("on_run_end", run_kwargs, old_items, new_items)
