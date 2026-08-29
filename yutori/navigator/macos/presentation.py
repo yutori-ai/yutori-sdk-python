@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
-from .process_lifecycle import cancel_and_drain, terminate_process_gracefully
+from .process_lifecycle import cancel_and_drain, drain_stream, spawn_rpc_subprocess, terminate_process_gracefully
 from .types import (
     CancellationLatch,
     MacOSPresentationCapabilities,
@@ -30,7 +30,6 @@ _SHELL_MINIMUM_DWELL_SECONDS = 0.9
 _SHELL_TERMINAL_HOLD_SECONDS = 0.9
 _BACKGROUND_TERMINAL_HOLD_SECONDS = 1.5
 _NORMALIZED_SCALE = 1000
-_RPC_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
 _ACTION_STATUS = {
     "left_click": "Click",
@@ -281,15 +280,7 @@ class MacOSPresentationController:
         prepared = self._prepared or load_prepared_macos_overlay(self._cache_directory)
         config = json.dumps({"showStopButton": self._show_stop_button, "enableHotkey": True}, separators=(",", ":"))
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                str(prepared.binary),
-                str(prepared.html),
-                config,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=_RPC_STREAM_LIMIT_BYTES,
-            )
+            self._process = await spawn_rpc_subprocess(str(prepared.binary), str(prepared.html), config)
             self._ready = asyncio.get_running_loop().create_future()
             self._reader_task = asyncio.create_task(self._read_host())
             self._stderr_task = asyncio.create_task(self._drain_stderr())
@@ -491,12 +482,8 @@ class MacOSPresentationController:
             await self._degrade("host_exited")
 
     async def _drain_stderr(self) -> None:
-        assert self._process is not None and self._process.stderr is not None
-        try:
-            while await self._process.stderr.read(4096):
-                pass
-        except asyncio.CancelledError:
-            pass
+        assert self._process is not None
+        await drain_stream(self._process.stderr)
 
     async def _send_envelope(
         self,
