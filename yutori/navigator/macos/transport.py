@@ -9,7 +9,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from .process_lifecycle import terminate_process_gracefully
+from .process_lifecycle import cancel_and_drain, terminate_process_gracefully
 
 _RPC_TIMEOUT_SECONDS = 30.0
 _PROCESS_EXIT_TIMEOUT_SECONDS = 3.0
@@ -135,8 +135,7 @@ class CuaDriverTransport:
         if process is not None:
             await terminate_process_gracefully(process, exit_timeout=_PROCESS_EXIT_TIMEOUT_SECONDS)
         if self._stderr_task is not None:
-            self._stderr_task.cancel()
-            await asyncio.gather(self._stderr_task, return_exceptions=True)
+            await cancel_and_drain(self._stderr_task)
             self._stderr_task = None
 
     async def _restart(self) -> None:

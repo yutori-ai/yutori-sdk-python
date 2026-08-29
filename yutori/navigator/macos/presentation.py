@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
-from .process_lifecycle import terminate_process_gracefully
+from .process_lifecycle import cancel_and_drain, terminate_process_gracefully
 from .types import (
     CancellationLatch,
     MacOSPresentationCapabilities,
@@ -436,9 +436,7 @@ class MacOSPresentationController:
         if self._stopping:
             return
         self._stopping = True
-        for task in tuple(self._background_removals):
-            task.cancel()
-        await asyncio.gather(*self._background_removals, return_exceptions=True)
+        await cancel_and_drain(*self._background_removals)
         if self._process is not None and self._process.returncode is None and self._fatal_error is None:
             try:
                 await self._send_operation({"op": "destroy"}, allow_stopping=True)
@@ -719,9 +717,7 @@ class MacOSPresentationController:
         sleeper = asyncio.create_task(asyncio.sleep(seconds))
         cancelled = asyncio.create_task(self.cancellation.wait())
         done, pending = await asyncio.wait({sleeper, cancelled}, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        await cancel_and_drain(*pending)
         return sleeper in done
 
     def _validate_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
@@ -804,8 +800,6 @@ class MacOSPresentationController:
             await terminate_process_gracefully(process, exit_timeout=_PROCESS_EXIT_TIMEOUT_SECONDS, kill_timeout=0.5)
         current = asyncio.current_task()
         tasks = [task for task in (self._reader_task, self._stderr_task) if task is not None and task is not current]
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await cancel_and_drain(*tasks)
         self._reader_task = None
         self._stderr_task = None

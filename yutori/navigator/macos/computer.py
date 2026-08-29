@@ -25,6 +25,7 @@ from PIL import Image
 from .no_progress import NoProgressWatchdog
 from .polling import FRAME_POLL_ACTION_MAX_MS, frame_poll_wait_budget_ms, poll_until_frame_changes
 from .presentation import MacOSPresentationController
+from .process_lifecycle import cancel_and_drain
 from .sanitize import sanitize_command_preview
 from .transport import (
     CuaDriverConnectionError,
@@ -131,20 +132,6 @@ status=$?
 printf '%s\\n' "$status" > "$status_path"
 wait "$watcher"
 """.strip()
-
-
-async def _cancel_and_drain(*tasks: "asyncio.Task[Any]") -> None:
-    """Cancel any of the given tasks still running, then await all of them.
-
-    Cancelling an already-done task is a no-op, so this is safe whether the
-    tasks are a raced pair (one finished, one not) or an already-pending set.
-    `return_exceptions=True` absorbs each task's `CancelledError`/result so
-    this never raises on the caller's behalf.
-    """
-    for task in tasks:
-        if not task.done():
-            task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def _structured(result: dict[str, Any]) -> dict[str, Any]:
@@ -953,7 +940,7 @@ class MacOSComputer:
                 return operation.result()
             raise asyncio.CancelledError(stopped.result())
         finally:
-            await _cancel_and_drain(operation, stopped)
+            await cancel_and_drain(operation, stopped)
 
     async def _capture_png(self) -> tuple[bytes, int, int]:
         last_error: "Exception | None" = None
@@ -1250,7 +1237,7 @@ class MacOSComputer:
                 await process.wait()
             raise
         finally:
-            await _cancel_and_drain(communication, cancellation)
+            await cancel_and_drain(communication, cancellation)
 
     async def _monitor_background(self, background: _BackgroundProcess) -> None:
         try:
@@ -1321,7 +1308,7 @@ class MacOSComputer:
         done, pending = await asyncio.wait(
             {sleeper, cancellation}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
         )
-        await _cancel_and_drain(*pending)
+        await cancel_and_drain(*pending)
         if sleeper not in done:
             if cancellation not in done:
                 self.cancellation.request("deadline")
