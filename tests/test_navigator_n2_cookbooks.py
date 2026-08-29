@@ -13,18 +13,19 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from PIL import Image
 
-from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer
+from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _screenshot_base64() -> str:
+def _screenshot_base64(image_format: str = "PNG") -> str:
     buffer = io.BytesIO()
-    Image.new("RGB", (200, 100), (10, 20, 30)).save(buffer, format="PNG")
+    Image.new("RGB", (200, 100), (10, 20, 30)).save(buffer, format=image_format)
     return base64.b64encode(buffer.getvalue()).decode()
 
 
@@ -83,9 +84,9 @@ class FakeSandbox:
         self.keyboard = FakeKeyboard(self.calls)
         self.shell = FakeShell()
 
-    async def screenshot_base64(self, **_kwargs: Any) -> str:
+    async def screenshot_base64(self, **kwargs: Any) -> str:
         self.calls.append(("screenshot",))
-        return _screenshot_base64()
+        return _screenshot_base64(str(kwargs.get("format", "png")).upper())
 
     async def get_dimensions(self) -> tuple[int, int]:
         return 200, 100
@@ -200,6 +201,22 @@ def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_pa
 
     glob_output = run(**common, operation="glob", pattern="*.txt", path=str(tmp_path))
     assert str(notes) in glob_output
+
+
+@pytest.mark.parametrize("source", ["x" * 8_001, "x" * 8_000 + "\n"])
+def test_public_cua_shell_truncation_retains_failure_exit_code(source: str) -> None:
+    output = _format_shell_output(source, 7)
+    assert len(output) == 8_000
+    assert "[result truncated]" in output
+    assert "\n[exit code 7]" in output
+    assert output.endswith("[exit code 7]")
+
+
+async def test_public_cua_adapter_labels_jpeg_screenshots_correctly() -> None:
+    screenshot = await CuaSandboxComputer(FakeSandbox()).screenshot()
+    assert screenshot.startswith("data:image/jpeg;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(screenshot.split(",", 1)[1]))) as image:
+        assert image.format == "JPEG"
 
 
 async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:

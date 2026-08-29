@@ -25,6 +25,8 @@ async def main(args: argparse.Namespace) -> None:
             tool_set=selected_tool_set(args.tool_set),
             callbacks=[guard],
             action_confirmation_callback=build_confirmation_callback(args.auto_approve, always_confirm_shell=True),
+            supports_click_modifiers=True,
+            supports_scroll_modifiers=False,
         ) as agent:
             await run_agent(agent, args.task, guard)
 

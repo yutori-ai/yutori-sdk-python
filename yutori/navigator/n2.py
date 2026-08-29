@@ -305,7 +305,7 @@ def truncate_shell_result(output: str) -> str:
     """Bound shell output to the n2 wire contract's 8,000-character cap."""
     if len(output) <= SHELL_RESULT_MAX_CHARS:
         return output
-    return f"{output[:SHELL_RESULT_MAX_CHARS]}{SHELL_RESULT_TRUNCATION_SUFFIX}"
+    return f"{output[: SHELL_RESULT_MAX_CHARS - len(SHELL_RESULT_TRUNCATION_SUFFIX)]}{SHELL_RESULT_TRUNCATION_SUFFIX}"
 
 
 def _function_call_with_execution(
@@ -342,6 +342,7 @@ def parse_n2_tool_calls(
     tool_set: str = TOOL_SET_COMPUTER_USE_LATEST,
     execution_deadline: "float | None" = None,
     allow_click_modifiers: bool = False,
+    allow_scroll_modifiers: "bool | None" = None,
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
@@ -394,6 +395,7 @@ def parse_n2_tool_calls(
                     native_height,
                     tool_set=tool_set,
                     allow_click_modifiers=allow_click_modifiers,
+                    allow_scroll_modifiers=allow_scroll_modifiers,
                 )
                 call_item = _function_call_with_execution(
                     name,
@@ -451,6 +453,7 @@ def parse_n2_tool_calls(
                     native_width,
                     native_height,
                     allow_click_modifiers=allow_click_modifiers,
+                    allow_scroll_modifiers=allow_scroll_modifiers,
                 )
                 call_item = _function_call_with_execution(
                     name, args, call_id, translated, execution_deadline=execution_deadline
@@ -983,9 +986,11 @@ class N2ComputerAgent:
     context manager.
 
     Set ``supports_click_modifiers`` only for a handler that can execute a
-    modifier as one gesture for clicks and scrolls. It may also expose
-    ``triple_click`` to preserve native multi-click timing; otherwise the loop
-    falls back to double-click followed by left-click.
+    modifier as one click gesture. ``supports_scroll_modifiers`` defaults to
+    the same value for compatibility, but lets a handler reject modified
+    scrolls it cannot execute atomically. It may also expose ``triple_click``
+    to preserve native multi-click timing; otherwise the loop falls back to
+    double-click followed by left-click.
 
     ``run()`` yields step dicts: ``{"output": [items...], "usage": {...}}`` for
     each model turn, then ``{"output": [result frame]}`` per executed tool
@@ -1010,6 +1015,7 @@ class N2ComputerAgent:
         execution_deadline: "float | None" = None,
         temperature: "float | None" = None,
         supports_click_modifiers: bool = False,
+        supports_scroll_modifiers: "bool | None" = None,
     ):
         if tool_set not in SUPPORTED_N2_TOOL_SETS:
             raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -1017,7 +1023,10 @@ class N2ComputerAgent:
             raise ValueError("Provide either completions or api_key")
         if execution_deadline is not None and not isinstance(execution_deadline, (int, float)):
             raise ValueError("execution_deadline must be a monotonic timestamp in seconds")
-        if supports_click_modifiers and tool_set not in TOOL_SETS_WITH_CLICK_MODIFIERS:
+        supports_scroll_modifiers = (
+            supports_click_modifiers if supports_scroll_modifiers is None else supports_scroll_modifiers
+        )
+        if (supports_click_modifiers or supports_scroll_modifiers) and tool_set not in TOOL_SETS_WITH_CLICK_MODIFIERS:
             raise ValueError(f"Click modifiers require a modifier-capable n2 tool set, not {tool_set}")
         self.computer = computer
         self.tool_set = tool_set
@@ -1027,6 +1036,7 @@ class N2ComputerAgent:
         self.screenshot_delay = screenshot_delay
         self.execution_deadline = execution_deadline
         self.supports_click_modifiers = supports_click_modifiers
+        self.supports_scroll_modifiers = supports_scroll_modifiers
         self.action_confirmation_callback = action_confirmation_callback
         self.presentation = presentation
         self._callbacks = _CallbackDispatcher(callbacks)
@@ -1138,6 +1148,7 @@ class N2ComputerAgent:
             tool_set=self.tool_set,
             execution_deadline=self.execution_deadline,
             allow_click_modifiers=self.supports_click_modifiers,
+            allow_scroll_modifiers=self.supports_scroll_modifiers,
         )
         for output_item in output:
             if output_item.get("type") == "reasoning":

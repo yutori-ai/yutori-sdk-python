@@ -393,6 +393,7 @@ def translate_n2_action(
     *,
     batch_index: "int | None" = None,
     allow_click_modifiers: bool = False,
+    allow_scroll_modifiers: "bool | None" = None,
 ) -> list[dict[str, Any]]:
     """Strictly validate and translate one Yutori action to computer-handler calls."""
     if not isinstance(args, dict):
@@ -401,7 +402,10 @@ def translate_n2_action(
     _validate_fields(action, args)
 
     modifier = parse_n2_modifier(args.get("modifier"), action) if action in MODIFIABLE_ACTIONS else []
-    if modifier and not allow_click_modifiers:
+    modifier_allowed = (
+        allow_click_modifiers if action != "scroll" or allow_scroll_modifiers is None else allow_scroll_modifiers
+    )
+    if modifier and not modifier_allowed:
         # No fallback to the unmodified gesture on purpose: a ctrl-click that
         # lands as a click opens the file the model meant to add to a selection.
         raise N2ActionValidationError(
@@ -733,6 +737,7 @@ def translate_n2_batch(
     *,
     tool_set: str = TOOL_SET_COMPUTER_USE_LATEST,
     allow_click_modifiers: bool = False,
+    allow_scroll_modifiers: "bool | None" = None,
 ) -> "tuple[list[dict[str, Any]], list[dict[str, Any]]]":
     """Validate a complete batch before returning any executable actions."""
     if not isinstance(args, dict) or set(args) != {"actions"}:
@@ -773,6 +778,7 @@ def translate_n2_batch(
                 native_height,
                 batch_index=index,
                 allow_click_modifiers=allow_click_modifiers,
+                allow_scroll_modifiers=allow_scroll_modifiers,
             )
         )
         # The flattened member, not the raw one: confirmation prompts then render

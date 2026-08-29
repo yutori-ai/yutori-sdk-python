@@ -150,6 +150,28 @@ def test_scroll_converts_amount_to_pixels_and_validates_direction():
     assert modified[0]["modifier"] == ["shift"]
 
 
+def test_click_and_scroll_modifier_capabilities_can_be_configured_independently():
+    click = translate_n2_action(
+        "left_click",
+        {"coordinates": [1, 1], "modifier": "ctrl"},
+        100,
+        100,
+        allow_click_modifiers=True,
+        allow_scroll_modifiers=False,
+    )
+    assert click[0]["modifier"] == ["ctrl"]
+
+    with pytest.raises(N2ActionValidationError, match="not supported by this computer handler"):
+        translate_n2_action(
+            "scroll",
+            {"coordinates": [1, 1], "direction": "down", "amount": 1, "modifier": "shift"},
+            100,
+            100,
+            allow_click_modifiers=True,
+            allow_scroll_modifiers=False,
+        )
+
+
 def test_key_press_parses_chords_sequences_and_aliases():
     assert parse_n2_key_expression("ctrl+a enter") == [["ctrl", "a"], ["enter"]]
     assert parse_n2_key_expression("Command+Period") == [["cmd", "."]]
@@ -550,7 +572,7 @@ async def test_execute_shell_returns_truncated_text_with_the_screenshot():
     output = result[0]["output"]
     assert output["type"] == "input_image"
     assert output["result"].endswith("[result truncated]")
-    assert len(output["result"]) == 8000 + len("\n[result truncated]")
+    assert len(output["result"]) == 8000
 
 
 async def test_execute_shell_failures_are_recoverable_tool_errors():
@@ -1216,7 +1238,9 @@ async def test_agent_requests_stay_within_the_two_image_window():
 
 def test_truncate_shell_result_is_exact_at_the_boundary():
     assert truncate_shell_result("x" * 8000) == "x" * 8000
-    assert truncate_shell_result("x" * 8001).endswith("[result truncated]")
+    truncated = truncate_shell_result("x" * 8001)
+    assert len(truncated) == 8000
+    assert truncated.endswith("[result truncated]")
 
 
 async def test_agent_owns_a_real_client_when_given_credentials():

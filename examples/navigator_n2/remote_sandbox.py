@@ -174,8 +174,9 @@ def _result_output(result: Any) -> str:
 
 def _format_shell_output(output: str, exit_code: int) -> str:
     marker = f"[exit code {exit_code}]" if exit_code else ""
-    if len(output) > SHELL_RESULT_MAX_CHARS:
-        output = output[: SHELL_RESULT_MAX_CHARS - len(SHELL_RESULT_TRUNCATION_SUFFIX)] + SHELL_RESULT_TRUNCATION_SUFFIX
+    content_limit = SHELL_RESULT_MAX_CHARS - len(marker) - 1 if marker else SHELL_RESULT_MAX_CHARS
+    if len(output) > content_limit:
+        output = output[: content_limit - len(SHELL_RESULT_TRUNCATION_SUFFIX)] + SHELL_RESULT_TRUNCATION_SUFFIX
     if marker:
         return f"{output}{'' if not output or output.endswith(chr(10)) else chr(10)}{marker}"
     return output or "Command exited with code 0 and produced no output."
@@ -203,7 +204,8 @@ class CuaSandboxComputer:
         self._left_mouse_down = False
 
     async def screenshot(self) -> str:
-        return await self.sandbox.screenshot_base64(format="jpeg", quality=80)
+        screenshot = await self.sandbox.screenshot_base64(format="jpeg", quality=80)
+        return screenshot if screenshot.startswith("data:") else f"data:image/jpeg;base64,{screenshot}"
 
     async def get_dimensions(self) -> tuple[int, int]:
         return await self.sandbox.get_dimensions()
