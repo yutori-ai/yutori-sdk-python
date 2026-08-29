@@ -9,11 +9,10 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from .process_lifecycle import cancel_and_drain, terminate_process_gracefully
+from .process_lifecycle import cancel_and_drain, drain_stream, spawn_rpc_subprocess, terminate_process_gracefully
 
 _RPC_TIMEOUT_SECONDS = 30.0
 _PROCESS_EXIT_TIMEOUT_SECONDS = 3.0
-_RPC_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
 
 class CuaDriverError(RuntimeError):
@@ -79,14 +78,7 @@ class CuaDriverTransport:
         self._closing = False
         binary = self.binary or find_cua_driver_binary()
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                str(binary),
-                "mcp",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=_RPC_STREAM_LIMIT_BYTES,
-            )
+            self._process = await spawn_rpc_subprocess(str(binary), "mcp")
         except OSError as error:
             raise CuaDriverConnectionError(f"Failed to start cua-driver: {error}") from error
         self._stderr_task = asyncio.create_task(self._drain_stderr())
@@ -226,10 +218,4 @@ class CuaDriverTransport:
 
     async def _drain_stderr(self) -> None:
         process = self._process
-        if process is None or process.stderr is None:
-            return
-        try:
-            while await process.stderr.read(4096):
-                pass
-        except asyncio.CancelledError:
-            pass
+        await drain_stream(process.stderr if process is not None else None)
