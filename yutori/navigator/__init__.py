@@ -51,7 +51,10 @@ from .models import (
     TOOL_SET_EXPANDED,
 )
 from .n2 import (
+    HARNESS_MAX_COMPLETION_TOKENS,
+    N2Compactor,
     N2ComputerAgent,
+    N2LoopOptions,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     parse_n2_tool_calls,
@@ -73,7 +76,27 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_payload import prepare_n2_image_data_url, retain_n2_image_window
+from .n2_payload import (
+    DEFAULT_IMAGE_PROFILE,
+    HARNESS_IMAGE_PROFILE,
+    OLDER_IMAGE_OMITTED_TEXT,
+    N2ImageProfile,
+    prepare_n2_image_data_url,
+    retain_n2_image_window,
+)
+from .n2_results import (
+    N2_TASK_GUIDELINES,
+    N2EditError,
+    apply_edit,
+    format_background_bash_result,
+    format_bash_result,
+    format_batch_result,
+    format_cat_n,
+    format_read_result,
+    format_write_result,
+    parse_terminal_marker,
+    truncate_output,
+)
 from .payload import (
     DEFAULT_MAX_REQUEST_BYTES,
     estimate_messages_size_bytes,
@@ -92,6 +115,15 @@ __all__ = [
     "NAVIGATOR_N2_MODEL",
     "N2ActionValidationError",
     "N2ComputerAgent",
+    "N2Compactor",
+    "N2LoopOptions",
+    "N2ImageProfile",
+    "N2EditError",
+    "N2_TASK_GUIDELINES",
+    "DEFAULT_IMAGE_PROFILE",
+    "HARNESS_IMAGE_PROFILE",
+    "OLDER_IMAGE_OMITTED_TEXT",
+    "HARNESS_MAX_COMPLETION_TOKENS",
     "SUPPORTED_N2_TOOL_SETS",
     "DEFAULT_MAX_REQUEST_BYTES",
     "RunHooksBase",
@@ -143,4 +175,13 @@ __all__ = [
     "trim_images_to_fit",
     "trimmed_messages_to_fit",
     "truncate_shell_result",
+    "truncate_output",
+    "apply_edit",
+    "format_background_bash_result",
+    "format_bash_result",
+    "format_batch_result",
+    "format_cat_n",
+    "format_read_result",
+    "format_write_result",
+    "parse_terminal_marker",
 ]
