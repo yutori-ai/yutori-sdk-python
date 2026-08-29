@@ -133,6 +133,20 @@ wait "$watcher"
 """.strip()
 
 
+async def _cancel_and_drain(*tasks: "asyncio.Task[Any]") -> None:
+    """Cancel any of the given tasks still running, then await all of them.
+
+    Cancelling an already-done task is a no-op, so this is safe whether the
+    tasks are a raced pair (one finished, one not) or an already-pending set.
+    `return_exceptions=True` absorbs each task's `CancelledError`/result so
+    this never raises on the caller's behalf.
+    """
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 def _structured(result: dict[str, Any]) -> dict[str, Any]:
     value = result.get("structuredContent") or result.get("structured_content") or {}
     return value if isinstance(value, dict) else {}
@@ -939,10 +953,7 @@ class MacOSComputer:
                 return operation.result()
             raise asyncio.CancelledError(stopped.result())
         finally:
-            for task in (operation, stopped):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(operation, stopped, return_exceptions=True)
+            await _cancel_and_drain(operation, stopped)
 
     async def _capture_png(self) -> tuple[bytes, int, int]:
         last_error: "Exception | None" = None
@@ -1239,10 +1250,7 @@ class MacOSComputer:
                 await process.wait()
             raise
         finally:
-            for task in (communication, cancellation):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(communication, cancellation, return_exceptions=True)
+            await _cancel_and_drain(communication, cancellation)
 
     async def _monitor_background(self, background: _BackgroundProcess) -> None:
         try:
@@ -1313,9 +1321,7 @@ class MacOSComputer:
         done, pending = await asyncio.wait(
             {sleeper, cancellation}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
         )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        await _cancel_and_drain(*pending)
         if sleeper not in done:
             if cancellation not in done:
                 self.cancellation.request("deadline")
