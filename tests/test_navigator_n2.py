@@ -176,8 +176,9 @@ def test_click_and_scroll_modifier_capabilities_can_be_configured_independently(
 def test_key_press_parses_chords_sequences_and_aliases():
     assert parse_n2_key_expression("ctrl+a enter") == [["ctrl", "a"], ["enter"]]
     assert parse_n2_key_expression("Command+Period") == [["cmd", "."]]
-    with pytest.raises(N2ActionValidationError, match="unknown key name"):
-        parse_n2_key_expression("notakey")
+    assert parse_n2_key_expression("ArrowUp Insert") == [["up"], ["insert"]]
+    # Names outside the vocabulary pass through lowercased; the handler decides.
+    assert parse_n2_key_expression("notakey") == [["notakey"]]
     with pytest.raises(N2ActionValidationError, match="invalid key combination"):
         parse_n2_key_expression("ctrl++a")
 
@@ -309,13 +310,14 @@ def test_historical_batches_reject_modified_scroll_before_translating_any_member
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_image_encodes_png_at_1280x720_and_fits_other_aspects():
+def test_prepare_image_converts_format_only_and_never_resizes():
     frame = prepare_n2_image_data_url(_png_data_url(1920, 1080))
-    assert frame.startswith("data:image/png;base64,")
-    assert image_dimensions(frame) == (1280, 720)
-    # Another aspect ratio is fitted inside the box, never stretched or upscaled.
-    assert image_dimensions(prepare_n2_image_data_url(_png_data_url(2560, 1600))) == (1152, 720)
-    assert image_dimensions(prepare_n2_image_data_url(_png_data_url(200, 100))) == (200, 100)
+    assert frame.startswith("data:image/webp;base64,")
+    assert image_dimensions(frame) == (1920, 1080)  # the capture defines the size
+    # A source already in the target encoding passes through byte-for-byte.
+    assert prepare_n2_image_data_url(frame) == frame
+    png = prepare_n2_image_data_url(_png_data_url(200, 100), "png")
+    assert png == _png_data_url(200, 100)
 
 
 def test_image_window_keeps_only_two_newest_image_messages():
@@ -426,10 +428,10 @@ def test_an_invalid_call_does_not_block_the_next_one():
     assert "does not expose left_click" in output[-1]["output"]
 
 
-def test_parse_tool_calls_terminal_message_defaults_to_task_completed():
+def test_parse_tool_calls_terminal_message_keeps_an_empty_answer_empty():
     output = parse_n2_tool_calls({"content": "", "tool_calls": []}, 100, 100)
     assert output[-1]["type"] == "message"
-    assert output[-1]["content"][0]["text"] == "Task completed."
+    assert output[-1]["content"][0]["text"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -1146,9 +1148,15 @@ async def test_agent_does_not_execute_calls_that_failed_validation():
         screenshot_delay=0,
     )
     steps = [step async for step in agent.run("task")]
-    errors = [item["output"] for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
-    assert any(str(error).startswith("[ERROR] Invalid left_click call") for error in errors)
+    outputs = [
+        item["output"] for step in steps for item in step["output"] if item.get("type") == "function_call_output"
+    ]
+    # The validation error carries the turn's frame: the trigger is the tool name,
+    # not whether the call ran.
+    (error,) = outputs
+    assert error["type"] == "input_image" and error["result"].startswith("[ERROR] Invalid left_click call")
     assert not [call for call in computer.calls if call[0] == "click"]
+    assert ("screenshot",) in computer.calls
 
 
 async def test_agent_guard_can_stop_the_run_and_run_end_still_fires():
@@ -1218,8 +1226,8 @@ async def test_agent_requests_stay_within_the_two_image_window():
         if isinstance(part, dict) and part.get("type") == "image_url"
     ]
     assert len(image_parts) == 2
-    # Every image the wire carries is the profile's re-encode (PNG), not the raw capture.
-    assert all(part["image_url"]["url"].startswith("data:image/png;") for part in image_parts)
+    # Every image the wire carries is the default WebP re-encode of the raw capture.
+    assert all(part["image_url"]["url"].startswith("data:image/webp;") for part in image_parts)
 
 
 async def test_agent_owns_a_real_client_when_given_credentials():

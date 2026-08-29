@@ -5,13 +5,17 @@ framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
 - The run starts without a screenshot; the model asks for one with a
-  ``screenshot`` batch member, and each turn that ran a GUI action gets one PNG
-  1280x720 frame appended to its last tool result. Every tool call of a turn is
+  ``screenshot`` batch member, and each turn that ran a GUI action gets one
+  frame appended to its last tool result. Frames are sent at the computer
+  handler's own capture size and re-encoded to ``image_format`` (WebP). Every tool call of a turn is
   executed in order. Tool results are text (``[i:name]`` lines for a batch, the
   command output for ``bash``, ``cat -n`` lines for ``read``) with bounded
   length. Prior-turn reasoning is re-sent as the assistant message's
   ``reasoning``/``reasoning_content`` fields. Each of these policies, and every
   budget, is a constructor keyword.
+- A turn whose text carries literal ``<tool_call>`` markup but parsed no tool
+  calls gets one retry with a format reminder; neither the malformed attempt nor
+  the reminder enters the kept trajectory.
 - A turn without tool calls ends the run (``stopped_by == "final_answer"``).
   ``resume(message)`` appends a user message to the same trajectory and
   continues, so a caller decides whether that text was a question, a final
@@ -42,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import inspect
 import json
 import time
@@ -81,10 +86,9 @@ from .n2_actions import (
 )
 from .n2_compaction import N2Compactor
 from .n2_payload import (
-    DEFAULT_IMAGE_PROFILE,
+    DEFAULT_IMAGE_FORMAT,
     DEFAULT_MAX_MESSAGES_BYTES,
     MAX_REQUEST_BODY_BYTES,
-    N2ImageProfile,
     convert_request_images,
     fit_n2_request_images_to_budget,
     image_dimensions,
@@ -97,8 +101,10 @@ from .n2_results import (
     BASH_MAX_OUTPUT_CHARS,
     BATCH_SCREENSHOT_MEMBER_TEXT,
     READ_MAX_OUTPUT_CHARS,
+    TOOL_CALL_FORMAT_NUDGE,
     format_action_error,
     format_batch_result,
+    needs_tool_call_format_nudge,
     render_tool_output,
 )
 
@@ -260,7 +266,7 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 # A caller-provided chat-style history carries assistant turns
                 # as plain strings; dropping them would silently erase context.
                 if content:
-                    append_assistant({"role": "assistant", "content": content})
+                    append_assistant({"role": "assistant", "content": content.rstrip("\n")})
                 continue
             texts = [
                 part.get("text", "")
@@ -268,7 +274,7 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 if isinstance(part, dict) and part.get("type") in {"output_text", "text"}
             ]
             if texts:
-                append_assistant({"role": "assistant", "content": "\n".join(texts)})
+                append_assistant({"role": "assistant", "content": "\n".join(texts).rstrip("\n")})
 
         elif item_type == "reasoning":
             texts = [
@@ -281,12 +287,14 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 pending_reasoning = "\n".join(texts)
 
         elif item_type == "function_call":
-            if not completion_messages or completion_messages[-1].get("role") != "assistant":
+            # Pending reasoning belongs to THIS turn: it starts a new assistant
+            # message rather than riding on an earlier turn's.
+            if (
+                not completion_messages
+                or completion_messages[-1].get("role") != "assistant"
+                or pending_reasoning is not None
+            ):
                 append_assistant({"role": "assistant", "content": "", "tool_calls": []})
-            elif pending_reasoning is not None:
-                completion_messages[-1]["reasoning"] = pending_reasoning
-                completion_messages[-1]["reasoning_content"] = pending_reasoning
-                pending_reasoning = None
             completion_messages[-1].setdefault("tool_calls", [])
             arguments = item.get("arguments")
             if isinstance(arguments, dict):
@@ -312,7 +320,7 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                         {
                             "type": "text",
                             "text": (
-                                result_metadata
+                                result_metadata.strip()
                                 if isinstance(result_metadata, str)
                                 else json.dumps(result_metadata, separators=(",", ":"), ensure_ascii=False)
                             ),
@@ -323,7 +331,7 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                     content.append({"type": "image_url", "image_url": {"url": extra_url}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
-                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output)})
+                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output).strip()})
 
     flush_pending_reasoning()
     return completion_messages
@@ -355,12 +363,18 @@ def _browser_not_supported_error(action_type: str) -> str:
     return f"{action_type} is only supported by a browser computer environment."
 
 
-def _accepts_kwarg(func: Any, name: str) -> bool:
+@functools.lru_cache(maxsize=None)
+def _function_accepts_kwarg(func: Any, name: str) -> bool:
     try:
         params = inspect.signature(func).parameters
     except (TypeError, ValueError):
         return False
     return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    """Signature sniff, cached on the underlying function; kept for adapter compatibility."""
+    return _function_accepts_kwarg(getattr(func, "__func__", func), name)
 
 
 def _function_call_with_execution(
@@ -376,7 +390,7 @@ def _function_call_with_execution(
     item["_computer_actions"] = actions
     # Confirmation callbacks always see Yutori-shaped entries: one
     # {"action": name, **arguments} per member for batches and singles alike.
-    item["_confirmation_actions"] = batch_actions if batch_actions is not None else [{"action": name, **args}]
+    item["_model_actions"] = batch_actions if batch_actions is not None else [{"action": name, **args}]
     item["_requires_confirmation"] = (
         any(action.get("action") not in SAFE_WITHOUT_CONFIRMATION for action in batch_actions)
         if batch_actions is not None
@@ -406,8 +420,7 @@ def parse_n2_tool_calls(
     call — followed immediately by a recoverable ``[ERROR]`` result when the
     call fails validation, so history stays consistent and the model can
     correct itself. Every tool call of a turn is translated, to be executed in
-    order. A turn with no tool calls yields a terminal assistant message
-    ("Task completed." when the model sent nothing at all).
+    order. A turn with no tool calls yields a terminal assistant message.
     """
     if tool_set not in SUPPORTED_N2_TOOL_SETS:
         raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -523,7 +536,7 @@ def parse_n2_tool_calls(
             )
 
     if not tool_calls:
-        output.append(make_output_text_item(content_text or "Task completed."))
+        output.append(make_output_text_item(content_text))
 
     return output
 
@@ -609,10 +622,7 @@ async def _confirm_computer_item(item: dict[str, Any], confirmation_callback: "C
         "arguments": item.get("arguments"),
         # Every entry uses the Yutori wire shape {"action": name, **arguments}
         # for singles and batch members alike.
-        "actions": item.get("_confirmation_actions")
-        or item.get("_batch_actions")
-        or item.get("_computer_actions")
-        or [],
+        "actions": item.get("_model_actions") or item.get("_batch_actions") or item.get("_computer_actions") or [],
     }
     decision = confirmation_callback(request)
     if inspect.isawaitable(decision):
@@ -665,7 +675,7 @@ async def execute_n2_computer_call(
 
     actions = item.get("_computer_actions") or []
     batch_actions = item.get("_batch_actions")
-    model_actions = item.get("_confirmation_actions") or [{"action": item.get("name")}]
+    model_actions = item.get("_model_actions") or [{"action": item.get("name")}]
     reference_observation = getattr(computer, "current_observation", None)
 
     await callbacks.fire("on_computer_call_start", item)
@@ -1058,7 +1068,9 @@ class N2ComputerAgent:
       after every executed call.
     - ``system_prompt``: sent as a system message ahead of the conversation
       (the server appends it to its own system prompt).
-    - ``image_profile``: how frames are re-encoded (PNG at exactly 1280x720).
+    - ``image_format``: the encoding request images are converted to (WebP by
+      default). The SDK never resizes: the computer handler's capture defines
+      the frame, so pick the viewport (and remove DPR scaling) in the handler.
     - ``max_completion_tokens`` / ``reasoning_effort``: the model call's output
       budget and, when set, ``reasoning_effort`` passthrough.
     - ``shell_result_max_chars`` / ``file_result_max_chars``: tool output caps.
@@ -1070,6 +1082,8 @@ class N2ComputerAgent:
       first and may rewrite the trajectory before a model call.
     - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
       ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
+    - ``completion_kwargs``: extra fields merged into every chat-completions
+      request (e.g. ``top_p``) for callers who want explicit sampling settings.
     """
 
     def __init__(
@@ -1092,7 +1106,7 @@ class N2ComputerAgent:
         supports_scroll_modifiers: "bool | None" = None,
         screenshot_policy: Literal["on_demand", "always"] = "on_demand",
         system_prompt: "str | None" = None,
-        image_profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE,
+        image_format: str = DEFAULT_IMAGE_FORMAT,
         max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS,
         reasoning_effort: "str | None" = None,
         shell_result_max_chars: int = BASH_MAX_OUTPUT_CHARS,
@@ -1100,6 +1114,7 @@ class N2ComputerAgent:
         api_timeout_seconds: "float | None" = N2_API_TIMEOUT_SECONDS,
         context_window_tokens: "int | None" = N2_CONTEXT_WINDOW_TOKENS,
         tool_call_timeout_seconds: "float | None" = N2_TOOL_CALL_TIMEOUT_SECONDS,
+        completion_kwargs: "dict[str, Any] | None" = None,
         max_steps: "int | None" = None,
         agent_timeout_seconds: "float | None" = None,
         compactor: "N2Compactor | None" = None,
@@ -1134,7 +1149,7 @@ class N2ComputerAgent:
         self.timings: dict[str, float] = {"model_ms": 0}
         self.screenshot_policy = screenshot_policy
         self.system_prompt = system_prompt
-        self.image_profile = image_profile
+        self.image_format = image_format
         self.max_completion_tokens = max_completion_tokens
         self.reasoning_effort = reasoning_effort
         self.shell_result_max_chars = shell_result_max_chars
@@ -1142,6 +1157,7 @@ class N2ComputerAgent:
         self.api_timeout_seconds = api_timeout_seconds
         self.context_window_tokens = context_window_tokens
         self.tool_call_timeout_seconds = tool_call_timeout_seconds
+        self.completion_kwargs = dict(completion_kwargs or {})
         self.max_steps = max_steps
         self.agent_timeout_seconds = agent_timeout_seconds
         self.compactor = compactor
@@ -1232,7 +1248,7 @@ class N2ComputerAgent:
         # sent. Apply the byte budget after conversion because it measures the
         # actual request representation.
         completion_messages = retain_n2_image_window(completion_messages)
-        convert_request_images(completion_messages, self.image_profile)
+        convert_request_images(completion_messages, self.image_format)
         completion_messages = fit_n2_request_images_to_budget(completion_messages, DEFAULT_MAX_MESSAGES_BYTES)
 
         request_bytes = serialized_messages_bytes(completion_messages)
@@ -1255,20 +1271,31 @@ class N2ComputerAgent:
             api_kwargs["reasoning_effort"] = self.reasoning_effort
         if self.api_timeout_seconds is not None:
             api_kwargs["timeout"] = self.api_timeout_seconds
-        await self._callbacks.fire("on_api_start", api_kwargs)
-        model_started_at = time.monotonic()
-        try:
-            response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
-        finally:
-            self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
-        await self._callbacks.fire("on_api_end", api_kwargs, response)
+        api_kwargs.update(self.completion_kwargs)
 
-        response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-        usage = response_dict.get("usage") or {}
-        self.last_usage = usage
-        await self._callbacks.fire("on_usage", usage)
+        for attempt in (0, 1):
+            await self._callbacks.fire("on_api_start", api_kwargs)
+            model_started_at = time.monotonic()
+            try:
+                response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
+            finally:
+                self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
+            await self._callbacks.fire("on_api_end", api_kwargs, response)
 
-        message = (response_dict.get("choices") or [{}])[0].get("message") or {}
+            response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+            usage = response_dict.get("usage") or {}
+            self.last_usage = usage
+            await self._callbacks.fire("on_usage", usage)
+            message = (response_dict.get("choices") or [{}])[0].get("message") or {}
+            if attempt == 0 and needs_tool_call_format_nudge(message):
+                # One ephemeral retry: the malformed attempt and the reminder ride
+                # in the retry request only, never in the kept trajectory.
+                api_kwargs["messages"] = completion_messages + [
+                    {"role": "assistant", "content": message.get("content") or ""},
+                    {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE},
+                ]
+                continue
+            break
         output = parse_n2_tool_calls(
             message,
             native_width,
@@ -1294,7 +1321,16 @@ class N2ComputerAgent:
         """Capture one frame after a GUI turn and append it to that turn's last tool result."""
         if self.screenshot_delay and self.screenshot_delay > 0:
             await asyncio.sleep(self.screenshot_delay)
-        data_url, _, _, raw_base64 = _observation_data(await self.computer.screenshot())
+        try:
+            data_url, _, _, raw_base64 = _observation_data(await self.computer.screenshot())
+        except Exception as error:  # noqa: BLE001 - a failed frame must not kill the run
+            note = f"[ERROR] Post-turn screenshot failed: {error}"
+            output = result_item.get("output")
+            if isinstance(output, dict) and output.get("type") == "input_image":
+                output["result"] = f"{output.get('result') or ''}\n{note}".strip()
+            else:
+                result_item["output"] = f"{'' if output is None else output}\n{note}".strip()
+            return
         await self._callbacks.fire("on_screenshot", raw_base64, "screenshot_after")
         output = result_item.get("output")
         if isinstance(output, dict) and output.get("type") == "input_image":
@@ -1394,7 +1430,18 @@ class N2ComputerAgent:
                         executable.append(item)
 
                 on_demand = self.screenshot_policy == "on_demand"
-                executed_gui = False
+                turn_items = result.get("output") or []
+                gui_turn = any(
+                    item.get("type") == "function_call" and item.get("name") not in _NON_GUI_TOOL_NAMES
+                    for item in turn_items
+                )
+                # A call answered by validation still holds the turn's last result;
+                # it receives the frame when nothing else executes (the trigger is
+                # the tool name, not whether the call ran).
+                last_result_item = next(
+                    (item for item in reversed(turn_items) if item.get("type") == "function_call_output"),
+                    None,
+                )
                 for index, item in enumerate(executable):
                     execution = execute_n2_computer_call(
                         item,
@@ -1423,14 +1470,17 @@ class N2ComputerAgent:
                                 ),
                             }
                         ]
-                    executed_gui = executed_gui or item.get("name") not in _NON_GUI_TOOL_NAMES
-                    if on_demand and executed_gui and index == len(executable) - 1 and partial_items:
-                        # The harness attaches one frame per GUI turn, to the turn's
-                        # last tool result, however many calls the turn made.
-                        await self._attach_turn_screenshot(partial_items[-1])
+                    if partial_items:
+                        last_result_item = partial_items[-1]
+                    if on_demand and gui_turn and index == len(executable) - 1 and last_result_item is not None:
+                        # One frame per GUI turn, on the turn's last tool result,
+                        # however many calls the turn made.
+                        await self._attach_turn_screenshot(last_result_item)
                     new_items += partial_items
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
+                if on_demand and gui_turn and not executable and last_result_item is not None:
+                    await self._attach_turn_screenshot(last_result_item)
 
                 if not (result.get("message") or {}).get("tool_calls"):
                     # A turn without tool calls ends the run; the caller may resume().

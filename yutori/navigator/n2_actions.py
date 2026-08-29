@@ -202,29 +202,11 @@ _KEY_ALIASES = {
     "pageup": "page_up",
     "pagedown": "page_down",
     "return": "enter",
+    "arrowup": "up",
+    "arrowdown": "down",
+    "arrowleft": "left",
+    "arrowright": "right",
     **_PUNCTUATION_KEYS,
-}
-
-_NAMED_KEYS = {
-    "ctrl",
-    "shift",
-    "alt",
-    "cmd",
-    "enter",
-    "esc",
-    "tab",
-    "space",
-    "backspace",
-    "delete",
-    "up",
-    "down",
-    "left",
-    "right",
-    "home",
-    "end",
-    "page_up",
-    "page_down",
-    *{f"f{i}" for i in range(1, 13)},
 }
 
 _ACTION_FIELDS = {
@@ -338,10 +320,9 @@ def _map_key_token(token: str) -> str:
         raise N2ActionValidationError("key expressions cannot contain empty keys")
     if len(token) == 1:
         return token
-    mapped = _KEY_ALIASES.get(token, token)
-    if mapped not in _NAMED_KEYS and mapped not in _PUNCTUATION_KEYS.values():
-        raise N2ActionValidationError(f"unknown key name: {token}")
-    return mapped
+    # Named keys normalize to the SDK vocabulary; names outside it pass through
+    # lowercased for the computer handler to accept or reject.
+    return _KEY_ALIASES.get(token, token)
 
 
 def parse_n2_key_expression(expression: Any) -> list[list[str]]:

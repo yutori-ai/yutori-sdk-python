@@ -18,6 +18,7 @@ from PIL import Image
 
 from yutori.navigator import (
     N2_TASK_GUIDELINES,
+    TOOL_CALL_FORMAT_NUDGE,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
@@ -257,9 +258,10 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
         "text": "[0:screenshot] screenshot queued (delivered after the batch)",
     }
     (frame,) = _images(tool)
-    assert frame.startswith("data:image/png;base64,")
+    # The capture's own size, re-encoded to the default WebP.
+    assert frame.startswith("data:image/webp;base64,")
     with Image.open(io.BytesIO(base64.b64decode(frame.split(",", 1)[1]))) as image:
-        assert image.size == (1280, 720) and image.format == "PNG"
+        assert image.size == (1920, 1080) and image.format == "WEBP"
 
     # Turn 3: both calls of turn 2 ran, in order; the frame went to the LAST tool result (the batch).
     assert [call for call in desktop.calls if call[0] in {"bash", "click"}] == [
@@ -271,12 +273,12 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
     tool_messages = [message for message in third["messages"] if message["role"] == "tool"]
     assert [message["tool_call_id"] for message in tool_messages] == ["c1", "b1", "c1"]
     bash_result, batch_result = tool_messages[1], tool_messages[2]
-    assert bash_result["content"] == "hello\n" and not _images(bash_result)
+    assert bash_result["content"] == "hello" and not _images(bash_result)
     assert batch_result["content"][0]["text"] == "[0:left_click]" and len(_images(batch_result)) == 1
 
     # Turn 4: a bash-only turn adds no frame, and the text-only answer ends the run.
     fourth = completions.requests[3]
-    assert fourth["messages"][-1] == {"role": "tool", "tool_call_id": "b2", "content": "hello\n"}
+    assert fourth["messages"][-1] == {"role": "tool", "tool_call_id": "b2", "content": "hello"}
     # Only two image-bearing tool messages exist, so nothing was pruned yet.
     assert sum(1 for message in fourth["messages"] if _images(message)) == 2
     assert desktop.calls.count(("screenshot",)) == 2
@@ -497,8 +499,8 @@ async def test_a_read_result_may_carry_an_image_and_keeps_the_turn_frame():
     assert len(read_images) == 2  # file image first, then the turn's frame
     assert tool_messages[1]["content"][0] == {"type": "text", "text": "[image: /tmp/a.png]"}
     file_shown, frame = _decode(read_images[0]), _decode(read_images[1])
-    assert file_shown.size == (400, 400) and file_shown.getpixel((0, 0))[0] > 150  # kept its aspect, not stretched
-    assert frame.size == (1280, 720)  # the 16:9 desktop frame is resized exactly
+    assert file_shown.size == (400, 400) and file_shown.getpixel((0, 0))[0] > 150  # never resized
+    assert frame.size == (1920, 1080)  # the frame is the capture, untouched
 
 
 async def test_handlers_that_accept_model_action_receive_the_untranslated_call():
@@ -532,3 +534,75 @@ async def test_text_an_adapter_already_truncated_is_not_cut_again():
         shell_result_max_chars=50,
     )
     assert result[0]["output"] == desktop.bash_result["output"]
+
+
+async def test_a_leaked_tool_call_format_gets_one_ephemeral_nudge_retry():
+    malformed = "Let me click.\n<tool_call>\n<function=computer_batch>\n</function>\n</tool_call>"
+    completions = FakeCompletions(
+        [
+            {"content": malformed, "tool_calls": []},
+            {"content": "", "tool_calls": [_batch({"name": "screenshot", "arguments": {}})]},
+            {"content": malformed, "tool_calls": []},
+            {"content": malformed, "tool_calls": []},
+        ]
+    )
+    agent = _agent(Desktop(), completions)
+    steps = [step async for step in agent.run("task")]
+
+    # Retry request = the same conversation plus the malformed attempt and the reminder.
+    retry = completions.requests[1]["messages"]
+    assert retry[-2] == {"role": "assistant", "content": malformed}
+    assert retry[-1] == {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE}
+    # Neither entered the kept trajectory or the next request.
+    assert all(TOOL_CALL_FORMAT_NUDGE not in str(item) for item in agent.trajectory)
+    assert all(message.get("content") != malformed for message in completions.requests[2]["messages"])
+
+    # A second malformed answer on the same turn is NOT retried again: the run ends with it.
+    assert len(completions.requests) == 4
+    assert agent.stopped_by == "final_answer"
+    assert steps[-1]["output"][-1]["content"][0]["text"] == malformed
+
+
+async def test_completion_kwargs_are_merged_into_every_request():
+    completions = FakeCompletions([{"content": "done", "tool_calls": []}])
+    agent = _agent(Desktop(), completions, completion_kwargs={"top_p": 0.95, "presence_penalty": 0.0})
+    async for _ in agent.run("task"):
+        pass
+    assert completions.requests[0]["top_p"] == 0.95
+    assert completions.requests[0]["presence_penalty"] == 0.0
+
+
+async def test_a_failed_turn_frame_reports_instead_of_killing_the_run():
+    class FlakyDesktop(Desktop):
+        async def screenshot(self):
+            self.calls.append(("screenshot",))
+            raise RuntimeError("capture failed")
+
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_batch({"name": "left_click", "arguments": {"coordinates": [500, 500]}})]},
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    desktop = FlakyDesktop()
+    desktop.width, desktop.height = 1920, 1080
+    agent = _agent(desktop, completions)
+    async for _ in agent.run("task"):
+        pass
+    assert agent.stopped_by == "final_answer"
+    tool_message = [m for m in completions.requests[1]["messages"] if m["role"] == "tool"][-1]
+    assert "[ERROR] Post-turn screenshot failed: capture failed" in tool_message["content"]
+
+
+def test_reasoning_between_turns_starts_a_new_assistant_message():
+    items = [
+        {"role": "user", "content": "task"},
+        {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "earlier turn"}]},
+        {"type": "reasoning", "summary": [{"type": "summary_text", "text": "new think"}]},
+        {"type": "function_call", "call_id": "c1", "name": "bash", "arguments": '{"command":"ls"}'},
+        {"type": "function_call_output", "call_id": "c1", "output": "ok"},
+    ]
+    messages = convert_n2_items_to_completion_messages(items)
+    assert [m["role"] for m in messages] == ["user", "assistant", "assistant", "tool"]
+    assert "reasoning_content" not in messages[1]
+    assert messages[2]["reasoning_content"] == "new think" and messages[2]["tool_calls"]

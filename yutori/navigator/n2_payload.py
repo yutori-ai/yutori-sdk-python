@@ -1,11 +1,11 @@
 """Screenshot encoding and request budgeting for the Navigator n2 loop.
 
-n2 requests carry full-frame screenshots re-encoded per an :class:`N2ImageProfile`
-(by default PNG at exactly 1280x720), keep
+n2 requests carry the computer handler's screenshots as captured — the handler
+defines the viewport (with any DPR scaling already removed); the SDK never
+resizes, only re-encodes to ``image_format`` (WebP by default). Requests keep
 images only in the two newest image-bearing messages (older ones leave an
-``[older image omitted]`` marker), and must fit a 10 MB serialized request. Coordinates stay in the
-model's 0-1000 space mapped against the ORIGINAL capture's native dimensions, so
-the model decides on the downscaled image while actions land on the native one.
+``[older image omitted]`` marker) and must fit a 10 MB serialized request.
+Coordinates are the model's 0-1000 space mapped onto the capture's dimensions.
 """
 
 from __future__ import annotations
@@ -13,37 +13,15 @@ from __future__ import annotations
 import base64
 import copy
 import io
-from dataclasses import dataclass
 from typing import Any, Optional
 
 from PIL import Image
 
 from .payload import estimate_messages_size_bytes
 
-
-@dataclass(frozen=True)
-class N2ImageProfile:
-    """How screenshots are re-encoded before they reach the model.
-
-    By default frames of the target aspect ratio are resized to exactly ``size``
-    (1920x1080 captures become 1280x720 PNGs);
-    images of another aspect ratio (a ``read`` of an image file) are fitted
-    inside ``size`` instead so they are never distorted. ``exact=False`` fits
-    every image inside ``size`` while keeping its aspect ratio (never
-    upscaling). ``quality`` applies to lossy formats only.
-    """
-
-    format: str = "PNG"
-    size: tuple[int, int] = (1280, 720)
-    quality: Optional[int] = None
-    exact: bool = True
-
-    @property
-    def media_type(self) -> str:
-        return f"image/{self.format.lower()}"
-
-
-DEFAULT_IMAGE_PROFILE = N2ImageProfile()
+# Images are sent in this encoding unless the caller picks another; the frame's
+# size is the computer handler's own capture, untouched.
+DEFAULT_IMAGE_FORMAT = "webp"
 
 MAX_REQUEST_BODY_BYTES = 10_000_000
 REQUEST_ENVELOPE_ALLOWANCE_BYTES = 500_000
@@ -66,26 +44,19 @@ def image_dimensions(url: str) -> "tuple[int, int]":
         return image.size
 
 
-def prepare_n2_image_data_url(url: str, profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE) -> str:
-    """Re-encode a full-frame screenshot per ``profile`` (default: PNG at exactly 1280x720)."""
-    image_bytes, _ = _decode_data_url(url)
+def prepare_n2_image_data_url(url: str, image_format: str = DEFAULT_IMAGE_FORMAT) -> str:
+    """Re-encode an image data URL to ``image_format``; returned unchanged when it already is.
+
+    Never resizes: the frame stays at whatever size the computer handler
+    captured (its viewport, with any DPR scaling already removed).
+    """
+    image_bytes, media_type = _decode_data_url(url)
+    if media_type.lower() == f"image/{image_format.lower()}":
+        return url
     with Image.open(io.BytesIO(image_bytes)) as source:
-        image = source.convert("RGB")
-        target_width, target_height = profile.size
-        same_aspect = (
-            abs(image.width * target_height - image.height * target_width) <= 0.01 * image.width * target_height
-        )
-        if profile.exact and same_aspect:
-            if image.size != (target_width, target_height):
-                image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        else:
-            image.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
         output = io.BytesIO()
-        save_kwargs: dict[str, Any] = {}
-        if profile.quality is not None and profile.format.upper() not in {"PNG", "BMP"}:
-            save_kwargs["quality"] = profile.quality
-        image.save(output, format=profile.format.upper(), **save_kwargs)
-    return f"data:{profile.media_type};base64,{base64.b64encode(output.getvalue()).decode('ascii')}"
+        source.convert("RGB").save(output, format=image_format.upper())
+    return f"data:image/{image_format.lower()};base64,{base64.b64encode(output.getvalue()).decode('ascii')}"
 
 
 def _message_image_parts(message: dict[str, Any]) -> list[dict[str, Any]]:
@@ -165,11 +136,11 @@ def fit_n2_request_images_to_budget(
     )
 
 
-def convert_request_images(messages: list[dict[str, Any]], profile: N2ImageProfile = DEFAULT_IMAGE_PROFILE) -> None:
-    """Re-encode every remaining request image per ``profile``, in place."""
+def convert_request_images(messages: list[dict[str, Any]], image_format: str = DEFAULT_IMAGE_FORMAT) -> None:
+    """Re-encode every remaining request image to ``image_format``, in place."""
     for message in messages:
         for part in _message_image_parts(message):
             image_url = part.get("image_url")
             if not isinstance(image_url, dict) or not isinstance(image_url.get("url"), str):
                 raise ValueError("n2 image_url content must contain a string url")
-            image_url["url"] = prepare_n2_image_data_url(image_url["url"], profile)
+            image_url["url"] = prepare_n2_image_data_url(image_url["url"], image_format)

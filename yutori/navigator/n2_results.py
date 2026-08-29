@@ -41,6 +41,33 @@ N2_TASK_GUIDELINES = (
 
 _TRUNCATION_MARKER = re.compile(r"\[\.\.\. output truncated, \d+ more chars \.\.\.\]\s*$")
 
+TOOL_CALL_FORMAT_NUDGE = (
+    "Reminder: emit each tool call in exactly this format, wrapped in <tool_call></tool_call>:\n"
+    "<tool_call>\n"
+    "<function=NAME>\n"
+    "<parameter=PARAM_NAME>\n"
+    "value\n"
+    "</parameter>\n"
+    "</function>\n"
+    "</tool_call>\n"
+    "Every <function=...> block must be nested inside <tool_call></tool_call>, and every <parameter=...> "
+    "must use the parameter's NAME (not its value)."
+)
+
+
+def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:
+    """True when a turn parsed zero tool calls but its text carries tool-call markup.
+
+    The model occasionally writes a tool call as literal text instead of a
+    parsed call. One retry with :data:`TOOL_CALL_FORMAT_NUDGE` appended usually
+    recovers it; the loop does this once per turn, without keeping the malformed
+    attempt in the trajectory.
+    """
+    if message.get("tool_calls"):
+        return False
+    text = message.get("content") or ""
+    return "<tool_call>" in text and "</tool_call>" in text
+
 
 def truncate_output(text: str, max_chars: int) -> str:
     """Cap ``text`` with the ``[... output truncated, N more chars ...]`` marker.

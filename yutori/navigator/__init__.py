@@ -74,14 +74,14 @@ from .n2_actions import (
 )
 from .n2_compaction import N2Compactor
 from .n2_payload import (
-    DEFAULT_IMAGE_PROFILE,
+    DEFAULT_IMAGE_FORMAT,
     OLDER_IMAGE_OMITTED_TEXT,
-    N2ImageProfile,
     prepare_n2_image_data_url,
     retain_n2_image_window,
 )
 from .n2_results import (
     N2_TASK_GUIDELINES,
+    TOOL_CALL_FORMAT_NUDGE,
     N2EditError,
     apply_edit,
     format_background_bash_result,
@@ -90,6 +90,7 @@ from .n2_results import (
     format_cat_n,
     format_read_result,
     format_write_result,
+    needs_tool_call_format_nudge,
     parse_terminal_marker,
     render_tool_output,
     truncate_output,
@@ -113,10 +114,9 @@ __all__ = [
     "N2ActionValidationError",
     "N2ComputerAgent",
     "N2Compactor",
-    "N2ImageProfile",
     "N2EditError",
     "N2_TASK_GUIDELINES",
-    "DEFAULT_IMAGE_PROFILE",
+    "DEFAULT_IMAGE_FORMAT",
     "OLDER_IMAGE_OMITTED_TEXT",
     "SUPPORTED_N2_TOOL_SETS",
     "DEFAULT_MAX_REQUEST_BYTES",
@@ -178,4 +178,6 @@ __all__ = [
     "format_read_result",
     "format_write_result",
     "parse_terminal_marker",
+    "needs_tool_call_format_nudge",
+    "TOOL_CALL_FORMAT_NUDGE",
 ]
