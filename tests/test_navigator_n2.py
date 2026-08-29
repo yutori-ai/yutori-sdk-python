@@ -367,10 +367,9 @@ def test_converter_folds_calls_and_carries_shell_text_before_the_screenshot():
     ]
     messages = convert_n2_items_to_completion_messages(items)
     assert messages[0] == {"role": "user", "content": "task"}
-    # The call folds into one assistant message that carries the turn's
-    # reasoning as fields, matching the reference converter and the serving template.
-    assert messages[1]["role"] == "assistant" and messages[1]["content"] == ""
-    assert messages[1]["reasoning"] == messages[1]["reasoning_content"] == "thinking"
+    # A legacy standalone reasoning item stays assistant text; the call folds into it.
+    assert messages[1]["role"] == "assistant" and messages[1]["content"] == "thinking"
+    assert "reasoning_content" not in messages[1]
     assert messages[1]["tool_calls"][0]["function"]["name"] == "bash"
     tool_message = messages[2]
     assert tool_message["role"] == "tool" and tool_message["tool_call_id"] == "c1"
@@ -398,14 +397,14 @@ def test_parse_tool_calls_attaches_executions_and_feeds_back_validation_errors()
         tool_set=TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
         execution_deadline=12.5,
     )
-    assert output[0]["type"] == "reasoning"
-    assert output[1]["type"] == "message"
-    valid = output[2]
+    assert output[0]["type"] == "message"
+    assert output[0]["reasoning"] == "hmm"
+    valid = output[1]
     assert valid["_computer_actions"] == [{"type": "click", "x": 500, "y": 500, "button": "left"}]
     assert valid["_requires_confirmation"] is True
     assert valid["_execution_deadline"] == 12.5
     # Every call of the turn is translated; the malformed second one is answered in place.
-    assert [item.get("call_id") for item in output[3:]] == ["c2", "c2"]
+    assert [item.get("call_id") for item in output[2:]] == ["c2", "c2"]
     assert output[-1]["output"].startswith("[ERROR] Invalid left_click call:")
 
 
@@ -537,25 +536,23 @@ def _batch_item(**overrides):
     return item
 
 
-async def test_execute_batch_reports_one_line_per_member():
+async def test_execute_batch_reports_one_line_per_member_with_a_frame():
     computer = FakeComputer()
-    result = await execute_n2_computer_call(_batch_item(), computer, callbacks=_CallbackDispatcher(None))
-    assert result[0]["output"] == "[0:left_click] \n[1:key_press]"
-    assert ("click", 0, 0, "left", 1, None) in computer.calls
-
-    # With capture_screenshot the same text rides with a post-action frame.
     result = await execute_n2_computer_call(
-        _batch_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0, capture_screenshot=True
+        _batch_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0
     )
     output = result[0]["output"]
     assert output["type"] == "input_image" and output["result"] == "[0:left_click] \n[1:key_press]"
+    assert ("click", 0, 0, "left", 1, None) in computer.calls
 
 
 async def test_execute_stops_the_batch_at_the_first_gui_failure():
     computer = FakeComputer()
     computer.fail_on = "click"
-    result = await execute_n2_computer_call(_batch_item(), computer, callbacks=_CallbackDispatcher(None))
-    assert result[0]["output"] == (
+    result = await execute_n2_computer_call(
+        _batch_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0
+    )
+    assert result[0]["output"]["result"] == (
         "batch stopped at actions[0] (0:left_click): ERROR: RuntimeError: driver refused click (0 completed, 1 skipped)"
     )
     assert not [call for call in computer.calls if call[0] == "keypress"]
@@ -569,18 +566,12 @@ def _bash_call_item(command="ls"):
     return parse_n2_tool_calls(message, 100, 100)[-1]
 
 
-async def test_execute_shell_returns_capped_text():
+async def test_execute_shell_returns_the_handler_text_as_is():
     computer = FakeComputer()
     computer.shell_result = "x" * 31_000
     result = await execute_n2_computer_call(_bash_call_item(), computer, callbacks=_CallbackDispatcher(None))
-    output = result[0]["output"]
-    assert output.startswith("x" * 30_000) and output.endswith("[... output truncated, 1000 more chars ...]")
-
-    # A caller may raise or lower the cap.
-    result = await execute_n2_computer_call(
-        _bash_call_item(), computer, callbacks=_CallbackDispatcher(None), shell_result_max_chars=100
-    )
-    assert result[0]["output"].endswith("[... output truncated, 30900 more chars ...]")
+    # The tool owns its result: no loop-side rendering, truncation, or frame.
+    assert result[0]["output"] == "x" * 31_000
 
 
 async def test_execute_shell_failures_are_recoverable_tool_errors():
@@ -759,8 +750,8 @@ async def test_execute_denied_confirmation_runs_nothing():
 async def test_execute_expired_deadline_truncates_in_flight_actions():
     computer = FakeComputer()
     item = _batch_item(execution_deadline=time.monotonic() - 1)
-    result = await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None))
-    assert result[0]["output"].startswith("batch stopped at actions[0] (0:left_click): deadline_reached")
+    result = await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0)
+    assert result[0]["output"]["result"].startswith("batch stopped at actions[0] (0:left_click): deadline_reached")
     assert not [call for call in computer.calls if call[0] == "click"]
 
 
@@ -947,7 +938,7 @@ async def test_triple_click_falls_back_for_legacy_computer_handlers():
         screenshot_delay=0,
     )
     assert failed_computer.calls == [("double_click", 100, 50, ())]
-    assert "double failed" in result[0]["output"]
+    assert "double failed" in result[0]["output"]["result"]
 
 
 async def test_agent_runs_a_click_turn_then_finishes():
@@ -1151,12 +1142,11 @@ async def test_agent_does_not_execute_calls_that_failed_validation():
     outputs = [
         item["output"] for step in steps for item in step["output"] if item.get("type") == "function_call_output"
     ]
-    # The validation error carries the turn's frame: the trigger is the tool name,
-    # not whether the call ran.
+    # A call that never ran returns no frame: results come from the tool's own execution.
     (error,) = outputs
-    assert error["type"] == "input_image" and error["result"].startswith("[ERROR] Invalid left_click call")
+    assert str(error).startswith("[ERROR] Invalid left_click call")
     assert not [call for call in computer.calls if call[0] == "click"]
-    assert ("screenshot",) in computer.calls
+    assert computer.calls.count(("screenshot",)) == 1  # only the blind-start size measurement
 
 
 async def test_agent_guard_can_stop_the_run_and_run_end_still_fires():

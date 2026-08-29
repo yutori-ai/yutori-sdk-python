@@ -4,10 +4,13 @@ This SDK-owned loop lets computer-use hosts drive n2 without another agent
 framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
-- The run starts without a screenshot; the model asks for one with a
-  ``screenshot`` batch member, and each turn that ran a GUI action gets one
-  frame appended to its last tool result. Frames are sent at the computer
-  handler's own capture size and re-encoded to ``image_format`` (WebP). Every tool call of a turn is
+- What a result carries is the tool's own contract, not a loop policy: a
+  ``computer_batch`` (or a single GUI action, or ``screenshot``) returns one
+  ``[i:name]``-per-member text plus a fresh frame captured after its actions
+  execute; ``bash``/file calls return the handler's text as-is (``read`` may
+  return an image). The run starts without a screenshot — the model asks for
+  one with a ``screenshot`` batch member. Frames are sent at the computer
+  handler's own capture size, re-encoded to ``image_format`` (WebP). Every tool call of a turn is
   executed in order. Tool results are text (``[i:name]`` lines for a batch, the
   command output for ``bash``, ``cat -n`` lines for ``read``) with bounded
   length. Prior-turn reasoning is re-sent as the assistant message's
@@ -52,7 +55,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any, Literal, Optional, Protocol, Union
+from typing import Any, Protocol, Union
 
 from .macos.sanitize import sanitize_command_preview
 from .macos.types import N2Observation, N2Presentation
@@ -96,17 +99,6 @@ from .n2_payload import (
     retain_n2_image_window,
     serialized_messages_bytes,
 )
-from .n2_results import (
-    ACTION_EXECUTED_TEXT,
-    BASH_MAX_OUTPUT_CHARS,
-    BATCH_SCREENSHOT_MEMBER_TEXT,
-    READ_MAX_OUTPUT_CHARS,
-    TOOL_CALL_FORMAT_NUDGE,
-    format_action_error,
-    format_batch_result,
-    needs_tool_call_format_nudge,
-    render_tool_output,
-)
 
 # The two shell tools the n2 tool sets serve, each mapped to the optional
 # handler method that runs it. They are separate rather than one normalized
@@ -138,12 +130,90 @@ N2_API_TIMEOUT_SECONDS = 600.0
 N2_CONTEXT_WINDOW_TOKENS = 128_000
 N2_CONTEXT_MARGIN_TOKENS = 4_096
 N2_TOOL_CALL_TIMEOUT_SECONDS = 900.0
-_INITIAL_SCREENSHOT_CAPTION = "Current desktop screen"
 
-# Tools whose execution changes what is on screen. After a turn that ran one of
-# these, the on-demand screenshot policy attaches a fresh frame; a turn of only
-# shell, file or browser-navigation calls gets no image.
-_NON_GUI_TOOL_NAMES = frozenset({BASH_TOOL_NAME, *SHELL_COMMAND_TOOL_NAMES, *FILE_TOOL_NAMES, "goto_url"})
+# An optional system prompt for task runners: asks the model to pose questions
+# as text-only turns and to end its final answer with `[DONE]` or `[INFEASIBLE]`,
+# so an outer loop can tell questions from completion (see parse_terminal_marker).
+N2_TASK_GUIDELINES = (
+    "# Task Guidelines\n"
+    "If you find the task needs additional information to be properly completed or you need to ask clarifying "
+    "questions to the user, ask a question in your output without calling any tools in order to prompt the user "
+    "to provide feedback. Do this only if user input is necessary.\n"
+    "If the task is genuinely impossible — missing apps or features, insufficient permissions, contradictory "
+    "requirements — end with `[INFEASIBLE]`; don't claim success you didn't achieve.\n"
+    "If you're done with the task, stop calling tools and give a short summary of what you did and found, "
+    "and end with `[DONE]`."
+)
+
+TOOL_CALL_FORMAT_NUDGE = (
+    "Reminder: emit each tool call in exactly this format, wrapped in <tool_call></tool_call>:\n"
+    "<tool_call>\n"
+    "<function=NAME>\n"
+    "<parameter=PARAM_NAME>\n"
+    "value\n"
+    "</parameter>\n"
+    "</function>\n"
+    "</tool_call>\n"
+    "Every <function=...> block must be nested inside <tool_call></tool_call>, and every <parameter=...> "
+    "must use the parameter's NAME (not its value)."
+)
+
+_BATCH_EMPTY_TEXT = "(empty batch)"
+_BATCH_SCREENSHOT_MEMBER_TEXT = "screenshot queued (delivered after the batch)"
+_ACTION_EXECUTED_TEXT = "Action executed."
+
+
+def parse_terminal_marker(text: str) -> "str | None":
+    """``"done"`` / ``"infeasible"`` when ``text`` carries a ``[DONE]`` / ``[INFEASIBLE]`` marker, else ``None``."""
+    if "[INFEASIBLE]" in text:
+        return "infeasible"
+    if "[DONE]" in text:
+        return "done"
+    return None
+
+
+def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:
+    """True when a turn parsed zero tool calls but its text carries tool-call markup.
+
+    The model occasionally writes a tool call as literal text instead of a
+    parsed call. One retry with :data:`TOOL_CALL_FORMAT_NUDGE` appended usually
+    recovers it; the loop does this once per turn, without keeping the malformed
+    attempt in the trajectory.
+    """
+    if message.get("tool_calls"):
+        return False
+    text = message.get("content") or ""
+    return "<tool_call>" in text and "</tool_call>" in text
+
+
+def _format_action_error(error: BaseException) -> str:
+    return f"ERROR: {type(error).__name__}: {error}"
+
+
+def _format_batch_result(
+    member_names: "list[str]",
+    outcomes: "list[str | None]",
+    *,
+    error_index: "int | None" = None,
+    error_text: "str | None" = None,
+) -> str:
+    """One ``[i:name]`` line per completed member, plus the halt line after a failure."""
+    if not member_names:
+        return _BATCH_EMPTY_TEXT
+    lines: list[str] = []
+    for index, name in enumerate(member_names):
+        if error_index is not None and index >= error_index:
+            break
+        text = outcomes[index] if index < len(outcomes) and outcomes[index] is not None else ""
+        lines.append(f"[{index}:{name}] {text}")
+    if error_index is not None:
+        name = member_names[error_index] if error_index < len(member_names) else "?"
+        remaining = len(member_names) - error_index - 1
+        lines.append(
+            f"batch stopped at actions[{error_index}] ({error_index}:{name}): {error_text or 'ERROR'} "
+            f"({error_index} completed, {remaining} skipped)"
+        )
+    return "\n".join(lines).strip()
 
 
 class SupportsN2ChatCompletionsCreate(Protocol):
@@ -209,38 +279,27 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
     """Convert the n2 trajectory's responses items to Chat Completions messages.
 
     The n2 subset of the reference converter: user messages (string or parts),
-    assistant messages, reasoning summaries, function calls folded into the
-    preceding assistant message's ``tool_calls``, and tool results — a plain
-    string, or an image dict whose optional ``result`` rides as a text part
-    before its image(s).
+    assistant messages, function calls folded into the preceding assistant
+    message's ``tool_calls``, and tool results — a plain string, or an image
+    dict whose optional ``result`` rides as a text part before its image.
 
-    A turn's reasoning is re-sent as the ``reasoning`` and ``reasoning_content``
-    fields of the assistant message it belongs to — the shape the serving chat
-    template renders back into the model's thinking block. Reasoning with no
-    assistant message to ride on becomes an assistant text message.
+    A message item's ``reasoning`` is re-sent as the assistant message's
+    ``reasoning`` and ``reasoning_content`` fields — the shape the serving chat
+    template renders back into the model's thinking block. A standalone
+    ``reasoning`` item (a caller-supplied legacy history) becomes a plain
+    assistant text message.
     """
     completion_messages: list[dict[str, Any]] = []
-    pending_reasoning: Optional[str] = None
 
-    def append_assistant(message: dict[str, Any]) -> None:
-        nonlocal pending_reasoning
-        if pending_reasoning is not None:
-            message["reasoning"] = pending_reasoning
-            message["reasoning_content"] = pending_reasoning
-            pending_reasoning = None
+    def append_assistant(message: dict[str, Any], reasoning: "str | None") -> None:
+        if reasoning:
+            message["reasoning"] = reasoning
+            message["reasoning_content"] = reasoning
         completion_messages.append(message)
-
-    def flush_pending_reasoning() -> None:
-        nonlocal pending_reasoning
-        if pending_reasoning is not None:
-            completion_messages.append({"role": "assistant", "content": pending_reasoning})
-            pending_reasoning = None
 
     for item in items:
         item_type = item.get("type")
         role = item.get("role")
-        if item_type != "reasoning" and role != "assistant" and item_type not in {"message", "function_call"}:
-            flush_pending_reasoning()
 
         if role == "user" or item_type == "user":
             content = item.get("content", "")
@@ -266,15 +325,14 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 # A caller-provided chat-style history carries assistant turns
                 # as plain strings; dropping them would silently erase context.
                 if content:
-                    append_assistant({"role": "assistant", "content": content.rstrip("\n")})
+                    append_assistant({"role": "assistant", "content": content.rstrip("\n")}, item.get("reasoning"))
                 continue
             texts = [
                 part.get("text", "")
                 for part in content or []
                 if isinstance(part, dict) and part.get("type") in {"output_text", "text"}
             ]
-            if texts:
-                append_assistant({"role": "assistant", "content": "\n".join(texts).rstrip("\n")})
+            append_assistant({"role": "assistant", "content": "\n".join(texts).rstrip("\n")}, item.get("reasoning"))
 
         elif item_type == "reasoning":
             texts = [
@@ -283,18 +341,11 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 if isinstance(part, dict) and part.get("type") == "summary_text"
             ]
             if texts:
-                flush_pending_reasoning()
-                pending_reasoning = "\n".join(texts)
+                completion_messages.append({"role": "assistant", "content": "\n".join(texts)})
 
         elif item_type == "function_call":
-            # Pending reasoning belongs to THIS turn: it starts a new assistant
-            # message rather than riding on an earlier turn's.
-            if (
-                not completion_messages
-                or completion_messages[-1].get("role") != "assistant"
-                or pending_reasoning is not None
-            ):
-                append_assistant({"role": "assistant", "content": "", "tool_calls": []})
+            if not completion_messages or completion_messages[-1].get("role") != "assistant":
+                completion_messages.append({"role": "assistant", "content": "", "tool_calls": []})
             completion_messages[-1].setdefault("tool_calls", [])
             arguments = item.get("arguments")
             if isinstance(arguments, dict):
@@ -327,13 +378,10 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                         }
                     )
                 content.append({"type": "image_url", "image_url": {"url": output.get("image_url")}})
-                for extra_url in output.get("image_urls") or []:
-                    content.append({"type": "image_url", "image_url": {"url": extra_url}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output).strip()})
 
-    flush_pending_reasoning()
     return completion_messages
 
 
@@ -415,12 +463,11 @@ def parse_n2_tool_calls(
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
-    Order matches the reference loop: an optional reasoning item, the message
-    text when tool calls accompany it, then one function_call item per tool
-    call — followed immediately by a recoverable ``[ERROR]`` result when the
-    call fails validation, so history stays consistent and the model can
-    correct itself. Every tool call of a turn is translated, to be executed in
-    order. A turn with no tool calls yields a terminal assistant message.
+    A message item (carrying the turn's text, and its reasoning under
+    ``"reasoning"``) comes first, then one function_call item per tool call —
+    followed immediately by a recoverable ``[ERROR]`` result when the call
+    fails validation, so history stays consistent and the model can correct
+    itself. Every tool call of a turn is translated, to be executed in order.
     """
     if tool_set not in SUPPORTED_N2_TOOL_SETS:
         raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -430,10 +477,11 @@ def parse_n2_tool_calls(
     tool_calls = message.get("tool_calls") or []
     output: list[dict[str, Any]] = []
 
-    if reasoning_text:
-        output.append(make_reasoning_item(reasoning_text))
-    if tool_calls and content_text:
-        output.append(make_output_text_item(content_text))
+    if reasoning_text or content_text or not tool_calls:
+        message_item = make_output_text_item(content_text)
+        if reasoning_text:
+            message_item["reasoning"] = reasoning_text
+        output.append(message_item)
 
     for tool_call in tool_calls:
         function = tool_call.get("function") or {}
@@ -535,9 +583,6 @@ def parse_n2_tool_calls(
                 }
             )
 
-    if not tool_calls:
-        output.append(make_output_text_item(content_text))
-
     return output
 
 
@@ -638,18 +683,14 @@ async def execute_n2_computer_call(
     confirmation_callback: "ConfirmationCallback | None" = None,
     screenshot_delay: float = 0.5,
     presentation: "N2Presentation | None" = None,
-    capture_screenshot: bool = False,
-    shell_result_max_chars: int = BASH_MAX_OUTPUT_CHARS,
-    file_result_max_chars: int = READ_MAX_OUTPUT_CHARS,
 ) -> list[dict[str, Any]]:
-    """Execute one validated Yutori call and report its result.
+    """Execute one validated Yutori call and report what the tool's contract returns.
 
-    The result is the evaluation tools' text: ``[i:name]`` lines for a batch
-    (plus the halt line when a member failed), the command's output for shell
-    calls, the file tool's text (or text plus image) for file calls, capped at
-    the ``*_max_chars`` budgets. By default the result is text only, for the
-    loop's one-frame-per-turn policy; with ``capture_screenshot`` it carries one
-    post-action frame.
+    A ``computer_batch`` (or a single GUI action, or ``screenshot``) returns its
+    ``[i:name]`` member lines — plus the halt line when a member failed — with
+    one frame captured after execution. Shell, file and browser-navigation calls
+    return the handler's text exactly as returned; a file handler may return
+    ``{"text", "image_url"}`` so a ``read`` of an image shows the image.
     """
     call_id = item.get("call_id")
 
@@ -842,15 +883,13 @@ async def execute_n2_computer_call(
             elif action_type == "screenshot":
                 if isinstance(batch_actions, list):
                     if isinstance(batch_index, int):
-                        member_outcomes[batch_index] = BATCH_SCREENSHOT_MEMBER_TEXT
-                elif capture_screenshot:
-                    screenshot_observation = await computer.screenshot()
+                        member_outcomes[batch_index] = _BATCH_SCREENSHOT_MEMBER_TEXT
             elif action_type in SHELL_ACTION_HANDLERS:
                 shell_method = getattr(computer, SHELL_ACTION_HANDLERS[action_type], None)
                 if shell_method is None:
                     raise RuntimeError(_shell_not_supported_error(str(action_type)))
                 shell_result = await shell_method(**action_args)
-                shell_output_text = render_tool_output(shell_result, max_chars=shell_result_max_chars)
+                shell_output_text = "" if shell_result is None else str(shell_result)
             elif action_type in FILE_ACTION_HANDLERS:
                 file_method = getattr(computer, FILE_ACTION_HANDLERS[action_type], None)
                 if file_method is None:
@@ -861,7 +900,7 @@ async def execute_n2_computer_call(
                 if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
                     file_output_image = file_result.get("image_url")
                     file_result = file_result.get("text") or ""
-                file_output_text = render_tool_output(file_result, max_chars=file_result_max_chars)
+                file_output_text = "" if file_result is None else str(file_result)
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -931,7 +970,7 @@ async def execute_n2_computer_call(
                         observation = None
                 return await finish_with_error(str(error), observation)
             failed_index = batch_index if isinstance(batch_index, int) else 0
-            stopped_reason = format_action_error(error)
+            stopped_reason = _format_action_error(error)
             break
 
     held_key_cleanup_error = await release_keys(list(held_keys))
@@ -957,10 +996,10 @@ async def execute_n2_computer_call(
             error_index = failed_index if stopped_reason is not None else None
             if stopped_reason is not None and error_index is None:
                 error_index = min(len(completed_members), len(names) - 1)
-            return format_batch_result(names, outcomes, error_index=error_index, error_text=stopped_reason)
+            return _format_batch_result(names, outcomes, error_index=error_index, error_text=stopped_reason)
         if stopped_reason is not None:
             return f"ERROR: {stopped_reason}"
-        return ACTION_EXECUTED_TEXT
+        return _ACTION_EXECUTED_TEXT
 
     if file_output_text is not None and not isinstance(batch_actions, list):
         file_output: Any = file_output_text
@@ -971,13 +1010,11 @@ async def execute_n2_computer_call(
         await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
 
-    if not capture_screenshot and screenshot_observation is None:
+    # Shell and browser-navigation results carry no frame: their tools return text.
+    if not isinstance(batch_actions, list) and (shell_output_text is not None or item.get("name") == "goto_url"):
         result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
         await callbacks.fire("on_computer_call_end", item, result)
-        await _present(
-            presentation,
-            {"type": "action_done", "call_id": call_id, "batch_complete": isinstance(batch_actions, list)},
-        )
+        await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
 
     if screenshot_observation is None:
@@ -1061,11 +1098,6 @@ class N2ComputerAgent:
 
     Loop policies, all keywords:
 
-    - ``screenshot_policy``: ``"on_demand"`` starts without a frame and attaches
-      one after a turn only when that turn ran a GUI action, appended to the
-      turn's last tool result (the model asks for a frame with a ``screenshot``
-      batch member). ``"always"`` captures a frame before the first turn and
-      after every executed call.
     - ``system_prompt``: sent as a system message ahead of the conversation
       (the server appends it to its own system prompt).
     - ``image_format``: the encoding request images are converted to (WebP by
@@ -1073,7 +1105,6 @@ class N2ComputerAgent:
       the frame, so pick the viewport (and remove DPR scaling) in the handler.
     - ``max_completion_tokens`` / ``reasoning_effort``: the model call's output
       budget and, when set, ``reasoning_effort`` passthrough.
-    - ``shell_result_max_chars`` / ``file_result_max_chars``: tool output caps.
     - ``api_timeout_seconds``: per-request timeout sent with each model call;
       ``None`` leaves the client's own default.
     - ``context_window_tokens``: the run ends with ``stopped_by="context_limit"``
@@ -1104,13 +1135,10 @@ class N2ComputerAgent:
         temperature: "float | None" = None,
         supports_click_modifiers: bool = False,
         supports_scroll_modifiers: "bool | None" = None,
-        screenshot_policy: Literal["on_demand", "always"] = "on_demand",
         system_prompt: "str | None" = None,
         image_format: str = DEFAULT_IMAGE_FORMAT,
         max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS,
         reasoning_effort: "str | None" = None,
-        shell_result_max_chars: int = BASH_MAX_OUTPUT_CHARS,
-        file_result_max_chars: int = READ_MAX_OUTPUT_CHARS,
         api_timeout_seconds: "float | None" = N2_API_TIMEOUT_SECONDS,
         context_window_tokens: "int | None" = N2_CONTEXT_WINDOW_TOKENS,
         tool_call_timeout_seconds: "float | None" = N2_TOOL_CALL_TIMEOUT_SECONDS,
@@ -1147,13 +1175,10 @@ class N2ComputerAgent:
         self._base_url = base_url
         self._owned_client: Any = None
         self.timings: dict[str, float] = {"model_ms": 0}
-        self.screenshot_policy = screenshot_policy
         self.system_prompt = system_prompt
         self.image_format = image_format
         self.max_completion_tokens = max_completion_tokens
         self.reasoning_effort = reasoning_effort
-        self.shell_result_max_chars = shell_result_max_chars
-        self.file_result_max_chars = file_result_max_chars
         self.api_timeout_seconds = api_timeout_seconds
         self.context_window_tokens = context_window_tokens
         self.tool_call_timeout_seconds = tool_call_timeout_seconds
@@ -1221,16 +1246,7 @@ class N2ComputerAgent:
         completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
 
         latest_url = latest_image_url(completion_messages)
-        if latest_url is None and self.screenshot_policy == "always":
-            observation = await self.computer.screenshot()
-            latest_url, native_width, native_height, screenshot_b64 = _observation_data(observation)
-            await self._callbacks.fire("on_screenshot", screenshot_b64, "screenshot_before")
-            content: list[dict[str, Any]] = [
-                {"type": "image_url", "image_url": {"url": latest_url}},
-                {"type": "text", "text": _INITIAL_SCREENSHOT_CAPTION},
-            ]
-            completion_messages.append({"role": "user", "content": content})
-        elif latest_url is None:
+        if latest_url is None:
             # Blind start: the model's first turn sees the task alone and asks
             # for a frame itself (a `screenshot` batch member).
             native_width, native_height = await self._resolve_native_size()
@@ -1306,41 +1322,16 @@ class N2ComputerAgent:
             allow_scroll_modifiers=self.supports_scroll_modifiers,
         )
         for output_item in output:
-            if output_item.get("type") == "reasoning":
-                text = _presentation_text(output_item, "summary")
-                if text:
-                    await _present(self.presentation, {"type": "reasoning", "text": text})
-            elif output_item.get("type") == "message" and not message.get("tool_calls"):
+            if output_item.get("type") != "message":
+                continue
+            if output_item.get("reasoning"):
+                await _present(self.presentation, {"type": "reasoning", "text": output_item["reasoning"]})
+            if not message.get("tool_calls"):
                 await _present(
                     self.presentation,
                     {"type": "final", "text": _presentation_text(output_item, "content")},
                 )
         return {"output": output, "usage": usage, "message": message}
-
-    async def _attach_turn_screenshot(self, result_item: dict[str, Any]) -> None:
-        """Capture one frame after a GUI turn and append it to that turn's last tool result."""
-        if self.screenshot_delay and self.screenshot_delay > 0:
-            await asyncio.sleep(self.screenshot_delay)
-        try:
-            data_url, _, _, raw_base64 = _observation_data(await self.computer.screenshot())
-        except Exception as error:  # noqa: BLE001 - a failed frame must not kill the run
-            note = f"[ERROR] Post-turn screenshot failed: {error}"
-            output = result_item.get("output")
-            if isinstance(output, dict) and output.get("type") == "input_image":
-                output["result"] = f"{output.get('result') or ''}\n{note}".strip()
-            else:
-                result_item["output"] = f"{'' if output is None else output}\n{note}".strip()
-            return
-        await self._callbacks.fire("on_screenshot", raw_base64, "screenshot_after")
-        output = result_item.get("output")
-        if isinstance(output, dict) and output.get("type") == "input_image":
-            if output.get("image_url"):
-                output.setdefault("image_urls", []).append(data_url)
-            else:
-                output["image_url"] = data_url
-            return
-        text = "" if output is None else str(output)
-        result_item["output"] = {"type": "input_image", "image_url": data_url, "result": text or None}
 
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
@@ -1429,20 +1420,7 @@ class N2ComputerAgent:
                     ):
                         executable.append(item)
 
-                on_demand = self.screenshot_policy == "on_demand"
-                turn_items = result.get("output") or []
-                gui_turn = any(
-                    item.get("type") == "function_call" and item.get("name") not in _NON_GUI_TOOL_NAMES
-                    for item in turn_items
-                )
-                # A call answered by validation still holds the turn's last result;
-                # it receives the frame when nothing else executes (the trigger is
-                # the tool name, not whether the call ran).
-                last_result_item = next(
-                    (item for item in reversed(turn_items) if item.get("type") == "function_call_output"),
-                    None,
-                )
-                for index, item in enumerate(executable):
+                for item in executable:
                     execution = execute_n2_computer_call(
                         item,
                         self.computer,
@@ -1450,9 +1428,6 @@ class N2ComputerAgent:
                         confirmation_callback=self.action_confirmation_callback,
                         screenshot_delay=self.screenshot_delay,
                         presentation=self.presentation,
-                        capture_screenshot=not on_demand,
-                        shell_result_max_chars=self.shell_result_max_chars,
-                        file_result_max_chars=self.file_result_max_chars,
                     )
                     try:
                         if self.tool_call_timeout_seconds is not None:
@@ -1470,17 +1445,9 @@ class N2ComputerAgent:
                                 ),
                             }
                         ]
-                    if partial_items:
-                        last_result_item = partial_items[-1]
-                    if on_demand and gui_turn and index == len(executable) - 1 and last_result_item is not None:
-                        # One frame per GUI turn, on the turn's last tool result,
-                        # however many calls the turn made.
-                        await self._attach_turn_screenshot(last_result_item)
                     new_items += partial_items
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
-                if on_demand and gui_turn and not executable and last_result_item is not None:
-                    await self._attach_turn_screenshot(last_result_item)
 
                 if not (result.get("message") or {}).get("tool_calls"):
                     # A turn without tool calls ends the run; the caller may resume().

@@ -41,7 +41,7 @@ class Desktop:
     def __init__(self, width: int = 1920, height: int = 1080):
         self.width, self.height = width, height
         self.calls: list[tuple] = []
-        self.bash_result: Any = {"output": "hello\n", "exit_code": 0}
+        self.bash_result: Any = "hello\n"
 
     async def get_dimensions(self):
         return self.width, self.height
@@ -115,8 +115,12 @@ def _agent(computer, completions, **kwargs) -> N2ComputerAgent:
 def test_reasoning_is_resent_as_assistant_message_fields():
     items = [
         {"role": "user", "content": "task"},
-        {"type": "reasoning", "summary": [{"type": "summary_text", "text": "think first"}]},
-        {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "on it"}]},
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "on it"}],
+            "reasoning": "think first",
+        },
         {"type": "function_call", "call_id": "c1", "name": "bash", "arguments": '{"command":"ls"}'},
         {"type": "function_call_output", "call_id": "c1", "output": "file.txt"},
     ]
@@ -124,14 +128,15 @@ def test_reasoning_is_resent_as_assistant_message_fields():
     assert [message["role"] for message in messages] == ["user", "assistant", "tool"]
     assistant = messages[1]
     assert assistant["content"] == "on it"
-    assert assistant["reasoning"] == "think first"
-    assert assistant["reasoning_content"] == "think first"
+    assert assistant["reasoning"] == assistant["reasoning_content"] == "think first"
     assert assistant["tool_calls"][0]["function"]["name"] == "bash"
 
-    # Reasoning that directly precedes a tool call (no visible text) rides on the acting message.
-    items_without_text = [items[0], items[1], items[3], items[4]]
-    messages = convert_n2_items_to_completion_messages(items_without_text)
-    assert messages[1]["reasoning_content"] == "think first" and messages[1]["content"] == ""
+    # A caller-supplied standalone reasoning item stays a plain assistant text message.
+    legacy = [
+        {"role": "user", "content": "task"},
+        {"type": "reasoning", "summary": [{"type": "summary_text", "text": "old shape"}]},
+    ]
+    assert convert_n2_items_to_completion_messages(legacy)[1] == {"role": "assistant", "content": "old shape"}
 
 
 def test_parse_executes_every_call():
@@ -141,7 +146,7 @@ def test_parse_executes_every_call():
     assert all(item.get("_computer_actions") for item in output)
 
 
-async def test_execute_renders_harness_batch_text_without_a_frame():
+async def test_execute_returns_batch_member_lines_with_one_frame():
     item = parse_n2_tool_calls(
         {
             "content": "",
@@ -157,15 +162,14 @@ async def test_execute_renders_harness_batch_text_without_a_frame():
         1080,
     )[-1]
     desktop = Desktop()
-    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
-    assert result == [
-        {
-            "type": "function_call_output",
-            "call_id": "c1",
-            "output": "[0:left_click] \n[1:type] \n[2:screenshot] screenshot queued (delivered after the batch)",
-        }
-    ]
-    assert ("screenshot",) not in desktop.calls
+    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]), screenshot_delay=0)
+    output = result[0]["output"]
+    # The batch tool's contract: member lines plus one frame captured after the batch.
+    assert output["type"] == "input_image"
+    assert (
+        output["result"] == "[0:left_click] \n[1:type] \n[2:screenshot] screenshot queued (delivered after the batch)"
+    )
+    assert desktop.calls.count(("screenshot",)) == 1
 
 
 async def test_execute_reports_a_halted_batch_the_harness_way():
@@ -183,34 +187,13 @@ async def test_execute_reports_a_halted_batch_the_harness_way():
         1920,
         1080,
     )[-1]
-    result = await execute_n2_computer_call(item, Desktop(), callbacks=_CallbackDispatcher([]))
-    assert result[0]["output"] == (
+    result = await execute_n2_computer_call(item, Desktop(), callbacks=_CallbackDispatcher([]), screenshot_delay=0)
+    # A halted batch still returns its frame: completed members changed the screen.
+    assert result[0]["output"]["result"] == (
         "[0:left_click] \n"
         "batch stopped at actions[1] (1:right_click): ERROR: RuntimeError: driver refused right click "
         "(1 completed, 1 skipped)"
     )
-
-
-async def test_execute_renders_bash_dict_results_with_exit_codes():
-    desktop = Desktop()
-    desktop.bash_result = {"output": "boom\n", "exit_code": 2}
-    item = parse_n2_tool_calls({"content": "", "tool_calls": [_bash("false")]}, 1920, 1080)[-1]
-    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
-    assert result[0]["output"] == "Exit code 2\nboom\n"
-
-    desktop.bash_result = {"output": "", "exit_code": 0}
-    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
-    assert result[0]["output"] == "(Bash completed with no output)"
-
-    # A plain-string result is passed through with the harness's 30k cap.
-    desktop.bash_result = "x" * 30_010
-    result = await execute_n2_computer_call(item, desktop, callbacks=_CallbackDispatcher([]))
-    assert result[0]["output"].endswith("\n\n[... output truncated, 10 more chars ...]")
-
-
-# ---------------------------------------------------------------------------
-# The loop
-# ---------------------------------------------------------------------------
 
 
 async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
@@ -465,7 +448,7 @@ async def test_a_slow_tool_call_reports_the_harness_timeout_text():
     assert completions.requests[1]["messages"][-1]["content"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
 
 
-async def test_a_read_result_may_carry_an_image_and_keeps_the_turn_frame():
+async def test_a_read_result_may_carry_its_own_image():
     buffer = io.BytesIO()
     Image.new("RGB", (400, 400), (200, 0, 0)).save(buffer, format="PNG")  # a square, red file image
     file_image = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
@@ -494,13 +477,13 @@ async def test_a_read_result_may_carry_an_image_and_keeps_the_turn_frame():
     async for _ in _agent(ImageDesktop(), completions).run("task"):
         pass
     tool_messages = [m for m in completions.requests[1]["messages"] if m["role"] == "tool"]
-    assert _images(tool_messages[0]) == []  # the batch result stays text
-    read_images = _images(tool_messages[1])
-    assert len(read_images) == 2  # file image first, then the turn's frame
+    # The batch result carries its own frame; the read result carries the file's image.
+    (frame_url,) = _images(tool_messages[0])
+    assert _decode(frame_url).size == (1920, 1080)
     assert tool_messages[1]["content"][0] == {"type": "text", "text": "[image: /tmp/a.png]"}
-    file_shown, frame = _decode(read_images[0]), _decode(read_images[1])
-    assert file_shown.size == (400, 400) and file_shown.getpixel((0, 0))[0] > 150  # never resized
-    assert frame.size == (1920, 1080)  # the frame is the capture, untouched
+    (read_url,) = _images(tool_messages[1])
+    shown = _decode(read_url)
+    assert shown.size == (400, 400) and shown.getpixel((0, 0))[0] > 150  # never resized
 
 
 async def test_handlers_that_accept_model_action_receive_the_untranslated_call():
@@ -514,26 +497,13 @@ async def test_handlers_that_accept_model_action_receive_the_untranslated_call()
         1920,
         1080,
     )
-    await execute_n2_computer_call(items[-1], desktop, callbacks=_CallbackDispatcher({}))
-    assert desktop.calls == [("keypress", ("ctrl", "shift", "t"), {"action": "key_press", "key": "ctrl+shift+t"})]
+    await execute_n2_computer_call(items[-1], desktop, callbacks=_CallbackDispatcher({}), screenshot_delay=0)
+    assert desktop.calls[0] == ("keypress", ("ctrl", "shift", "t"), {"action": "key_press", "key": "ctrl+shift+t"})
 
     # Handlers without the parameter are called exactly as before.
     plain = Desktop()
-    await execute_n2_computer_call(items[-1], plain, callbacks=_CallbackDispatcher({}))
-    assert plain.calls == [("keypress", ("ctrl", "shift", "t"))]
-
-
-async def test_text_an_adapter_already_truncated_is_not_cut_again():
-    desktop = Desktop()
-    desktop.bash_result = {"output": "x" * 40 + "\n[... output truncated, 999 more chars ...]", "exit_code": 0}
-    items = parse_n2_tool_calls({"content": "", "tool_calls": [_bash("cat big")]}, 1920, 1080)
-    result = await execute_n2_computer_call(
-        items[-1],
-        desktop,
-        callbacks=_CallbackDispatcher({}),
-        shell_result_max_chars=50,
-    )
-    assert result[0]["output"] == desktop.bash_result["output"]
+    await execute_n2_computer_call(items[-1], plain, callbacks=_CallbackDispatcher({}), screenshot_delay=0)
+    assert plain.calls[0] == ("keypress", ("ctrl", "shift", "t"))
 
 
 async def test_a_leaked_tool_call_format_gets_one_ephemeral_nudge_retry():
@@ -591,10 +561,10 @@ async def test_a_failed_turn_frame_reports_instead_of_killing_the_run():
         pass
     assert agent.stopped_by == "final_answer"
     tool_message = [m for m in completions.requests[1]["messages"] if m["role"] == "tool"][-1]
-    assert "[ERROR] Post-turn screenshot failed: capture failed" in tool_message["content"]
+    assert "[ERROR] Post-action screenshot failed: capture failed" in tool_message["content"]
 
 
-def test_reasoning_between_turns_starts_a_new_assistant_message():
+def test_a_legacy_reasoning_item_between_turns_stays_its_own_message():
     items = [
         {"role": "user", "content": "task"},
         {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "earlier turn"}]},
@@ -603,6 +573,8 @@ def test_reasoning_between_turns_starts_a_new_assistant_message():
         {"type": "function_call_output", "call_id": "c1", "output": "ok"},
     ]
     messages = convert_n2_items_to_completion_messages(items)
+    # The legacy standalone item becomes assistant text of its own turn; the call folds into it.
     assert [m["role"] for m in messages] == ["user", "assistant", "assistant", "tool"]
-    assert "reasoning_content" not in messages[1]
-    assert messages[2]["reasoning_content"] == "new think" and messages[2]["tool_calls"]
+    assert messages[1] == {"role": "assistant", "content": "earlier turn"}
+    assert messages[2]["content"] == "new think" and messages[2]["tool_calls"]
+    assert "reasoning_content" not in messages[2]

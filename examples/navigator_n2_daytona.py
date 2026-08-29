@@ -41,8 +41,14 @@ SNAPSHOT = "daytonaio/sandbox:0.6.0"
 TYPE_CHUNK_MAX_CHARS = 500
 
 # The n2 `bash` tool caps one result at this many characters.
-BASH_RESULT_MAX_CHARS = 8_000
-TRUNCATED_MARKER = "\n[result truncated]"
+BASH_RESULT_MAX_CHARS = 30_000
+
+
+def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
+
 
 # `bash` promises a working directory that persists across calls, but every
 # `exec` is a fresh process. Each command reports where it ended up on this
@@ -136,7 +142,12 @@ class DaytonaComputer:
                 timeout=30,
             )
             pid = launched.result.strip()
-            return f"Started background task (pid {pid}).\nOutput file: {log_path}\nCancel with: kill {pid}"
+            return (
+                f"Started background task `bash_{log_path[-12:-4]}`.\n"
+                f"stdout+stderr is streaming to: {log_path}\n"
+                f"Process id: {pid}\n"
+                f"To cancel: run bash with `kill {pid}`"
+            )
 
         # Run the command, then report the directory it finished in, keeping
         # the command's own exit code.
@@ -147,15 +158,11 @@ class DaytonaComputer:
             self._cwd = cwd or self._cwd
         else:
             output = result.result  # killed by the timeout before it could report
-        # Keep the whole result within the cap, markers included, so the loop's own
-        # truncation never cuts off the exit code of a long failing command.
-        exit_marker = f"\n[exit code {result.exit_code}]" if result.exit_code else ""
-        budget = BASH_RESULT_MAX_CHARS - len(exit_marker)
-        if len(output) > budget:
-            output = output[: budget - len(TRUNCATED_MARKER)] + TRUNCATED_MARKER
-        if not output:
-            return exit_marker.lstrip("\n")
-        return output + exit_marker
+        # The tool owns its result text; this is the format n2 expects.
+        output = _truncate(output)
+        if result.exit_code:
+            return f"Exit code {result.exit_code}\n{output}" if output else f"Exit code {result.exit_code}"
+        return output or "(Bash completed with no output)"
 
 
 class StepLimit:

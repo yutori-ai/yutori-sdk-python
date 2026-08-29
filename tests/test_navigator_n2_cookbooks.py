@@ -192,13 +192,11 @@ def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_pa
     assert str(notes) in glob_output
 
 
-@pytest.mark.parametrize("source", ["x" * 8_001, "x" * 8_000 + "\n"])
+@pytest.mark.parametrize("source", ["x" * 30_001, "x" * 30_000 + "y"])
 def test_public_cua_shell_truncation_retains_failure_exit_code(source: str) -> None:
     output = _format_shell_output(source, 7)
-    assert len(output) == 8_000
-    assert "[result truncated]" in output
-    assert "\n[exit code 7]" in output
-    assert output.endswith("[exit code 7]")
+    assert output.startswith("Exit code 7\nx")
+    assert output.endswith("[... output truncated, 1 more chars ...]")
 
 
 async def test_public_cua_adapter_labels_jpeg_screenshots_correctly() -> None:
@@ -302,4 +300,4 @@ async def test_public_cua_adapter_preserves_bash_cwd_when_the_command_fails() ->
     output = await computer.run_bash_command("false")
 
     assert computer._bash_cwd == "/next-workspace"
-    assert output == "command output\ncommand error\n[exit code 7]"
+    assert output == "Exit code 7\ncommand output\ncommand error"

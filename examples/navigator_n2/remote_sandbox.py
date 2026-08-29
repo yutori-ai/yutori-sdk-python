@@ -20,8 +20,7 @@ try:
 except ImportError:
     from shared import RunGuard, add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
 
-SHELL_RESULT_MAX_CHARS = 8_000
-SHELL_RESULT_TRUNCATION_SUFFIX = "\n[result truncated]"
+SHELL_RESULT_MAX_CHARS = 30_000
 
 _FILE_TOOL_SCRIPT = r"""
 from pathlib import Path
@@ -73,22 +72,32 @@ if operation == "read":
     for number, line in enumerate(read_text(path).splitlines()[offset - 1 : offset - 1 + limit], offset):
         print(f"{number:6}\t{line}")
 elif operation == "write":
-    write_text(resolve(arguments["file_path"]), arguments["content"])
+    path = resolve(arguments["file_path"])
+    existed = path.exists()
+    write_text(path, arguments["content"])
+    print("updated" if existed else "created")
 elif operation == "edit":
     path = resolve(arguments["file_path"])
     old, new = arguments["old_string"], arguments["new_string"]
+    if old == new:
+        raise SystemExit("ERROR: old_string and new_string are identical.")
     if not old:
         if path.exists():
-            raise SystemExit("File already exists; use a non-empty old_string to edit it")
+            raise SystemExit(
+                f"ERROR: cannot create {path}: it already exists (use a non-empty old_string to edit, "
+                "or write to overwrite)."
+            )
         write_text(path, new)
         print("created")
     else:
         text = path.read_text(encoding="utf-8")
         matches = text.count(old)
         if not matches:
-            raise SystemExit("Requested text was not found")
+            raise SystemExit("ERROR: old_string not found in file (it must match exactly, including whitespace).")
         if matches > 1 and not arguments["replace_all"]:
-            raise SystemExit(f"Found {matches} matches; use replace_all")
+            raise SystemExit(
+                f"ERROR: old_string is not unique ({matches} occurrences). Add context or pass replace_all=true."
+            )
         write_text(path, text.replace(old, new, -1 if arguments["replace_all"] else 1))
         print(matches if arguments["replace_all"] else 1)
 elif operation == "grep":
@@ -172,14 +181,18 @@ def _result_output(result: Any) -> str:
     return output
 
 
+def _truncate(text: str, max_chars: int = SHELL_RESULT_MAX_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
+
+
 def _format_shell_output(output: str, exit_code: int) -> str:
-    marker = f"[exit code {exit_code}]" if exit_code else ""
-    content_limit = SHELL_RESULT_MAX_CHARS - len(marker) - 1 if marker else SHELL_RESULT_MAX_CHARS
-    if len(output) > content_limit:
-        output = output[: content_limit - len(SHELL_RESULT_TRUNCATION_SUFFIX)] + SHELL_RESULT_TRUNCATION_SUFFIX
-    if marker:
-        return f"{output}{'' if not output or output.endswith(chr(10)) else chr(10)}{marker}"
-    return output or "Command exited with code 0 and produced no output."
+    """Render a bash result the way n2 expects: output, with an exit-code header on failure."""
+    output = _truncate(output)
+    if exit_code:
+        return f"Exit code {exit_code}\n{output}" if output else f"Exit code {exit_code}"
+    return output or "(Bash completed with no output)"
 
 
 def _shell_result(result: Any) -> str:
@@ -345,9 +358,11 @@ class CuaSandboxComputer:
             )
             process_id = str(getattr(result, "stdout", "") or "").strip() or "unknown"
             return (
-                f"Started background task (pid {process_id}).\n"
-                f"Output file: {log_path}\n"
-                f"Cancel with: kill -- -{process_id}"
+                f"Started background task `bash_{log_path[-12:-4]}`.\n"
+                f"stdout+stderr is streaming to: {log_path}\n"
+                "Use the read tool on that file to retrieve output.\n"
+                f"Process id: {process_id}\n"
+                f"To cancel: run bash with `kill {process_id}`"
             )
 
         sentinel = f"__YUTORI_N2_BASH_CWD_{uuid.uuid4().hex}__"
@@ -368,12 +383,14 @@ class CuaSandboxComputer:
             raise ValueError("read.offset must be a positive 1-based line number")
         output = await self._run_file_tool("read", file_path=file_path, offset=offset, limit=limit)
         self._file_snapshots.add(await self._file_key(file_path))
-        return output.rstrip()
+        return output.rstrip() or "[file exists but is empty]"
 
     async def write_file(self, file_path: str, content: str) -> str:
-        await self._run_file_tool("write", file_path=file_path, content=content)
+        state = (await self._run_file_tool("write", file_path=file_path, content=content)).strip()
         self._file_snapshots.add(await self._file_key(file_path))
-        return f"Wrote {len(content)} characters to {file_path}."
+        if state == "created":
+            return f"File created successfully at: {file_path}"
+        return f"The file {file_path} has been updated successfully."
 
     async def edit_file(
         self,
@@ -395,7 +412,8 @@ class CuaSandboxComputer:
         if old_string == "":
             self._file_snapshots.add(file_key)
             return f"File created successfully at: {file_path}"
-        return f"Edited {file_path}: replaced {replacements.strip()} occurrence(s)."
+        del replacements
+        return f"The file {file_path} has been updated successfully."
 
     async def grep_files(
         self,

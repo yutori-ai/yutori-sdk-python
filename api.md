@@ -494,17 +494,16 @@ from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos
 
 `run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. `parse_terminal_marker(text)` recognises the `[DONE]` / `[INFEASIBLE]` convention for callers whose prompt (for example `N2_TASK_GUIDELINES`) asks the model to end with one.
 
-What the model observes by default: the run starts without a screenshot (the model requests one with a `screenshot` batch member); each GUI turn gets one frame (the handler's own capture) appended to its last tool result; every tool call of a turn is executed in order; tool results are text — `[i:name]` lines for a batch, the command output for `bash`, `cat -n` lines for `read`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. Each policy is a constructor keyword. A turn whose text carries literal `<tool_call>` markup but parsed no tool calls gets one retry with a format reminder (`TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`); neither the malformed attempt nor the reminder enters the kept trajectory. Key names in `key_press`/`hold_key` normalize to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the computer handler to accept or reject.
+What a result carries is the tool's own contract, not a loop policy: a `computer_batch` (or a single GUI action, or `screenshot`) returns one `[i:name]` line per member plus a fresh frame captured after its actions execute; `bash` and the file tools return the handler's text exactly as returned (`read` may return `{"text", "image_url"}` so an image file is shown as an image); the run starts without a screenshot and the model requests one with a `screenshot` batch member. Frames are sent at the computer handler's own capture size — the handler defines the viewport (with DPR scaling removed) — re-encoded to `image_format`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. A turn whose text carries literal `<tool_call>` markup but parsed no tool calls gets one retry with a format reminder (`TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`); neither the malformed attempt nor the reminder enters the kept trajectory. Key names in `key_press`/`hold_key` normalize to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the computer handler to accept or reject.
 
+The keywords:
 
 | Keyword | Default | What it controls |
 |---|---|---|
-| `screenshot_policy` | `"on_demand"` | `"always"` instead captures a frame before the first turn and after every executed call. |
 | `system_prompt` | `None` | Sent as a system message ahead of the conversation (the server appends it to its own system prompt). |
-| `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes: the computer handler's capture defines the frame, so pick the viewport (and remove DPR scaling) in the handler. |
+| `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes. |
 | `max_completion_tokens` | `20480` | Output budget per model call. |
 | `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
-| `shell_result_max_chars` / `file_result_max_chars` | `30000` / `262144` | Tool output caps (`[... output truncated, N more chars ...]`). |
 | `api_timeout_seconds` | `600` | Per-request timeout sent with each model call. `None` uses the client's default. |
 | `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it. `None` disables the check. |
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
@@ -512,21 +511,7 @@ What the model observes by default: the run starts without a screenshot (the mod
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
 | `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
 
-Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text (the turn's frame is appended after it); any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments; a `run_bash_command` handler may return `{"output", "exit_code", "timed_out", "timeout"}` and let the loop render it.
-
-Adapters that render their own tool results can use the pure helpers in `yutori.navigator.n2_results` (all exported from `yutori.navigator`):
-
-| Helper | Description |
-|---|---|
-| `format_batch_result(member_names, outcomes, *, error_index=None, error_text=None)` | `[i:name]` lines plus the halt line; `(empty batch)` for none. |
-| `format_bash_result(output, exit_code, *, timed_out=False, timeout_seconds=None, max_chars=30000)` | Output, `Exit code N\n…`, `Command timed out after Ns`, `(Bash completed with no output)`, capped with the truncation marker. |
-| `format_background_bash_result(task_id, output_path, pid)` | The detached-command result block. |
-| `format_cat_n(text, *, offset=1, limit=2000)` / `format_read_result(...)` | `cat -n` rendering of a 1-based line window; the `read` tool's result incl. the empty-file and out-of-range notes. |
-| `format_write_result(file_path, *, created)` | `File created successfully at: …` / `The file … has been updated successfully.` |
-| `apply_edit(content, file_path, old_string, new_string, *, replace_all=False)` | Exact-string replacement returning `(new_content, result_text)`; raises `N2EditError` with the tool's error text. |
-| `render_tool_output(result, *, max_chars)` | What the loop does with a shell/file handler's return value: a bash result dict → `format_bash_result`, anything else → text capped with `truncate_output`. |
-| `truncate_output(text, max_chars)` | The `[... output truncated, N more chars ...]` cap; idempotent on text already carrying the marker. |
-| `parse_terminal_marker(text)` | `"done"` / `"infeasible"` when the text carries `[DONE]` / `[INFEASIBLE]`, else `None`. |
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/remote_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
 
 ### Screenshot helpers
 
