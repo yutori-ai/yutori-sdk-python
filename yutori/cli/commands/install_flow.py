@@ -61,11 +61,16 @@ def _slate_line(text: str) -> str:
 VERIFICATION_TASK = "Give me a list of all employees (names and titles) of Yutori."
 VERIFICATION_URL = "https://yutori.com"
 VERIFICATION_MAX_STEPS = 3
-# `add-mcp` takes a single quoted command-string argument. The third tuple
+# `npx -y` answers npx's own "Need to install the following packages" prompt;
+# the user has already confirmed the step and seen the exact package name, so
+# that prompt is a second speed bump rather than a safeguard.
+# `add-mcp` takes a single quoted command-string argument, so the last tuple
 # element is intentionally one argv token, not two (mirrors the README:
-# `npx add-mcp "uvx yutori-mcp"`).
-MCP_SERVER_INSTALL_COMMAND = ("npx", "add-mcp", "uvx yutori-mcp")
-MCP_SKILLS_INSTALL_COMMAND = ("npx", "skills", "add", "yutori-ai/yutori-mcp", "-g")
+# `npx add-mcp -n yutori "uvx yutori-mcp"`). `-n yutori` is required: without
+# it add-mcp infers the server name from the first word of the target and
+# registers the server as "uvx".
+MCP_SERVER_INSTALL_COMMAND = ("npx", "-y", "add-mcp", "-n", "yutori", "uvx yutori-mcp")
+MCP_SKILLS_INSTALL_COMMAND = ("npx", "-y", "skills", "add", "yutori-ai/yutori-mcp", "-g")
 # Default set of clients to register MCP for when YUTORI_INSTALL_CLIENT is
 # unset in non-TTY installs. Covers the most-used coding agents without
 # spraying config files for every one of the ~14 supported clients

@@ -94,7 +94,7 @@ Resolution order: explicit `api_key` > `YUTORI_API_KEY` env var > `~/.yutori/con
 The installer sets these up automatically when Node.js is available. To do it manually:
 
 ```bash
-npx add-mcp "uvx yutori-mcp"
+npx add-mcp -n yutori "uvx yutori-mcp"
 npx skills add yutori-ai/yutori-mcp -g
 ```
 
