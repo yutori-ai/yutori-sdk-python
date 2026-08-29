@@ -12,6 +12,7 @@ from typing import Literal
 
 from PIL import Image
 
+from .process_lifecycle import cancel_and_drain
 from .types import CancellationLatch, N2Observation
 
 FRAME_SIGNATURE_WIDTH = 160
@@ -89,9 +90,7 @@ async def _sleep_or_cancel(delay: float, cancellation: "CancellationLatch | None
     sleeper = asyncio.create_task(asyncio.sleep(delay))
     cancelled = asyncio.create_task(cancellation.wait())
     done, pending = await asyncio.wait({sleeper, cancelled}, return_when=asyncio.FIRST_COMPLETED)
-    for task in pending:
-        task.cancel()
-    await asyncio.gather(*pending, return_exceptions=True)
+    await cancel_and_drain(*pending)
     return cancelled in done
 
 
