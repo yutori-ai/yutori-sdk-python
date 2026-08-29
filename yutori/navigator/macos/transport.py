@@ -9,6 +9,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from .process_lifecycle import terminate_process_gracefully
+
 _RPC_TIMEOUT_SECONDS = 30.0
 _PROCESS_EXIT_TIMEOUT_SECONDS = 3.0
 _RPC_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
@@ -131,18 +133,7 @@ class CuaDriverTransport:
         self._closing = True
         process, self._process = self._process, None
         if process is not None:
-            if process.stdin is not None:
-                process.stdin.close()
-            if process.returncode is None:
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=_PROCESS_EXIT_TIMEOUT_SECONDS)
-                except asyncio.TimeoutError:
-                    process.terminate()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=_PROCESS_EXIT_TIMEOUT_SECONDS)
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        await process.wait()
+            await terminate_process_gracefully(process, exit_timeout=_PROCESS_EXIT_TIMEOUT_SECONDS)
         if self._stderr_task is not None:
             self._stderr_task.cancel()
             await asyncio.gather(self._stderr_task, return_exceptions=True)
