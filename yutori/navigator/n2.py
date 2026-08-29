@@ -4,40 +4,33 @@ This SDK-owned loop lets computer-use hosts drive n2 without another agent
 framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
-- What a result carries is the tool's own contract, not a loop policy: a
-  ``computer_batch`` (or a single GUI action, or ``screenshot``) returns one
-  ``[i:name]``-per-member text plus a fresh frame captured after its actions
-  execute; ``bash``/file calls return the handler's text as-is (``read`` may
-  return an image). The run starts without a screenshot — the model asks for
-  one with a ``screenshot`` batch member. Frames are sent at the computer
-  handler's own capture size, re-encoded to ``image_format`` (WebP). Every tool call of a turn is
-  executed in order. Tool results are text (``[i:name]`` lines for a batch, the
-  command output for ``bash``, ``cat -n`` lines for ``read``) with bounded
-  length. Prior-turn reasoning is re-sent as the assistant message's
-  ``reasoning``/``reasoning_content`` fields. Each of these policies, and every
-  budget, is a constructor keyword.
-- A turn whose text carries literal ``<tool_call>`` markup but parsed no tool
-  calls gets one retry with a format reminder; neither the malformed attempt nor
-  the reminder enters the kept trajectory.
-- A turn without tool calls ends the run (``stopped_by == "final_answer"``).
-  ``resume(message)`` appends a user message to the same trajectory and
-  continues, so a caller decides whether that text was a question, a final
-  answer, or something to steer.
-- The model call goes through the SDK's own chat-completions surface (or any
-  object with a compatible async ``create``); the SDK chat namespace's bundled
-  client already retries transient failures, so the loop adds no second retry
-  layer.
-- ``usage`` on each yielded step is the raw Chat Completions usage dict.
-- No telemetry, cost accounting, or trajectory persistence.
-- ``instructions`` becomes the first user message of the run's history — the
-  same wire effect as the reference's prompt-instructions callback.
+- Results are each tool's own contract, not loop policy. ``computer_batch``
+  (or a single GUI action, or ``screenshot``) returns one ``[i:name]`` line per
+  member plus a frame captured after execution; ``bash`` and the file tools
+  return the handler's text as-is (``read`` may return an image). The run
+  starts without a screenshot — the model requests one with a ``screenshot``
+  batch member.
+- Frames are sent at the handler's own capture size, re-encoded to
+  ``image_format``. Prior-turn reasoning is re-sent as the assistant message's
+  ``reasoning``/``reasoning_content`` fields. Every tool call of a turn
+  executes in order.
+- A turn with literal ``<tool_call>`` markup but zero parsed calls gets one
+  format-reminder retry; neither the attempt nor the reminder enters the kept
+  trajectory.
+- A turn without tool calls ends the run (``stopped_by == "final_answer"``);
+  ``resume(message)`` appends a user message and continues the conversation.
+- The model call goes through the SDK's chat-completions surface (or any
+  object with a compatible async ``create``), which already retries transient
+  failures. ``usage`` on each yielded step is the raw usage dict. No
+  telemetry, cost accounting, or trajectory persistence.
+- ``instructions`` becomes the first user message of the run's history.
 - ``on_run_end`` always fires, including when the first ``on_run_continue``
-  stops the run (the reference raised there).
+  stops the run.
 
 The trajectory is a list of "responses items" dicts — ``message``,
-``reasoning``, ``function_call``, ``function_call_output`` — converted to Chat
-Completions messages per request. Executor-only fields ride on function_call
-items under underscore keys and never reach the wire.
+``function_call``, ``function_call_output`` — converted to Chat Completions
+messages per request. Executor-only fields ride on function_call items under
+underscore keys and never reach the wire.
 
 Callbacks are duck-typed and all optional: ``on_run_start``,
 ``on_run_continue`` (return False to stop), ``on_api_start``, ``on_api_end``,
@@ -1046,8 +1039,10 @@ class N2ComputerAgent:
 
     ``computer`` is any object with the async computer-handler surface
     (``screenshot``, ``click``, ``double_click``, ``scroll``, ``type``,
-    ``keypress``, ``drag``, ``move``, ``wait``, and optionally
-    ``run_shell_command``/``run_bash_command``). ``completions`` is a
+    ``keypress``, ``drag``, ``move``, ``wait``, and optionally the shell/file
+    tools: ``run_bash_command``, ``read_file``, ``write_file``, ``edit_file``
+    — see ``examples/navigator_n2/cua_sandbox.py`` for the reference
+    implementation). ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from
     ``api_key``/``base_url`` and closes it via ``aclose()`` or the async

@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import PurePosixPath
 from typing import Any
 
-SHELL_RESULT_MAX_CHARS = 30_000
+BASH_RESULT_MAX_CHARS = 30_000
 
 _FILE_TOOL_SCRIPT = r"""
 from pathlib import Path
@@ -181,7 +181,7 @@ def _result_output(result: Any) -> str:
     return output
 
 
-def _truncate(text: str, max_chars: int = SHELL_RESULT_MAX_CHARS) -> str:
+def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
     if len(text) <= max_chars:
         return text
     return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
