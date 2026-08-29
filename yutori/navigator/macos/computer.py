@@ -87,10 +87,14 @@ class _BackgroundProcess:
     monitor: "asyncio.Task[None] | None" = None
 
 
-_FOREGROUND_SUPERVISOR = """
-parent_pid=$1
-shell_kind=$2
-(
+# Shared by both supervisor scripts below: a background subshell that polls
+# whether the shell's original parent is still its direct parent (not merely
+# alive — reparented onto init after a crash counts as gone) and force-kills
+# the whole process group the moment it isn't. This is what keeps a spawned
+# foreground/background shell from outliving the Python process that started
+# it. The two supervisors previously hand-duplicated this block; kept in one
+# place so the parent-liveness contract can't drift between them.
+_PARENT_DEATH_WATCHER = """(
   trap 'exit 0' TERM
   while /bin/kill -0 "$parent_pid" 2>/dev/null; do
     current_parent=$(/bin/ps -o ppid= -p "$$" | /usr/bin/tr -d '[:space:]')
@@ -99,7 +103,13 @@ shell_kind=$2
   done
   /bin/kill -KILL 0
 ) &
-watcher=$!
+watcher=$!""".strip()
+
+
+_FOREGROUND_SUPERVISOR = f"""
+parent_pid=$1
+shell_kind=$2
+{_PARENT_DEATH_WATCHER}
 if [ "$shell_kind" = bash ]; then
   /bin/bash --noprofile --norc -s
 else
@@ -112,19 +122,10 @@ exit "$status"
 """.strip()
 
 
-_BACKGROUND_SUPERVISOR = """
+_BACKGROUND_SUPERVISOR = f"""
 parent_pid=$1
 status_path=$2
-(
-  trap 'exit 0' TERM
-  while /bin/kill -0 "$parent_pid" 2>/dev/null; do
-    current_parent=$(/bin/ps -o ppid= -p "$$" | /usr/bin/tr -d '[:space:]')
-    [ "$current_parent" = "$parent_pid" ] || break
-    /bin/sleep 0.2
-  done
-  /bin/kill -KILL 0
-) &
-watcher=$!
+{_PARENT_DEATH_WATCHER}
 /bin/bash --noprofile --norc -s
 status=$?
 printf '%s\\n' "$status" > "$status_path"
