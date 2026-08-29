@@ -123,7 +123,7 @@ OpenAI-compatible pixels-to-actions chat completions. Works with Navigator n1.5 
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.chat.completions.create(messages, *, model="n1.5-latest", tool_set=None, disable_tools=None, json_schema=None, **kwargs)` | POST | `/v1/chat/completions` | `openai.types.chat.ChatCompletion` |
+| `client.chat.completions.create(messages, *, model="n1.5-latest", tool_set=None, disable_tools=None, json_schema=None, prev_request_id=None, **kwargs)` | POST | `/v1/chat/completions` | `openai.types.chat.ChatCompletion` — echo a response's `request_id` back as `prev_request_id` to link calls into one conversation |
 
 #### `chat.completions.create`
 
@@ -492,7 +492,7 @@ from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos
 
 ### Loop policies
 
-`run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. A caller who wants an explicit completion convention (say, a `[DONE]` marker) asks for it in their own `system_prompt` and checks the final text in their outer loop, resuming until it appears.
+`run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. Each request echoes the previous response's `request_id` as `prev_request_id` (`run()` starts a new chain, `resume()` continues it), so the platform reports the whole conversation as one session. A caller who wants an explicit completion convention (say, a `[DONE]` marker) asks for it in their own `system_prompt` and checks the final text in their outer loop, resuming until it appears.
 
 What a result carries is the tool's own contract, not a loop policy: a `computer_batch` (or a single GUI action, or `screenshot`) returns one `[i:name]` line per member plus a fresh frame captured after its actions execute; `bash` and the file tools return the handler's text exactly as returned (`read` may return `{"text", "image_url"}` so an image file is shown as an image); the run starts without a screenshot and the model requests one with a `screenshot` batch member. Frames are sent at the computer handler's own capture size — the handler defines the viewport (with DPR scaling removed) — re-encoded to `image_format`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. A turn whose text carries literal `<tool_call>` markup but parsed no tool calls gets one retry with a format reminder (`TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`); neither the malformed attempt nor the reminder enters the kept trajectory. Key names in `key_press`/`hold_key` normalize to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the computer handler to accept or reject.
 

@@ -26,6 +26,7 @@ class AsyncChatCompletions:
         tool_set: str | None = None,
         disable_tools: list[str] | None = None,
         json_schema: dict | None = None,
+        prev_request_id: str | None = None,
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create a chat completion using the Navigator API.
@@ -41,6 +42,9 @@ class AsyncChatCompletions:
             json_schema: JSON Schema for structured output.
                 When provided, the model returns a ``parsed_json`` field
                 on the response.
+            prev_request_id: The ``request_id`` returned by the previous call
+                in this conversation; echo it to link the calls into one
+                conversation for usage reporting.
             **kwargs: Additional parameters (e.g., temperature).
 
         Returns:
@@ -51,6 +55,7 @@ class AsyncChatCompletions:
             tool_set=tool_set,
             disable_tools=disable_tools,
             json_schema=json_schema,
+            prev_request_id=prev_request_id,
         )
 
         return await self._client.chat.completions.create(model=model, messages=messages, **kwargs)

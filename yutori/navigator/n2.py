@@ -1055,6 +1055,10 @@ class N2ComputerAgent:
     to preserve native multi-click timing; otherwise the loop falls back to
     double-click followed by left-click.
 
+    Each request echoes the previous response's ``request_id`` as
+    ``prev_request_id`` (``run()`` starts a new chain, ``resume()`` continues
+    it), so the platform reports the whole conversation as one session.
+
     ``run(task)`` yields step dicts: ``{"output": [items...], "usage": {...},
     "message": {...}}`` for each model turn (``message`` is the raw assistant
     message), then ``{"output": [result items]}`` per executed tool call. It
@@ -1160,6 +1164,7 @@ class N2ComputerAgent:
         self.compactor = compactor
         self.stopped_by: "str | None" = None
         self.trajectory: list[dict[str, Any]] = []
+        self.last_request_id: "str | None" = None
         self.last_usage: dict[str, Any] = {}
         self._native_size: "tuple[int, int] | None" = None
 
@@ -1262,6 +1267,14 @@ class N2ComputerAgent:
         api_kwargs.update(self.completion_kwargs)
 
         for attempt in (0, 1):
+            if self.last_request_id is not None:
+                # Echo the previous response's request_id so the platform links the
+                # run's calls into one conversation. Sent through extra_body so any
+                # OpenAI-compatible completions object forwards it.
+                api_kwargs["extra_body"] = {
+                    **(api_kwargs.get("extra_body") or {}),
+                    "prev_request_id": self.last_request_id,
+                }
             await self._callbacks.fire("on_api_start", api_kwargs)
             model_started_at = time.monotonic()
             try:
@@ -1273,6 +1286,7 @@ class N2ComputerAgent:
             response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
             usage = response_dict.get("usage") or {}
             self.last_usage = usage
+            self.last_request_id = response_dict.get("request_id") or self.last_request_id
             await self._callbacks.fire("on_usage", usage)
             message = (response_dict.get("choices") or [{}])[0].get("message") or {}
             if attempt == 0 and needs_tool_call_format_nudge(message):
@@ -1308,6 +1322,7 @@ class N2ComputerAgent:
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
         self.trajectory = self._initial_items(messages)
+        self.last_request_id = None
         async for step in self._drive(messages):
             yield step
 

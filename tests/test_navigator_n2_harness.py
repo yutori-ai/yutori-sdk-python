@@ -79,7 +79,11 @@ class FakeCompletions:
     async def create(self, **kwargs):
         self.requests.append(kwargs)
         message = self._turns.pop(0)
-        return {"choices": [{"message": message}], "usage": {"prompt_tokens": 5 + len(self.requests)}}
+        return {
+            "choices": [{"message": message}],
+            "usage": {"prompt_tokens": 5 + len(self.requests)},
+            "request_id": f"req-{len(self.requests)}",
+        }
 
 
 def _batch(*members: dict[str, Any], call_id: str = "c1") -> dict[str, Any]:
@@ -577,3 +581,30 @@ def test_a_legacy_reasoning_item_between_turns_stays_its_own_message():
     assert messages[1] == {"role": "assistant", "content": "earlier turn"}
     assert messages[2]["content"] == "new think" and messages[2]["tool_calls"]
     assert "reasoning_content" not in messages[2]
+
+
+async def test_requests_chain_via_prev_request_id():
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_bash("ls", "b1")]},
+            {"content": "Which folder?", "tool_calls": []},
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    agent = _agent(Desktop(), completions)
+    async for _ in agent.run("task"):
+        pass
+    # The first call starts the chain; every later call echoes the previous request_id.
+    assert "extra_body" not in completions.requests[0]
+    assert completions.requests[1]["extra_body"] == {"prev_request_id": "req-1"}
+
+    # resume() continues the same conversation.
+    async for _ in agent.resume("use ~/Documents"):
+        pass
+    assert completions.requests[2]["extra_body"] == {"prev_request_id": "req-2"}
+
+    # A new run() starts a fresh chain.
+    completions._turns = [{"content": "done", "tool_calls": []}]
+    async for _ in agent.run("other task"):
+        pass
+    assert "extra_body" not in completions.requests[3]
