@@ -41,6 +41,8 @@ from yutori.navigator.n2_payload import (
     image_dimensions,
 )
 
+from .conftest import FakeCompletions
+
 
 def _png_data_url(width: int = 200, height: int = 100) -> str:
     buffer = io.BytesIO()
@@ -818,26 +820,6 @@ async def test_typed_text_never_enters_presentation_events():
 # ---------------------------------------------------------------------------
 # The agent loop
 # ---------------------------------------------------------------------------
-
-
-class FakeCompletions:
-    """Scripted chat surface: returns each response in turn, records requests."""
-
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.requests: list[dict[str, Any]] = []
-
-    async def create(self, **kwargs):
-        self.requests.append(kwargs)
-
-        class _Response:
-            def __init__(self, payload):
-                self._payload = payload
-
-            def model_dump(self):
-                return self._payload
-
-        return _Response(self.responses.pop(0))
 
 
 def _turn(message):
