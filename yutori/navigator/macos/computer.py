@@ -1083,6 +1083,40 @@ class MacOSComputer:
         if not self.allow_local_shell:
             raise PermissionError("Local shell execution requires allow_local_shell=True")
 
+    async def _spawn_supervised_shell(
+        self,
+        argv: "Sequence[str]",
+        *,
+        cwd: "str | None",
+        stdout: Any,
+        task_id: str,
+        preview: str,
+        run_in_background: bool,
+        on_start_failure: "Callable[[], None] | None" = None,
+    ) -> asyncio.subprocess.Process:
+        """Spawn one parent-death-supervised shell, presenting cancel/failure identically for both shell kinds."""
+        try:
+            self.cancellation.raise_if_cancelled()
+            return await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=cwd,
+                env=_shell_environment(),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=stdout,
+                stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except asyncio.CancelledError:
+            await self._present_shell(ShellPresentationEvent(task_id, preview, run_in_background, "cancelled"))
+            if on_start_failure is not None:
+                on_start_failure()
+            raise
+        except Exception:
+            await self._present_shell(ShellPresentationEvent(task_id, preview, run_in_background, "failed"))
+            if on_start_failure is not None:
+                on_start_failure()
+            raise
+
     async def _run_foreground_shell(
         self,
         command: str,
@@ -1100,28 +1134,14 @@ class MacOSComputer:
         task_id = f"shell-{uuid.uuid4().hex[:8]}"
         await self._present_shell(ShellPresentationEvent(task_id, preview, False, "starting"))
         started_at = time.monotonic()
-        try:
-            self.cancellation.raise_if_cancelled()
-            process = await asyncio.create_subprocess_exec(
-                "/bin/sh",
-                "-c",
-                _FOREGROUND_SUPERVISOR,
-                "yutori-shell",
-                str(os.getpid()),
-                "bash" if bash else "sh",
-                cwd=cwd,
-                env=_shell_environment(),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
-            )
-        except asyncio.CancelledError:
-            await self._present_shell(ShellPresentationEvent(task_id, preview, False, "cancelled"))
-            raise
-        except Exception:
-            await self._present_shell(ShellPresentationEvent(task_id, preview, False, "failed"))
-            raise
+        process = await self._spawn_supervised_shell(
+            ["/bin/sh", "-c", _FOREGROUND_SUPERVISOR, "yutori-shell", str(os.getpid()), "bash" if bash else "sh"],
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            task_id=task_id,
+            preview=preview,
+            run_in_background=False,
+        )
         self._foreground_processes.add(process)
         await self._present_shell(ShellPresentationEvent(task_id, preview, False, "running"))
         try:
@@ -1152,30 +1172,15 @@ class MacOSComputer:
         status_path = output_path.with_suffix(".status")
         log_file = os.fdopen(descriptor, "wb")
         try:
-            try:
-                self.cancellation.raise_if_cancelled()
-                process = await asyncio.create_subprocess_exec(
-                    "/bin/sh",
-                    "-c",
-                    _BACKGROUND_SUPERVISOR,
-                    "yutori-background",
-                    str(os.getpid()),
-                    str(status_path),
-                    cwd=self._bash_cwd,
-                    env=_shell_environment(),
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=log_file,
-                    stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True,
-                )
-            except asyncio.CancelledError:
-                await self._present_shell(ShellPresentationEvent(task_id, preview, True, "cancelled"))
-                output_path.unlink(missing_ok=True)
-                raise
-            except Exception:
-                await self._present_shell(ShellPresentationEvent(task_id, preview, True, "failed"))
-                output_path.unlink(missing_ok=True)
-                raise
+            process = await self._spawn_supervised_shell(
+                ["/bin/sh", "-c", _BACKGROUND_SUPERVISOR, "yutori-background", str(os.getpid()), str(status_path)],
+                cwd=self._bash_cwd,
+                stdout=log_file,
+                task_id=task_id,
+                preview=preview,
+                run_in_background=True,
+                on_start_failure=lambda: output_path.unlink(missing_ok=True),
+            )
         finally:
             log_file.close()
         try:
