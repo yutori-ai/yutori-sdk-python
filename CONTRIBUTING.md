@@ -53,6 +53,15 @@ Thank you for your interest in contributing to the Yutori Python SDK!
 4. Run tests and linting
 5. Submit a pull request
 
+## Releases
+
+Before the first release, register PyPI Trusted Publishing for GitHub Actions with owner `yutori-ai`, repository
+`yutori-sdk-python`, workflow `publish_to_pypi.yml`, and environment `pypi`. Then push an annotated `vX.Y.Z` tag and
+run **Publish yutori to PyPI** from the GitHub Actions UI with that tag as its input. The workflow builds and tests the
+exact tag, publishes it to PyPI, uploads every installer asset to a draft GitHub release, and only then publishes the
+release. Do not publish a GitHub release manually or dispatch the workflow for an already-published release:
+`yutori.com/install.sh` follows the latest published release.
+
 ## Reporting Issues
 
 Please report issues at https://github.com/yutori-ai/yutori-sdk-python/issues

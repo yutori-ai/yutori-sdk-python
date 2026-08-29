@@ -1,8 +1,19 @@
 name: Publish yutori to PyPI
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Annotated vX.Y.Z tag to publish"
+        required: true
+        type: string
+
+# A GitHub Release becomes "latest" as soon as it is published. Build, test,
+# publish to PyPI, and attach every release asset before publishing the release
+# so yutori.com/install.sh can never point at an incomplete release.
+concurrency:
+  group: yutori-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -13,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v6
@@ -22,12 +33,44 @@ jobs:
 
       - name: Verify annotated release tag and package version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
           test "${RELEASE_TAG#v}" != "$RELEASE_TAG"
           test "$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")" = "${RELEASE_TAG#v}"
+
+      - name: Refuse to overwrite a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          tag = quote(os.environ["RELEASE_TAG"], safe="")
+          request = Request(
+              f"https://api.github.com/repos/{repository}/releases/tags/{tag}",
+              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"},
+          )
+          try:
+              with urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+          except HTTPError as error:
+              if error.code == 404:
+                  raise SystemExit(0)
+              raise
+
+          if not release["draft"]:
+              raise SystemExit(
+                  "Refusing to overwrite a published release; repair it separately or create a new release tag."
+              )
+          PY
 
       - name: Install build tools
         run: pip install build twine
@@ -50,7 +93,7 @@ jobs:
 
       - name: Record public source provenance
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           python - <<'PY'
           import hashlib
@@ -122,7 +165,43 @@ jobs:
           mkdir packages
           cp dist/*.tar.gz dist/*.whl packages/
 
+      - name: Check whether PyPI already has these distributions
+        id: pypi-release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.request import urlopen
+
+          expected = {}
+          for line in Path("dist/SHA256SUMS").read_text(encoding="utf-8").splitlines():
+              digest, filename = line.split(maxsplit=1)
+              expected[filename.removeprefix("*")] = digest
+
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+          try:
+              with urlopen(f"https://pypi.org/pypi/yutori/{version}/json", timeout=30) as response:
+                  release = json.load(response)
+          except HTTPError as error:
+              if error.code != 404:
+                  raise
+              state = "missing"
+          else:
+              actual = {file["filename"]: file["digests"]["sha256"] for file in release["urls"]}
+              if actual != expected:
+                  raise SystemExit(f"PyPI yutori {version} does not match the verified distributions")
+              state = "matching"
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"state={state}", file=output)
+          PY
+
       - name: Publish with PyPI Trusted Publishing
+        if: steps.pypi-release.outputs.state == 'missing'
         # release/v1, pinned to an immutable commit. This action creates and
         # uploads PyPI attestations for the same distribution bytes by default.
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
@@ -173,11 +252,28 @@ jobs:
           sha256sum source/install.sh > source/install.sh.sha256
           sha256sum source/uninstall.sh > source/uninstall.sh.sha256
 
+      - name: Verify release assets
+        run: |
+          for file in \
+            dist/SHA256SUMS \
+            dist/RELEASE-PROVENANCE.json \
+            source/install.sh \
+            source/install.sh.sha256 \
+            source/uninstall.sh \
+            source/uninstall.sh.sha256; do
+            test -s "$file"
+          done
+
       - name: Upload release assets
         # Pinned to a commit SHA: this third-party action runs with
         # contents:write and uploads the curl|sh installer artifacts.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
+          tag_name: ${{ inputs.tag }}
+          name: yutori ${{ inputs.tag }}
+          generate_release_notes: true
+          draft: true
+          fail_on_unmatched_files: true
           files: |
             dist/SHA256SUMS
             dist/RELEASE-PROVENANCE.json
@@ -185,3 +281,9 @@ jobs:
             source/install.sh.sha256
             source/uninstall.sh
             source/uninstall.sh.sha256
+
+      - name: Publish release after verified assets upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
