@@ -1,8 +1,33 @@
 """Test configuration for Yutori SDK tests."""
 
+from typing import Any
+
 import pytest
 
 from yutori import AsyncYutoriClient, YutoriClient
+
+
+class FakeCompletions:
+    """Scripted chat surface: returns each response in turn, records requests.
+
+    Shared by test_navigator_n2.py and test_navigator_n2_cookbooks.py, which
+    both drive `N2ComputerAgent` against a canned sequence of Chat Completions
+    responses.
+    """
+
+    def __init__(self, responses: list[dict[str, Any]]) -> None:
+        self.responses = list(responses)
+        self.requests: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> Any:
+        self.requests.append(kwargs)
+        payload = self.responses.pop(0)
+
+        class _Response:
+            def model_dump(self) -> dict[str, Any]:
+                return payload
+
+        return _Response()
 
 
 @pytest.fixture

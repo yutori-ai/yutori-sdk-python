@@ -21,6 +21,8 @@ from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_to
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
+from .conftest import FakeCompletions
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -91,22 +93,6 @@ class FakeSandbox:
 
     async def get_dimensions(self) -> tuple[int, int]:
         return 200, 100
-
-
-class FakeCompletions:
-    def __init__(self, responses: list[dict[str, Any]]) -> None:
-        self.responses = list(responses)
-        self.requests: list[dict[str, Any]] = []
-
-    async def create(self, **kwargs: Any) -> Any:
-        self.requests.append(kwargs)
-        payload = self.responses.pop(0)
-
-        class Response:
-            def model_dump(self) -> dict[str, Any]:
-                return payload
-
-        return Response()
 
 
 def _response(message: dict[str, Any]) -> dict[str, Any]:
