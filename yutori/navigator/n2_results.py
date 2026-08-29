@@ -11,6 +11,7 @@ put the returned text on the wire.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 BASH_MAX_OUTPUT_CHARS = 30_000
@@ -39,9 +40,16 @@ N2_TASK_GUIDELINES = (
 )
 
 
+_TRUNCATION_MARKER = re.compile(r"\[\.\.\. output truncated, \d+ more chars \.\.\.\]\s*$")
+
+
 def truncate_output(text: str, max_chars: int) -> str:
-    """Cap ``text`` with the harness's ``[... output truncated, N more chars ...]`` marker."""
-    if len(text) <= max_chars:
+    """Cap ``text`` with the harness's ``[... output truncated, N more chars ...]`` marker.
+
+    Text that already ends with the marker (an adapter capped it at the source)
+    is returned unchanged rather than cut a second time.
+    """
+    if len(text) <= max_chars or _TRUNCATION_MARKER.search(text):
         return text
     return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
 

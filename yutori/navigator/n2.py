@@ -124,6 +124,12 @@ ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
 N2_MAX_COMPLETION_TOKENS = 16_384
 HARNESS_MAX_COMPLETION_TOKENS = 20_480
+# A thinking n2 turn can take minutes; the SDK client's general default (30 s) is
+# far too short and a timeout costs the whole run.
+N2_API_TIMEOUT_SECONDS = 600.0
+HARNESS_DEFAULT_WAIT_SECONDS = 5.0
+HARNESS_CONTEXT_WINDOW_TOKENS = 128_000
+HARNESS_TOOL_CALL_TIMEOUT_SECONDS = 900.0
 _FINAL_MARKER = re.compile(r"\s*\[(?:DONE|INFEASIBLE)\]\s*", re.IGNORECASE)
 
 # Tools whose execution changes what is on screen. After a turn that ran one of
@@ -166,6 +172,17 @@ class N2LoopOptions:
       and ask-a-question clauses.
     - ``max_consecutive_questions``: cap on back-to-back model questions routed
       to ``N2ComputerAgent(on_question=...)`` before the run ends.
+    - ``default_wait_seconds``: ``wait`` duration when the model omits one (the
+      harness's converter waits 5 s).
+    - ``api_timeout_seconds``: per-request timeout sent with each model call. An
+      n2 turn that thinks and emits a long batch can take minutes; ``None`` leaves
+      the client's own default.
+    - ``context_window_tokens``: when set, the run ends with
+      ``stopped_by="context_limit"`` instead of a rejected request once the last
+      response's ``prompt_tokens`` plus the output budget and
+      ``context_margin_tokens`` would exceed it. A ``compactor`` runs first.
+    - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
+      ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
     """
 
     screenshot_policy: Literal["always", "on_demand"] = "always"
@@ -181,6 +198,11 @@ class N2LoopOptions:
     file_result_max_chars: int = SHELL_RESULT_MAX_CHARS
     system_prompt: Optional[str] = None
     max_consecutive_questions: int = 5
+    default_wait_seconds: float = 1.0
+    api_timeout_seconds: Optional[float] = N2_API_TIMEOUT_SECONDS
+    context_window_tokens: Optional[int] = None
+    context_margin_tokens: int = 4096
+    tool_call_timeout_seconds: Optional[float] = None
 
     @classmethod
     def harness(cls, **overrides: Any) -> "N2LoopOptions":
@@ -199,6 +221,9 @@ class N2LoopOptions:
             shell_result_max_chars=BASH_MAX_OUTPUT_CHARS,
             file_result_max_chars=READ_MAX_OUTPUT_CHARS,
             system_prompt=N2_TASK_GUIDELINES,
+            default_wait_seconds=HARNESS_DEFAULT_WAIT_SECONDS,
+            context_window_tokens=HARNESS_CONTEXT_WINDOW_TOKENS,
+            tool_call_timeout_seconds=HARNESS_TOOL_CALL_TIMEOUT_SECONDS,
         )
         values.update(overrides)
         return cls(**values)
@@ -417,6 +442,8 @@ def convert_n2_items_to_completion_messages(
                         }
                     )
                 content.append({"type": "image_url", "image_url": {"url": output.get("image_url")}})
+                for extra_url in output.get("image_urls") or []:
+                    content.append({"type": "image_url", "image_url": {"url": extra_url}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output)})
@@ -479,6 +506,14 @@ def _render_tool_output(result: Any, *, result_format: str, max_chars: int) -> s
     return truncate_shell_result(text, max_chars)
 
 
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
 def _function_call_with_execution(
     name: str,
     args: dict[str, Any],
@@ -515,6 +550,7 @@ def parse_n2_tool_calls(
     allow_click_modifiers: bool = False,
     allow_scroll_modifiers: "bool | None" = None,
     execute_all: bool = False,
+    default_wait_seconds: float = 1.0,
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
@@ -574,6 +610,7 @@ def parse_n2_tool_calls(
                     tool_set=tool_set,
                     allow_click_modifiers=allow_click_modifiers,
                     allow_scroll_modifiers=allow_scroll_modifiers,
+                    default_wait_seconds=default_wait_seconds,
                 )
                 call_item = _function_call_with_execution(
                     name,
@@ -632,6 +669,7 @@ def parse_n2_tool_calls(
                     native_height,
                     allow_click_modifiers=allow_click_modifiers,
                     allow_scroll_modifiers=allow_scroll_modifiers,
+                    default_wait_seconds=default_wait_seconds,
                 )
                 call_item = _function_call_with_execution(
                     name, args, call_id, translated, execution_deadline=execution_deadline
@@ -823,6 +861,7 @@ async def execute_n2_computer_call(
 
     actions = item.get("_computer_actions") or []
     batch_actions = item.get("_batch_actions")
+    model_actions = item.get("_confirmation_actions") or [{"action": item.get("name")}]
     reference_observation = getattr(computer, "current_observation", None)
 
     await callbacks.fire("on_computer_call_start", item)
@@ -891,6 +930,7 @@ async def execute_n2_computer_call(
     screenshot_observation: Any = None
     shell_output_text: "str | None" = None
     file_output_text: "str | None" = None
+    file_output_image: "str | None" = None
     started_at = time.monotonic()
     presented_member: "int | None" = None
     held_keys: list[str] = []
@@ -959,6 +999,9 @@ async def execute_n2_computer_call(
         action_type = action.get("type")
         batch_index = action.get("batch_index")
         action_args = {key: value for key, value in action.items() if key not in {"type", "batch_index"}}
+        # The model's own call ({"action": name, **arguments}) for handlers that want
+        # the untranslated values (the key expression as spelled, scroll `amount`).
+        model_action = model_actions[batch_index if isinstance(batch_index, int) else 0]
         try:
             if isinstance(batch_index, int) and batch_index != presented_member and batch_presentation is not None:
                 member = batch_presentation["members"][batch_index]
@@ -1003,6 +1046,11 @@ async def execute_n2_computer_call(
                 if file_method is None:
                     raise RuntimeError(_file_not_supported_error(str(action_type)))
                 file_result = await file_method(**action_args)
+                # A file handler may return {"text", "image_url"} so `read` on an
+                # image file shows the model the image, as the harness's tool does.
+                if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
+                    file_output_image = file_result.get("image_url")
+                    file_result = file_result.get("text") or ""
                 file_output_text = _render_tool_output(
                     file_result, result_format=result_format, max_chars=file_result_max_chars
                 )
@@ -1032,6 +1080,8 @@ async def execute_n2_computer_call(
                         action_result = await computer.click(**action_args, button="left")
                 elif computer_method is None:
                     raise RuntimeError(f"Unknown computer action: {action_type}")
+                elif _accepts_kwarg(computer_method, "model_action"):
+                    action_result = await computer_method(**action_args, model_action=model_action)
                 else:
                     action_result = await computer_method(**action_args)
                 if isinstance(action_result, dict) and action_result.get("success") is False:
@@ -1122,7 +1172,10 @@ async def execute_n2_computer_call(
         return ACTION_EXECUTED_TEXT if harness else None
 
     if file_output_text is not None and not isinstance(batch_actions, list):
-        result = [{"type": "function_call_output", "call_id": call_id, "output": file_output_text}]
+        file_output: Any = file_output_text
+        if file_output_image:
+            file_output = {"type": "input_image", "image_url": file_output_image, "result": file_output_text or None}
+        result = [{"type": "function_call_output", "call_id": call_id, "output": file_output}]
         await callbacks.fire("on_computer_call_end", item, result)
         await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
@@ -1233,9 +1286,10 @@ class N2ComputerAgent:
     message), then ``{"output": [result frame]}`` per executed tool call. It
     terminates when the model answers with a plain assistant message, a
     callback's ``on_run_continue`` returns False, or a ``max_steps`` /
-    ``agent_timeout_seconds`` budget is spent; ``stopped_by`` records which
+    ``agent_timeout_seconds`` budget is spent, or the next request would exceed
+    ``options.context_window_tokens``; ``stopped_by`` records which
     (``"done"``, ``"infeasible"``, ``"final_answer"``, ``"max_steps"``,
-    ``"timeout"``, ``"callback"``).
+    ``"timeout"``, ``"context_limit"``, ``"callback"``).
 
     ``options`` (an :class:`N2LoopOptions`) selects the loop's observation
     policies; ``N2LoopOptions.harness()`` reproduces the evaluation harness.
@@ -1410,6 +1464,8 @@ class N2ComputerAgent:
             api_kwargs["temperature"] = self.temperature
         if options.reasoning_effort is not None:
             api_kwargs["reasoning_effort"] = options.reasoning_effort
+        if options.api_timeout_seconds is not None:
+            api_kwargs["timeout"] = options.api_timeout_seconds
         await self._callbacks.fire("on_api_start", api_kwargs)
         model_started_at = time.monotonic()
         try:
@@ -1433,6 +1489,7 @@ class N2ComputerAgent:
             allow_click_modifiers=self.supports_click_modifiers,
             allow_scroll_modifiers=self.supports_scroll_modifiers,
             execute_all=options.execute_all_tool_calls,
+            default_wait_seconds=options.default_wait_seconds,
         )
         for output_item in output:
             if output_item.get("type") == "reasoning":
@@ -1454,7 +1511,10 @@ class N2ComputerAgent:
         await self._callbacks.fire("on_screenshot", raw_base64, "screenshot_after")
         output = result_item.get("output")
         if isinstance(output, dict) and output.get("type") == "input_image":
-            output["image_url"] = data_url
+            if output.get("image_url"):
+                output.setdefault("image_urls", []).append(data_url)
+            else:
+                output["image_url"] = data_url
             return
         text = "" if output is None else str(output)
         result_item["output"] = {"type": "input_image", "image_url": data_url, "result": text or None}
@@ -1498,6 +1558,18 @@ class N2ComputerAgent:
                     )
                     if compacted is not None:
                         old_items, new_items = list(compacted), []
+                        self.last_usage = {}
+                prompt_tokens = self.last_usage.get("prompt_tokens")
+                if (
+                    options.context_window_tokens is not None
+                    and isinstance(prompt_tokens, int)
+                    and prompt_tokens + options.max_completion_tokens + options.context_margin_tokens
+                    > options.context_window_tokens
+                ):
+                    # The next request would be rejected; end the run cleanly so the
+                    # caller can still score the final state.
+                    self.stopped_by = "context_limit"
+                    break
 
                 result = await self._predict_step(old_items + new_items)
                 turns += 1
@@ -1526,7 +1598,7 @@ class N2ComputerAgent:
                 on_demand = options.screenshot_policy == "on_demand"
                 executed_gui = False
                 for index, item in enumerate(executable):
-                    partial_items = await execute_n2_computer_call(
+                    execution = execute_n2_computer_call(
                         item,
                         self.computer,
                         callbacks=self._callbacks,
@@ -1538,6 +1610,22 @@ class N2ComputerAgent:
                         shell_result_max_chars=options.shell_result_max_chars,
                         file_result_max_chars=options.file_result_max_chars,
                     )
+                    try:
+                        if options.tool_call_timeout_seconds is not None:
+                            partial_items = await asyncio.wait_for(execution, options.tool_call_timeout_seconds)
+                        else:
+                            partial_items = await execution
+                    except asyncio.TimeoutError:
+                        partial_items = [
+                            {
+                                "type": "function_call_output",
+                                "call_id": item.get("call_id"),
+                                "output": (
+                                    f"ERROR_TIMEOUT: {item.get('call_id')} timed out after "
+                                    f"{options.tool_call_timeout_seconds:g} seconds"
+                                ),
+                            }
+                        ]
                     executed_gui = executed_gui or item.get("name") not in _NON_GUI_TOOL_NAMES
                     if on_demand and executed_gui and index == len(executable) - 1 and partial_items:
                         # The harness attaches one frame per GUI turn, to the turn's

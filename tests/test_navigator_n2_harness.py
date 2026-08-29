@@ -444,3 +444,160 @@ async def test_default_options_keep_the_established_behaviour():
     second = completions.requests[1]["messages"]
     assert any("Refused stale parallel tool call" in str(message.get("content")) for message in second)
     assert agent.stopped_by == "final_answer"
+
+
+# ---------------------------------------------------------------------------
+# Gaps found by the mirror-harness parity study
+# ---------------------------------------------------------------------------
+
+
+def _read(file_path: str, call_id: str = "r1") -> dict[str, Any]:
+    return {"id": call_id, "function": {"name": "read", "arguments": json.dumps({"file_path": file_path})}}
+
+
+async def test_requests_carry_a_long_api_timeout_and_the_harness_wait_default():
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_batch({"name": "wait", "arguments": {}})]},
+            {"content": "[DONE]", "tool_calls": []},
+        ]
+    )
+    desktop = Desktop()
+    async for _ in _agent(desktop, completions).run("task"):
+        pass
+    # A thinking n2 turn can take minutes: the SDK client's 30 s default would end the run.
+    assert completions.requests[0]["timeout"] == 600.0
+    # The harness converter waits 5 s when the model gives no duration.
+    assert ("wait", 5000) in desktop.calls
+
+    completions = FakeCompletions(
+        list(completions._turns)
+        or [
+            {"content": "", "tool_calls": [_batch({"name": "wait", "arguments": {}})]},
+            {"content": "[DONE]", "tool_calls": []},
+        ]
+    )
+    desktop = Desktop()
+    async for _ in _agent(desktop, completions, options=N2LoopOptions(api_timeout_seconds=None)).run("task"):
+        pass
+    assert "timeout" not in completions.requests[0]
+    assert ("wait", 1000) in desktop.calls
+
+
+async def test_context_guard_ends_the_run_before_an_oversized_request():
+    class BigContextCompletions(FakeCompletions):
+        async def create(self, **kwargs):
+            response = await super().create(**kwargs)
+            response["usage"] = {"prompt_tokens": 110_000}
+            return response
+
+    turns = [{"content": "", "tool_calls": [_bash("ls", f"b{i}")]} for i in range(3)]
+    completions = BigContextCompletions(turns)
+    agent = _agent(Desktop(), completions)  # harness(): 128k window, 20480 output, 4096 margin
+    async for _ in agent.run("task"):
+        pass
+    assert len(completions.requests) == 1
+    assert agent.stopped_by == "context_limit"
+
+    # Off by default: the plain loop keeps calling.
+    completions = BigContextCompletions(list(turns) + [{"content": "done", "tool_calls": []}])
+    agent = _agent(Desktop(), completions, options=N2LoopOptions())
+    async for _ in agent.run("task"):
+        pass
+    assert len(completions.requests) == 4 and agent.stopped_by == "final_answer"
+
+
+async def test_a_slow_tool_call_reports_the_harness_timeout_text():
+    import asyncio
+
+    class SlowDesktop(Desktop):
+        async def run_bash_command(self, command, timeout, run_in_background):
+            await asyncio.sleep(5)
+            return {"output": "late", "exit_code": 0}
+
+    completions = FakeCompletions(
+        [{"content": "", "tool_calls": [_bash("sleep 5", "b1")]}, {"content": "[DONE]", "tool_calls": []}]
+    )
+    agent = _agent(SlowDesktop(), completions, options=N2LoopOptions.harness(tool_call_timeout_seconds=0.05))
+    steps = [step async for step in agent.run("task")]
+    outputs = [item for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
+    assert outputs[0]["output"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
+    assert completions.requests[1]["messages"][-1]["content"] == "ERROR_TIMEOUT: b1 timed out after 0.05 seconds"
+
+
+async def test_a_read_result_may_carry_an_image_and_keeps_the_turn_frame():
+    buffer = io.BytesIO()
+    Image.new("RGB", (400, 400), (200, 0, 0)).save(buffer, format="PNG")  # a square, red file image
+    file_image = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+    def _decode(url: str) -> Image.Image:
+        return Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1])))
+
+    class ImageDesktop(Desktop):
+        async def read_file(self, file_path, offset, limit):
+            if file_path.endswith(".png"):
+                return {"text": f"[image: {file_path}]", "image_url": file_image}
+            return await super().read_file(file_path, offset, limit)
+
+    completions = FakeCompletions(
+        [
+            {
+                "content": "",
+                "tool_calls": [
+                    _batch({"name": "left_click", "arguments": {"coordinates": [500, 500]}}),
+                    _read("/tmp/a.png"),
+                ],
+            },
+            {"content": "[DONE]", "tool_calls": []},
+        ]
+    )
+    async for _ in _agent(ImageDesktop(), completions).run("task"):
+        pass
+    tool_messages = [m for m in completions.requests[1]["messages"] if m["role"] == "tool"]
+    assert _images(tool_messages[0]) == []  # the batch result stays text
+    read_images = _images(tool_messages[1])
+    assert len(read_images) == 2  # file image first, then the turn's frame
+    assert tool_messages[1]["content"][0] == {"type": "text", "text": "[image: /tmp/a.png]"}
+    file_shown, frame = _decode(read_images[0]), _decode(read_images[1])
+    assert file_shown.size == (400, 400) and file_shown.getpixel((0, 0))[0] > 150  # kept its aspect, not stretched
+    assert frame.size == (1280, 720)  # the 16:9 desktop frame is resized exactly
+
+
+async def test_handlers_that_accept_model_action_receive_the_untranslated_call():
+    class RecordingDesktop(Desktop):
+        async def keypress(self, keys, model_action=None):
+            self.calls.append(("keypress", tuple(keys), model_action))
+
+    desktop = RecordingDesktop()
+    items = parse_n2_tool_calls(
+        {"content": "", "tool_calls": [_batch({"name": "key_press", "arguments": {"key": "ctrl+shift+t"}})]},
+        1920,
+        1080,
+        execute_all=True,
+    )
+    await execute_n2_computer_call(
+        items[-1], desktop, callbacks=_CallbackDispatcher({}), result_format="harness", capture_screenshot=False
+    )
+    assert desktop.calls == [("keypress", ("ctrl", "shift", "t"), {"action": "key_press", "key": "ctrl+shift+t"})]
+
+    # Handlers without the parameter are called exactly as before.
+    plain = Desktop()
+    await execute_n2_computer_call(
+        items[-1], plain, callbacks=_CallbackDispatcher({}), result_format="harness", capture_screenshot=False
+    )
+    assert plain.calls == [("keypress", ("ctrl", "shift", "t"))]
+
+
+async def test_text_an_adapter_already_truncated_is_not_cut_again():
+    desktop = Desktop()
+    desktop.bash_result = {"output": "x" * 40 + "\n[... output truncated, 999 more chars ...]", "exit_code": 0}
+    items = parse_n2_tool_calls({"content": "", "tool_calls": [_bash("cat big")]}, 1920, 1080)
+    result = await execute_n2_computer_call(
+        items[-1],
+        desktop,
+        callbacks=_CallbackDispatcher({}),
+        result_format="harness",
+        shell_result_max_chars=50,
+        capture_screenshot=False,
+    )
+    assert result[0]["output"] == desktop.bash_result["output"]

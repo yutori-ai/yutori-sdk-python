@@ -501,15 +501,21 @@ from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos
 | `tool_result_format` | `"metadata"` | `"harness"` | `metadata`: a batch reports a JSON summary (`completed`/`failed`/`skipped`/`duration_ms`). `harness`: one `[i:name]` line per member, `batch stopped at actions[i] (...)` on failure, and shell/file output rendered like the evaluation tools (`Exit code N`, `(Bash completed with no output)`, 30,000-character cap). |
 | `execute_all_tool_calls` | `False` | `True` | Execute every tool call of a turn in order instead of refusing all but the first. |
 | `reasoning_in_history` | `"assistant_text"` | `"field"` | Re-send prior-turn reasoning as the assistant message's `reasoning`/`reasoning_content` fields (what the serving template renders back into the thinking block) rather than as a separate assistant text message. |
-| `image_profile` | WebP q80 within 1280×800 | PNG at exactly 1280×720 | `N2ImageProfile(format, size, quality, exact)`; `DEFAULT_IMAGE_PROFILE` / `HARNESS_IMAGE_PROFILE`. |
+| `image_profile` | WebP q80 within 1280×800 | PNG at exactly 1280×720 (same-aspect frames; other images are fitted, not stretched) | `N2ImageProfile(format, size, quality, exact)`; `DEFAULT_IMAGE_PROFILE` / `HARNESS_IMAGE_PROFILE`. |
 | `omitted_image_text` | `None` | `"[older image omitted]"` | Text left where the two-message image window pruned a frame; `None` drops the image part. |
 | `max_completion_tokens` | `16384` | `20480` | Output budget per model call. |
 | `reasoning_effort` | `None` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
 | `shell_result_max_chars` / `file_result_max_chars` | `8000` / `8000` | `30000` / `262144` | Output caps. |
 | `system_prompt` | `None` | `N2_TASK_GUIDELINES` | Sent as a system message (the server appends it to its own prompt). `N2_TASK_GUIDELINES` restores the trained ask-a-question and `[DONE]`/`[INFEASIBLE]` clauses. |
 | `max_consecutive_questions` | `5` | `5` | Cap on back-to-back questions routed to `on_question`. |
+| `default_wait_seconds` | `1.0` | `5.0` | `wait` duration when the model gives none. |
+| `api_timeout_seconds` | `600` | `600` | Per-request timeout sent with each model call (a thinking turn can take minutes). `None` uses the client's default. |
+| `context_window_tokens` / `context_margin_tokens` | `None` / `4096` | `128000` / `4096` | When set, the run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + margin would exceed the window, instead of a rejected request. A `compactor` runs first. |
+| `tool_call_timeout_seconds` | `None` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. |
 
 Related `N2ComputerAgent` arguments: `on_question(text) -> str | None` receives a final answer that carries no terminal marker and may return the user's reply to continue the run (the harness's user simulator; `None` ends the run); `max_steps` and `agent_timeout_seconds` bound the run; `compactor` is any object with `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call to rewrite the trajectory. After `run()`, `agent.stopped_by` is one of `done`, `infeasible`, `final_answer`, `max_steps`, `timeout`, `callback`, and `agent.last_usage` is the last response's usage.
+
+Two hooks for adapters: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text — the turn's frame is appended after it; and any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments, for backends that prefer the untranslated key expression or scroll `amount`.
 
 Adapters that want to emit exactly the evaluation tools' text can use the pure helpers in `yutori.navigator.n2_results` (all exported from `yutori.navigator`):
 

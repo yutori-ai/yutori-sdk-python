@@ -30,9 +30,11 @@ class N2ImageProfile:
     """How screenshots are re-encoded before they reach the model.
 
     ``exact=False`` shrinks the frame to fit inside ``size`` while keeping its
-    aspect ratio (never upscaling); ``exact=True`` resizes it to ``size`` exactly,
-    which is what the evaluation harness does (1920x1080 captures become
-    1280x720 PNGs). ``quality`` applies to lossy formats only.
+    aspect ratio (never upscaling); ``exact=True`` resizes frames of the same
+    aspect ratio to ``size`` exactly, which is what the evaluation harness does
+    (1920x1080 captures become 1280x720 PNGs). Images of another aspect ratio
+    (a ``read`` of an image file) are fitted inside ``size`` instead so they are
+    never distorted. ``quality`` applies to lossy formats only.
     """
 
     format: str = "WEBP"
@@ -74,11 +76,15 @@ def prepare_n2_image_data_url(url: str, profile: N2ImageProfile = DEFAULT_IMAGE_
     image_bytes, _ = _decode_data_url(url)
     with Image.open(io.BytesIO(image_bytes)) as source:
         image = source.convert("RGB")
-        if profile.exact:
-            if image.size != tuple(profile.size):
-                image = image.resize(tuple(profile.size), Image.Resampling.LANCZOS)
+        target_width, target_height = profile.size
+        same_aspect = (
+            abs(image.width * target_height - image.height * target_width) <= 0.01 * image.width * target_height
+        )
+        if profile.exact and same_aspect:
+            if image.size != (target_width, target_height):
+                image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
         else:
-            image.thumbnail(tuple(profile.size), Image.Resampling.LANCZOS)
+            image.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
         output = io.BytesIO()
         save_kwargs: dict[str, Any] = {}
         if profile.quality is not None and profile.format.upper() not in {"PNG", "BMP"}:
