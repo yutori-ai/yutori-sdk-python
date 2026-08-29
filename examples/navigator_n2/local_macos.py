@@ -8,6 +8,7 @@ import asyncio
 from yutori.auth import require_api_key
 from yutori.navigator import NAVIGATOR_N2_MODEL, N2ComputerAgent
 from yutori.navigator.macos import MacOSComputer
+from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 try:
     from .shared import RunGuard, add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
@@ -17,15 +18,16 @@ except ImportError:
 
 async def main(args: argparse.Namespace) -> None:
     guard = RunGuard(args.max_steps)
+    tool_set = selected_tool_set(args.tool_set)
     async with MacOSComputer(allow_local_shell=True) as computer:
         async with N2ComputerAgent(
             computer=computer,
             api_key=require_api_key(),
             model=NAVIGATOR_N2_MODEL,
-            tool_set=selected_tool_set(args.tool_set),
+            tool_set=tool_set,
             callbacks=[guard],
             action_confirmation_callback=build_confirmation_callback(args.auto_approve, always_confirm_shell=True),
-            supports_click_modifiers=True,
+            supports_click_modifiers=tool_set in TOOL_SETS_WITH_CLICK_MODIFIERS,
             supports_scroll_modifiers=False,
         ) as agent:
             await run_agent(agent, args.task, guard)

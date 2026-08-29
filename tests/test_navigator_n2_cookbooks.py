@@ -19,6 +19,7 @@ from PIL import Image
 from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
+from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -145,6 +146,8 @@ def test_cookbook_aliases_include_current_and_historical_n2_tool_sets() -> None:
             "computer_use_tools-20260825",
         }
     )
+    assert selected_tool_set("latest") in TOOL_SETS_WITH_CLICK_MODIFIERS
+    assert selected_tool_set("gui") not in TOOL_SETS_WITH_CLICK_MODIFIERS
 
 
 def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_path: Path) -> None:
