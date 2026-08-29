@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import Callable, Iterator
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -27,6 +29,7 @@ __all__ = [
     "cli_client",
     "format_interval",
     "get_authenticated_client",
+    "html_to_text",
     "print_aligned_fields",
     "print_creation_result",
     "print_optional_field",
@@ -263,13 +266,115 @@ def print_task_get_header(console: Console, task_type: str, task_id: str, result
     print_rejection_reason(console, result)
 
 
+# Matches an opening or closing HTML tag. A bare "<" in prose ("a < b",
+# "<YOUR_KEY>" is *not* matched because the tag name must be followed by a
+# closing ">" on the same run) keeps plain-text results untouched.
+_HTML_TAG_RE = re.compile(r"<(?:/?[A-Za-z][A-Za-z0-9-]*)(?:\s[^<>]*)?/?>")
+# Block-level tags separate paragraphs (blank line between) when the document
+# is read as text; line-level tags start a new line. Inline tags (<b>, <code>,
+# <a>, ...) are dropped, keeping only their content.
+_HTML_PARAGRAPH_TAGS = frozenset(
+    {
+        "article",
+        "blockquote",
+        "div",
+        "footer",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hr",
+        "ol",
+        "p",
+        "pre",
+        "section",
+        "table",
+        "ul",
+    }
+)
+_HTML_LINE_TAGS = frozenset({"br", "li", "tr"})
+_HTML_CELL_TAGS = frozenset({"td", "th"})
+_HTML_SKIPPED_TAGS = frozenset({"script", "style"})
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Collect an HTML document's text with block structure turned into line breaks.
+
+    Breaks are recorded as *pending* rather than written immediately: adjacent
+    boundaries (``</li><li>``, ``</h3>\n  <p>``) collapse to the larger request
+    instead of stacking, and the indentation whitespace between tags is
+    dropped while a break is pending. Whitespace inside content -- markdown in
+    a ``<pre>`` block, say -- is kept verbatim.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._chunks: list[str] = []
+        self._pending_breaks = 0
+        self._skip_depth = 0
+
+    def _request_break(self, tag: str) -> None:
+        if tag in _HTML_PARAGRAPH_TAGS:
+            self._pending_breaks = max(self._pending_breaks, 2)
+        elif tag in _HTML_LINE_TAGS:
+            self._pending_breaks = max(self._pending_breaks, 1)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _HTML_SKIPPED_TAGS:
+            self._skip_depth += 1
+        elif tag in _HTML_CELL_TAGS:
+            if self._chunks and not self._pending_breaks:
+                self._chunks.append("  ")  # separate cells on the same row
+        else:
+            self._request_break(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _HTML_SKIPPED_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        else:
+            self._request_break(tag)
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        if self._pending_breaks and not data.strip():
+            return  # layout whitespace between tags
+        if self._chunks and self._pending_breaks:
+            self._chunks.append("\n" * self._pending_breaks)
+        self._pending_breaks = 0
+        self._chunks.append(data)
+
+    def text(self) -> str:
+        return "".join(self._chunks).strip()
+
+
+def html_to_text(text: str) -> str:
+    """Render task-result HTML as terminal text; return non-HTML input unchanged.
+
+    The API stores task results as HTML for the web dashboard: browsing
+    results arrive as entity-escaped markdown inside ``<pre>``, research
+    results as full ``<article>`` markup. In a terminal that shows up as
+    literal ``<pre>`` and ``&#x27;``. Unescape entities, keep one line per
+    block element, and drop the tags themselves.
+    """
+    if not _HTML_TAG_RE.search(text):
+        return text
+    extractor = _HTMLTextExtractor()
+    extractor.feed(text)
+    extractor.close()
+    return extractor.text()
+
+
 def print_task_result_output(console: Console, result: dict[str, Any], *, max_length: int = 2000) -> None:
-    """Print the ``result``/``output`` body of a task, truncated to ``max_length`` chars."""
+    """Print the ``result``/``output`` body of a task as text, truncated to ``max_length`` chars."""
     output = result.get("result") or result.get("output")
     if not output:
         return
     console.print("\n[bold]Result:[/bold]")
-    text = str(output)
+    text = html_to_text(str(output))
     if len(text) > max_length:
         text = text[:max_length] + "\n... (truncated)"
     console.print(text, markup=False)
