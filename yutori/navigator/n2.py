@@ -131,20 +131,6 @@ N2_CONTEXT_WINDOW_TOKENS = 128_000
 N2_CONTEXT_MARGIN_TOKENS = 4_096
 N2_TOOL_CALL_TIMEOUT_SECONDS = 900.0
 
-# An optional system prompt for task runners: asks the model to pose questions
-# as text-only turns and to end its final answer with `[DONE]` or `[INFEASIBLE]`,
-# so an outer loop can tell questions from completion (see parse_terminal_marker).
-N2_TASK_GUIDELINES = (
-    "# Task Guidelines\n"
-    "If you find the task needs additional information to be properly completed or you need to ask clarifying "
-    "questions to the user, ask a question in your output without calling any tools in order to prompt the user "
-    "to provide feedback. Do this only if user input is necessary.\n"
-    "If the task is genuinely impossible — missing apps or features, insufficient permissions, contradictory "
-    "requirements — end with `[INFEASIBLE]`; don't claim success you didn't achieve.\n"
-    "If you're done with the task, stop calling tools and give a short summary of what you did and found, "
-    "and end with `[DONE]`."
-)
-
 TOOL_CALL_FORMAT_NUDGE = (
     "Reminder: emit each tool call in exactly this format, wrapped in <tool_call></tool_call>:\n"
     "<tool_call>\n"
@@ -161,15 +147,6 @@ TOOL_CALL_FORMAT_NUDGE = (
 _BATCH_EMPTY_TEXT = "(empty batch)"
 _BATCH_SCREENSHOT_MEMBER_TEXT = "screenshot queued (delivered after the batch)"
 _ACTION_EXECUTED_TEXT = "Action executed."
-
-
-def parse_terminal_marker(text: str) -> "str | None":
-    """``"done"`` / ``"infeasible"`` when ``text`` carries a ``[DONE]`` / ``[INFEASIBLE]`` marker, else ``None``."""
-    if "[INFEASIBLE]" in text:
-        return "infeasible"
-    if "[DONE]" in text:
-        return "done"
-    return None
 
 
 def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:

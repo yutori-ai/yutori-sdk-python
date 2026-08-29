@@ -17,14 +17,12 @@ import pytest
 from PIL import Image
 
 from yutori.navigator import (
-    N2_TASK_GUIDELINES,
     TOOL_CALL_FORMAT_NUDGE,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     parse_n2_tool_calls,
-    parse_terminal_marker,
 )
 from yutori.navigator.n2 import _CallbackDispatcher
 
@@ -216,12 +214,12 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
         ]
     )
     desktop = Desktop()
-    agent = _agent(desktop, completions, system_prompt=N2_TASK_GUIDELINES)
+    agent = _agent(desktop, completions, system_prompt="Ask questions as text; end with [DONE].")
     steps = [step async for step in agent.run("open the terminal")]
 
     # Turn 1: no frame — the system prompt, then the task alone; default budgets.
     first = completions.requests[0]
-    assert first["messages"][0] == {"role": "system", "content": N2_TASK_GUIDELINES}
+    assert first["messages"][0] == {"role": "system", "content": "Ask questions as text; end with [DONE]."}
     assert first["messages"][1] == {"role": "user", "content": "open the terminal"}
     assert not any(_images(message) for message in first["messages"])
     assert first["max_completion_tokens"] == 20480
@@ -326,7 +324,8 @@ async def test_a_text_only_turn_ends_the_run_and_resume_continues_the_same_conve
     # The trajectory holds the whole conversation, including the resumed part.
     kinds = [item.get("role") or item.get("type") for item in agent.trajectory]
     assert kinds == ["user", "assistant", "user", "function_call", "function_call_output", "assistant"]
-    assert parse_terminal_marker(agent.trajectory[-1]["content"][0]["text"]) == "done"
+    # The caller's own convention (here: a [DONE] marker) stays in the untouched text.
+    assert "[DONE]" in agent.trajectory[-1]["content"][0]["text"]
 
 
 async def test_resume_requires_a_prior_run():

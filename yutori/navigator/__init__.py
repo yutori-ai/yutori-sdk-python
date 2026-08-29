@@ -51,14 +51,12 @@ from .models import (
     TOOL_SET_EXPANDED,
 )
 from .n2 import (
-    N2_TASK_GUIDELINES,
     TOOL_CALL_FORMAT_NUDGE,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
     needs_tool_call_format_nudge,
     parse_n2_tool_calls,
-    parse_terminal_marker,
 )
 from .n2_actions import (
     SUPPORTED_N2_TOOL_SETS,
@@ -102,7 +100,6 @@ __all__ = [
     "N2ActionValidationError",
     "N2ComputerAgent",
     "N2Compactor",
-    "N2_TASK_GUIDELINES",
     "DEFAULT_IMAGE_FORMAT",
     "OLDER_IMAGE_OMITTED_TEXT",
     "SUPPORTED_N2_TOOL_SETS",
@@ -155,7 +152,6 @@ __all__ = [
     "translate_n2_write",
     "trim_images_to_fit",
     "trimmed_messages_to_fit",
-    "parse_terminal_marker",
     "needs_tool_call_format_nudge",
     "TOOL_CALL_FORMAT_NUDGE",
 ]
