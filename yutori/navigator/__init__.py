@@ -51,11 +51,12 @@ from .models import (
     TOOL_SET_EXPANDED,
 )
 from .n2 import (
+    TOOL_CALL_FORMAT_NUDGE,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
+    needs_tool_call_format_nudge,
     parse_n2_tool_calls,
-    truncate_shell_result,
 )
 from .n2_actions import (
     SUPPORTED_N2_TOOL_SETS,
@@ -73,7 +74,13 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_payload import prepare_n2_image_data_url, retain_n2_image_window
+from .n2_compaction import N2Compactor
+from .n2_payload import (
+    DEFAULT_IMAGE_FORMAT,
+    OLDER_IMAGE_OMITTED_TEXT,
+    prepare_n2_image_data_url,
+    retain_n2_image_window,
+)
 from .payload import (
     DEFAULT_MAX_REQUEST_BYTES,
     estimate_messages_size_bytes,
@@ -92,6 +99,9 @@ __all__ = [
     "NAVIGATOR_N2_MODEL",
     "N2ActionValidationError",
     "N2ComputerAgent",
+    "N2Compactor",
+    "DEFAULT_IMAGE_FORMAT",
+    "OLDER_IMAGE_OMITTED_TEXT",
     "SUPPORTED_N2_TOOL_SETS",
     "DEFAULT_MAX_REQUEST_BYTES",
     "RunHooksBase",
@@ -142,5 +152,6 @@ __all__ = [
     "translate_n2_write",
     "trim_images_to_fit",
     "trimmed_messages_to_fit",
-    "truncate_shell_result",
+    "needs_tool_call_format_nudge",
+    "TOOL_CALL_FORMAT_NUDGE",
 ]

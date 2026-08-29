@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from yutori.config import DEFAULT_BASE_URL, sanitize_base_url
+from ..config import DEFAULT_BASE_URL, sanitize_base_url
 
 # Clerk OAuth configuration
 DEFAULT_CLERK_INSTANCE_URL = "https://clerk.yutori.com"

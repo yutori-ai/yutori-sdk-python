@@ -29,6 +29,8 @@ from .models import (
 N2_COORDINATE_SCALE = 1000
 N2_MAX_BATCH_ACTIONS = 20
 N2_MAX_WAIT_SECONDS = 300
+# A `wait` without a duration waits this long.
+N2_DEFAULT_WAIT_SECONDS = 5.0
 N2_MAX_SCROLL_AMOUNT = 50
 
 SUPPORTED_N2_TOOL_SETS = frozenset(
@@ -200,29 +202,11 @@ _KEY_ALIASES = {
     "pageup": "page_up",
     "pagedown": "page_down",
     "return": "enter",
+    "arrowup": "up",
+    "arrowdown": "down",
+    "arrowleft": "left",
+    "arrowright": "right",
     **_PUNCTUATION_KEYS,
-}
-
-_NAMED_KEYS = {
-    "ctrl",
-    "shift",
-    "alt",
-    "cmd",
-    "enter",
-    "esc",
-    "tab",
-    "space",
-    "backspace",
-    "delete",
-    "up",
-    "down",
-    "left",
-    "right",
-    "home",
-    "end",
-    "page_up",
-    "page_down",
-    *{f"f{i}" for i in range(1, 13)},
 }
 
 _ACTION_FIELDS = {
@@ -336,10 +320,9 @@ def _map_key_token(token: str) -> str:
         raise N2ActionValidationError("key expressions cannot contain empty keys")
     if len(token) == 1:
         return token
-    mapped = _KEY_ALIASES.get(token, token)
-    if mapped not in _NAMED_KEYS and mapped not in _PUNCTUATION_KEYS.values():
-        raise N2ActionValidationError(f"unknown key name: {token}")
-    return mapped
+    # Named keys normalize to the SDK vocabulary; names outside it pass through
+    # lowercased for the computer handler to accept or reject.
+    return _KEY_ALIASES.get(token, token)
 
 
 def parse_n2_key_expression(expression: Any) -> list[list[str]]:
@@ -510,7 +493,7 @@ def translate_n2_action(
         return [internal("hold_key", key=sequence[0][0], ms=round(float(duration) * 1000))]
 
     if action == "wait":
-        duration = args.get("duration", 1)
+        duration = args.get("duration", N2_DEFAULT_WAIT_SECONDS)
         if (
             isinstance(duration, bool)
             or not isinstance(duration, (int, float))
@@ -653,9 +636,7 @@ def _optional_string(args: dict[str, Any], field: str, tool_name: str) -> str | 
     return value
 
 
-def _optional_boolean(
-    args: dict[str, Any], field: str, tool_name: str, *, default: bool | None = False
-) -> bool | None:
+def _optional_boolean(args: dict[str, Any], field: str, tool_name: str, *, default: bool | None = False) -> bool | None:
     value = args.get(field, default)
     if value is not None and not isinstance(value, bool):
         raise N2ActionValidationError(f"{tool_name}.{field} must be a boolean or null")
@@ -681,9 +662,7 @@ def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
     if output_mode not in {"content", "files_with_matches", "count"}:
         raise N2ActionValidationError("grep.output_mode must be content, files_with_matches, count, or null")
     head_limit = args.get("head_limit", N2_GREP_DEFAULT_HEAD_LIMIT)
-    if head_limit is not None and (
-        isinstance(head_limit, bool) or not isinstance(head_limit, int) or head_limit < 0
-    ):
+    if head_limit is not None and (isinstance(head_limit, bool) or not isinstance(head_limit, int) or head_limit < 0):
         raise N2ActionValidationError("grep.head_limit must be a non-negative integer or null")
     return [
         internal_file_action(
@@ -767,9 +746,7 @@ def translate_n2_batch(
             parse_n2_modifier(member_args.get("modifier"), f"computer_batch.actions[{index}]")
             and tool_set not in TOOL_SETS_WITH_CLICK_MODIFIERS
         ):
-            raise N2ActionValidationError(
-                f"{tool_set} does not allow a held modifier inside computer_batch"
-            )
+            raise N2ActionValidationError(f"{tool_set} does not allow a held modifier inside computer_batch")
         translated.extend(
             translate_n2_action(
                 action,

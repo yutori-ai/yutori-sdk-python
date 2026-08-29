@@ -4,21 +4,33 @@ This SDK-owned loop lets computer-use hosts drive n2 without another agent
 framework or a private dependency. Its behavior follows the public n2
 contract, with these deliberate implementation choices:
 
-- The model call goes through the SDK's own chat-completions surface (or any
-  object with a compatible async ``create``); the SDK chat namespace's bundled
-  client already retries transient failures, so the loop adds no second retry
-  layer.
-- ``usage`` on each yielded step is the raw Chat Completions usage dict.
-- No telemetry, cost accounting, or trajectory persistence.
-- ``instructions`` becomes the first user message of the run's history — the
-  same wire effect as the reference's prompt-instructions callback.
+- Results are each tool's own contract, not loop policy. ``computer_batch``
+  (or a single GUI action, or ``screenshot``) returns one ``[i:name]`` line per
+  member plus a frame captured after execution; ``bash`` and the file tools
+  return the handler's text as-is (``read`` may return an image). The run
+  starts without a screenshot — the model requests one with a ``screenshot``
+  batch member.
+- Frames are sent at the handler's own capture size, re-encoded to
+  ``image_format``. Prior-turn reasoning is re-sent as the assistant message's
+  ``reasoning``/``reasoning_content`` fields. Every tool call of a turn
+  executes in order.
+- A turn with literal ``<tool_call>`` markup but zero parsed calls gets one
+  format-reminder retry; neither the attempt nor the reminder enters the kept
+  trajectory.
+- A turn without tool calls ends the run (``stopped_by == "final_answer"``);
+  ``resume(message)`` appends a user message and continues the conversation.
+- The model call goes through the SDK's chat-completions surface (or any
+  object with a compatible async ``create``), which already retries transient
+  failures. ``usage`` on each yielded step is the raw usage dict. No
+  telemetry, cost accounting, or trajectory persistence.
+- ``instructions`` becomes the first user message of the run's history.
 - ``on_run_end`` always fires, including when the first ``on_run_continue``
-  stops the run (the reference raised there).
+  stops the run.
 
 The trajectory is a list of "responses items" dicts — ``message``,
-``reasoning``, ``function_call``, ``function_call_output`` — converted to Chat
-Completions messages per request. Executor-only fields ride on function_call
-items under underscore keys and never reach the wire.
+``function_call``, ``function_call_output`` — converted to Chat Completions
+messages per request. Executor-only fields ride on function_call items under
+underscore keys and never reach the wire.
 
 Callbacks are duck-typed and all optional: ``on_run_start``,
 ``on_run_continue`` (return False to stop), ``on_api_start``, ``on_api_end``,
@@ -30,9 +42,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import inspect
 import json
-import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -68,7 +80,9 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
+from .n2_compaction import N2Compactor
 from .n2_payload import (
+    DEFAULT_IMAGE_FORMAT,
     DEFAULT_MAX_MESSAGES_BYTES,
     MAX_REQUEST_BODY_BYTES,
     convert_request_images,
@@ -78,12 +92,6 @@ from .n2_payload import (
     retain_n2_image_window,
     serialized_messages_bytes,
 )
-
-# Shell results follow the n2 server contract: bounded output with an explicit
-# truncation marker, and a recoverable tool error when the handler lacks the
-# optional shell capability.
-SHELL_RESULT_MAX_CHARS = 8_000
-SHELL_RESULT_TRUNCATION_SUFFIX = "\n[result truncated]"
 
 # The two shell tools the n2 tool sets serve, each mapped to the optional
 # handler method that runs it. They are separate rather than one normalized
@@ -105,8 +113,77 @@ BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
 
 ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
-N2_MAX_COMPLETION_TOKENS = 16_384
-_FINAL_MARKER = re.compile(r"\s*\[(?:DONE|INFEASIBLE)\]\s*", re.IGNORECASE)
+# Loop budgets; each is a constructor keyword.
+N2_MAX_COMPLETION_TOKENS = 20_480
+# A thinking n2 turn can take minutes; the SDK client's general default (30 s) is
+# far too short and a timeout costs the whole run.
+N2_API_TIMEOUT_SECONDS = 600.0
+# The served context window, and the headroom kept below it so the run ends
+# cleanly instead of on a rejected request.
+N2_CONTEXT_WINDOW_TOKENS = 128_000
+N2_CONTEXT_MARGIN_TOKENS = 4_096
+N2_TOOL_CALL_TIMEOUT_SECONDS = 900.0
+
+TOOL_CALL_FORMAT_NUDGE = (
+    "Reminder: emit each tool call in exactly this format, wrapped in <tool_call></tool_call>:\n"
+    "<tool_call>\n"
+    "<function=NAME>\n"
+    "<parameter=PARAM_NAME>\n"
+    "value\n"
+    "</parameter>\n"
+    "</function>\n"
+    "</tool_call>\n"
+    "Every <function=...> block must be nested inside <tool_call></tool_call>, and every <parameter=...> "
+    "must use the parameter's NAME (not its value)."
+)
+
+_BATCH_EMPTY_TEXT = "(empty batch)"
+_BATCH_SCREENSHOT_MEMBER_TEXT = "screenshot queued (delivered after the batch)"
+_ACTION_EXECUTED_TEXT = "Action executed."
+
+
+def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:
+    """True when a turn parsed zero tool calls but its text carries tool-call markup.
+
+    The model occasionally writes a tool call as literal text instead of a
+    parsed call. One retry with :data:`TOOL_CALL_FORMAT_NUDGE` appended usually
+    recovers it; the loop does this once per turn, without keeping the malformed
+    attempt in the trajectory.
+    """
+    if message.get("tool_calls"):
+        return False
+    text = message.get("content") or ""
+    return "<tool_call>" in text and "</tool_call>" in text
+
+
+def _format_action_error(error: BaseException) -> str:
+    return f"ERROR: {type(error).__name__}: {error}"
+
+
+def _format_batch_result(
+    member_names: "list[str]",
+    outcomes: "list[str | None]",
+    *,
+    error_index: "int | None" = None,
+    error_text: "str | None" = None,
+) -> str:
+    """One ``[i:name]`` line per completed member, plus the halt line after a failure."""
+    if not member_names:
+        return _BATCH_EMPTY_TEXT
+    lines: list[str] = []
+    for index, name in enumerate(member_names):
+        if error_index is not None and index >= error_index:
+            break
+        text = outcomes[index] if index < len(outcomes) and outcomes[index] is not None else ""
+        lines.append(f"[{index}:{name}] {text}")
+    if error_index is not None:
+        name = member_names[error_index] if error_index < len(member_names) else "?"
+        remaining = len(member_names) - error_index - 1
+        lines.append(
+            f"batch stopped at actions[{error_index}] ({error_index}:{name}): {error_text or 'ERROR'} "
+            f"({error_index} completed, {remaining} skipped)"
+        )
+    return "\n".join(lines).strip()
 
 
 class SupportsN2ChatCompletionsCreate(Protocol):
@@ -143,10 +220,6 @@ def make_output_text_item(content: str) -> dict[str, Any]:
     }
 
 
-def _strip_final_markers(content: str) -> str:
-    return _FINAL_MARKER.sub(" ", content).strip()
-
-
 def _observation_data(observation: Any) -> tuple[str, int, int, str]:
     """Normalize the new observation object and legacy raw-base64 screenshot handlers."""
     if isinstance(observation, N2Observation):
@@ -172,19 +245,27 @@ def make_function_call_item(
     }
 
 
-def convert_n2_items_to_completion_messages(
-    items: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert the n2 trajectory's responses items to Chat Completions messages.
 
     The n2 subset of the reference converter: user messages (string or parts),
-    assistant messages, reasoning summaries (sent as assistant text so the
-    server's ``preserve_thinking`` has something to preserve), function calls
-    folded into the preceding assistant message's ``tool_calls``, and tool
-    results — a plain string, or an image dict whose optional ``result`` rides
-    as a text part before the screenshot.
+    assistant messages, function calls folded into the preceding assistant
+    message's ``tool_calls``, and tool results — a plain string, or an image
+    dict whose optional ``result`` rides as a text part before its image.
+
+    A message item's ``reasoning`` is re-sent as the assistant message's
+    ``reasoning`` and ``reasoning_content`` fields — the shape the serving chat
+    template renders back into the model's thinking block. A standalone
+    ``reasoning`` item (a caller-supplied legacy history) becomes a plain
+    assistant text message.
     """
     completion_messages: list[dict[str, Any]] = []
+
+    def append_assistant(message: dict[str, Any], reasoning: "str | None") -> None:
+        if reasoning:
+            message["reasoning"] = reasoning
+            message["reasoning_content"] = reasoning
+        completion_messages.append(message)
 
     for item in items:
         item_type = item.get("type")
@@ -214,15 +295,14 @@ def convert_n2_items_to_completion_messages(
                 # A caller-provided chat-style history carries assistant turns
                 # as plain strings; dropping them would silently erase context.
                 if content:
-                    completion_messages.append({"role": "assistant", "content": content})
+                    append_assistant({"role": "assistant", "content": content.rstrip("\n")}, item.get("reasoning"))
                 continue
             texts = [
                 part.get("text", "")
                 for part in content or []
                 if isinstance(part, dict) and part.get("type") in {"output_text", "text"}
             ]
-            if texts:
-                completion_messages.append({"role": "assistant", "content": "\n".join(texts)})
+            append_assistant({"role": "assistant", "content": "\n".join(texts).rstrip("\n")}, item.get("reasoning"))
 
         elif item_type == "reasoning":
             texts = [
@@ -261,7 +341,7 @@ def convert_n2_items_to_completion_messages(
                         {
                             "type": "text",
                             "text": (
-                                result_metadata
+                                result_metadata.strip()
                                 if isinstance(result_metadata, str)
                                 else json.dumps(result_metadata, separators=(",", ":"), ensure_ascii=False)
                             ),
@@ -270,7 +350,7 @@ def convert_n2_items_to_completion_messages(
                 content.append({"type": "image_url", "image_url": {"url": output.get("image_url")}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
-                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output)})
+                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output).strip()})
 
     return completion_messages
 
@@ -301,11 +381,18 @@ def _browser_not_supported_error(action_type: str) -> str:
     return f"{action_type} is only supported by a browser computer environment."
 
 
-def truncate_shell_result(output: str) -> str:
-    """Bound shell output to the n2 wire contract's 8,000-character cap."""
-    if len(output) <= SHELL_RESULT_MAX_CHARS:
-        return output
-    return f"{output[: SHELL_RESULT_MAX_CHARS - len(SHELL_RESULT_TRUNCATION_SUFFIX)]}{SHELL_RESULT_TRUNCATION_SUFFIX}"
+@functools.lru_cache(maxsize=None)
+def _function_accepts_kwarg(func: Any, name: str) -> bool:
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    """Signature sniff, cached on the underlying function; kept for adapter compatibility."""
+    return _function_accepts_kwarg(getattr(func, "__func__", func), name)
 
 
 def _function_call_with_execution(
@@ -321,7 +408,7 @@ def _function_call_with_execution(
     item["_computer_actions"] = actions
     # Confirmation callbacks always see Yutori-shaped entries: one
     # {"action": name, **arguments} per member for batches and singles alike.
-    item["_confirmation_actions"] = batch_actions if batch_actions is not None else [{"action": name, **args}]
+    item["_model_actions"] = batch_actions if batch_actions is not None else [{"action": name, **args}]
     item["_requires_confirmation"] = (
         any(action.get("action") not in SAFE_WITHOUT_CONFIRMATION for action in batch_actions)
         if batch_actions is not None
@@ -346,12 +433,11 @@ def parse_n2_tool_calls(
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
-    Order matches the reference loop: an optional reasoning item, the message
-    text when tool calls accompany it, then one function_call item per tool
-    call — followed immediately by a recoverable ``[ERROR]`` result when the
-    call fails validation, so history stays consistent and the model can
-    correct itself. A turn with no tool calls yields a terminal assistant
-    message ("Task completed." when the model sent nothing at all).
+    A message item (carrying the turn's text, and its reasoning under
+    ``"reasoning"``) comes first, then one function_call item per tool call —
+    followed immediately by a recoverable ``[ERROR]`` result when the call
+    fails validation, so history stays consistent and the model can correct
+    itself. Every tool call of a turn is translated, to be executed in order.
     """
     if tool_set not in SUPPORTED_N2_TOOL_SETS:
         raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -361,15 +447,13 @@ def parse_n2_tool_calls(
     tool_calls = message.get("tool_calls") or []
     output: list[dict[str, Any]] = []
 
-    if reasoning_text:
-        output.append(make_reasoning_item(reasoning_text))
-    if tool_calls and content_text:
-        output.append(make_output_text_item(content_text))
+    if reasoning_text or content_text or not tool_calls:
+        message_item = make_output_text_item(content_text)
+        if reasoning_text:
+            message_item["reasoning"] = reasoning_text
+        output.append(message_item)
 
-    # The model may return parallel calls despite the desktop freshness contract.
-    # Only the first consumes this turn; a computer_batch is the sole way to run
-    # multiple actions from one observed frame.
-    for tool_call in tool_calls[:1]:
+    for tool_call in tool_calls:
         function = tool_call.get("function") or {}
         name = function.get("name") or ""
         arguments = function.get("arguments", "{}")
@@ -469,35 +553,6 @@ def parse_n2_tool_calls(
                 }
             )
 
-    for index, tool_call in enumerate(tool_calls[1:], start=1):
-        function = tool_call.get("function") or {}
-        name = function.get("name") or "unknown"
-        call_id = tool_call.get("id") or f"call_{index}"
-        arguments = function.get("arguments", "{}")
-        output.extend(
-            [
-                {
-                    "type": "function_call",
-                    "id": tool_call.get("id") or call_id,
-                    "call_id": call_id,
-                    "name": name,
-                    "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
-                    "status": "completed",
-                },
-                {
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": (
-                        "[ERROR] Refused stale parallel tool call. Only the first call from a desktop frame "
-                        "may execute; use computer_batch for multiple actions."
-                    ),
-                },
-            ]
-        )
-
-    if not tool_calls:
-        output.append(make_output_text_item(_strip_final_markers(content_text) or "Task completed."))
-
     return output
 
 
@@ -582,10 +637,7 @@ async def _confirm_computer_item(item: dict[str, Any], confirmation_callback: "C
         "arguments": item.get("arguments"),
         # Every entry uses the Yutori wire shape {"action": name, **arguments}
         # for singles and batch members alike.
-        "actions": item.get("_confirmation_actions")
-        or item.get("_batch_actions")
-        or item.get("_computer_actions")
-        or [],
+        "actions": item.get("_model_actions") or item.get("_batch_actions") or item.get("_computer_actions") or [],
     }
     decision = confirmation_callback(request)
     if inspect.isawaitable(decision):
@@ -602,7 +654,14 @@ async def execute_n2_computer_call(
     screenshot_delay: float = 0.5,
     presentation: "N2Presentation | None" = None,
 ) -> list[dict[str, Any]]:
-    """Execute one validated Yutori call and capture exactly one result frame."""
+    """Execute one validated Yutori call and report what the tool's contract returns.
+
+    A ``computer_batch`` (or a single GUI action, or ``screenshot``) returns its
+    ``[i:name]`` member lines — plus the halt line when a member failed — with
+    one frame captured after execution. Shell, file and browser-navigation calls
+    return the handler's text exactly as returned; a file handler may return
+    ``{"text", "image_url"}`` so a ``read`` of an image shows the image.
+    """
     call_id = item.get("call_id")
 
     async def finish_with_error(message: str, observation: Any = None) -> list[dict[str, Any]]:
@@ -627,6 +686,7 @@ async def execute_n2_computer_call(
 
     actions = item.get("_computer_actions") or []
     batch_actions = item.get("_batch_actions")
+    model_actions = item.get("_model_actions") or [{"action": item.get("name")}]
     reference_observation = getattr(computer, "current_observation", None)
 
     await callbacks.fire("on_computer_call_start", item)
@@ -678,7 +738,6 @@ async def execute_n2_computer_call(
                 arguments = {}
         record_action(str(item.get("name") or ""), arguments if isinstance(arguments, dict) else {})
 
-    batch_size = len(batch_actions) if isinstance(batch_actions, list) else 1
     action_counts: dict[int, int] = {}
     if isinstance(batch_actions, list):
         for action in actions:
@@ -689,12 +748,13 @@ async def execute_n2_computer_call(
         action_counts[0] = len(actions)
 
     completed_members: set[int] = set()
+    member_outcomes: dict[int, str] = {}
     failed_index: "int | None" = None
     stopped_reason: "str | None" = None
     screenshot_observation: Any = None
     shell_output_text: "str | None" = None
     file_output_text: "str | None" = None
-    started_at = time.monotonic()
+    file_output_image: "str | None" = None
     presented_member: "int | None" = None
     held_keys: list[str] = []
     release_after_next_action: list[str] = []
@@ -762,6 +822,9 @@ async def execute_n2_computer_call(
         action_type = action.get("type")
         batch_index = action.get("batch_index")
         action_args = {key: value for key, value in action.items() if key not in {"type", "batch_index"}}
+        # The model's own call ({"action": name, **arguments}) for handlers that want
+        # the untranslated values (the key expression as spelled, scroll `amount`).
+        model_action = model_actions[batch_index if isinstance(batch_index, int) else 0]
         try:
             if isinstance(batch_index, int) and batch_index != presented_member and batch_presentation is not None:
                 member = batch_presentation["members"][batch_index]
@@ -788,20 +851,26 @@ async def execute_n2_computer_call(
                 if cleanup_error is not None:
                     raise RuntimeError(f"Failed to release held key: {cleanup_error}")
             elif action_type == "screenshot":
-                if not isinstance(batch_actions, list):
-                    screenshot_observation = await computer.screenshot()
+                if isinstance(batch_actions, list):
+                    if isinstance(batch_index, int):
+                        member_outcomes[batch_index] = _BATCH_SCREENSHOT_MEMBER_TEXT
             elif action_type in SHELL_ACTION_HANDLERS:
                 shell_method = getattr(computer, SHELL_ACTION_HANDLERS[action_type], None)
                 if shell_method is None:
                     raise RuntimeError(_shell_not_supported_error(str(action_type)))
                 shell_result = await shell_method(**action_args)
-                shell_output_text = truncate_shell_result("" if shell_result is None else str(shell_result))
+                shell_output_text = "" if shell_result is None else str(shell_result)
             elif action_type in FILE_ACTION_HANDLERS:
                 file_method = getattr(computer, FILE_ACTION_HANDLERS[action_type], None)
                 if file_method is None:
                     raise RuntimeError(_file_not_supported_error(str(action_type)))
                 file_result = await file_method(**action_args)
-                file_output_text = truncate_shell_result("" if file_result is None else str(file_result))
+                # A file handler may return {"text", "image_url"} so `read` on an
+                # image file shows the model the image as well as the text.
+                if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
+                    file_output_image = file_result.get("image_url")
+                    file_result = file_result.get("text") or ""
+                file_output_text = "" if file_result is None else str(file_result)
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -824,15 +893,12 @@ async def execute_n2_computer_call(
                     # desktop handlers to preserve the OS multi-click timing
                     # with one explicit triple_click primitive.
                     action_result = await computer.double_click(**action_args)
-                    if not (
-                        isinstance(action_result, dict)
-                        and action_result.get("success") is False
-                    ):
-                        action_result = await computer.click(
-                            **action_args, button="left"
-                        )
+                    if not (isinstance(action_result, dict) and action_result.get("success") is False):
+                        action_result = await computer.click(**action_args, button="left")
                 elif computer_method is None:
                     raise RuntimeError(f"Unknown computer action: {action_type}")
+                elif _accepts_kwarg(computer_method, "model_action"):
+                    action_result = await computer_method(**action_args, model_action=model_action)
                 else:
                     action_result = await computer_method(**action_args)
                 if isinstance(action_result, dict) and action_result.get("success") is False:
@@ -874,7 +940,7 @@ async def execute_n2_computer_call(
                         observation = None
                 return await finish_with_error(str(error), observation)
             failed_index = batch_index if isinstance(batch_index, int) else 0
-            stopped_reason = str(error)
+            stopped_reason = _format_action_error(error)
             break
 
     held_key_cleanup_error = await release_keys(list(held_keys))
@@ -890,8 +956,33 @@ async def execute_n2_computer_call(
             except Exception as error:  # noqa: BLE001 - report a driver cleanup failure to the model
                 stopped_reason = stopped_reason or f"Failed to release held mouse button: {error}"
 
+    def result_text() -> str:
+        """The text part of this call's result."""
+        if shell_output_text is not None:
+            return shell_output_text
+        if isinstance(batch_actions, list):
+            names = [str(member.get("action") or "?") for member in batch_actions]
+            outcomes = [member_outcomes.get(index, "") for index in range(len(names))]
+            error_index = failed_index if stopped_reason is not None else None
+            if stopped_reason is not None and error_index is None:
+                error_index = min(len(completed_members), len(names) - 1)
+            return _format_batch_result(names, outcomes, error_index=error_index, error_text=stopped_reason)
+        if stopped_reason is not None:
+            return f"ERROR: {stopped_reason}"
+        return _ACTION_EXECUTED_TEXT
+
     if file_output_text is not None and not isinstance(batch_actions, list):
-        result = [{"type": "function_call_output", "call_id": call_id, "output": file_output_text}]
+        file_output: Any = file_output_text
+        if file_output_image:
+            file_output = {"type": "input_image", "image_url": file_output_image, "result": file_output_text or None}
+        result = [{"type": "function_call_output", "call_id": call_id, "output": file_output}]
+        await callbacks.fire("on_computer_call_end", item, result)
+        await _present(presentation, {"type": "action_done", "call_id": call_id})
+        return result
+
+    # Shell and browser-navigation results carry no frame: their tools return text.
+    if not isinstance(batch_actions, list) and (shell_output_text is not None or item.get("name") == "goto_url"):
+        result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
         await callbacks.fire("on_computer_call_end", item, result)
         await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
@@ -927,40 +1018,10 @@ async def execute_n2_computer_call(
         if stopped_reason is None:
             stopped_reason = f"Screenshot callback failed: {error}"
 
-    completed = len(completed_members)
-    failed = 1 if failed_index is not None else 0
-    skipped = max(0, batch_size - completed - failed)
-    metadata = {
-        "completed": completed,
-        "failed": failed,
-        "skipped": skipped,
-        "failed_action_index": failed_index,
-        "status": "completed" if stopped_reason is None else "stopped",
-        "error": stopped_reason,
-        "duration_ms": round((time.monotonic() - started_at) * 1000),
-    }
-    output: dict[str, Any] = {
-        "type": "input_image",
-        "image_url": data_url,
-    }
-    if shell_output_text is not None:
-        # Shell keeps the standard post-action screenshot and additionally
-        # returns the command's (already truncated) output text. A late failure
-        # (e.g. the screenshot callback) must not discard output from a command
-        # that already ran — carry both.
-        if stopped_reason is None:
-            output["result"] = shell_output_text
-        else:
-            output["result"] = {**metadata, "output": shell_output_text}
-    elif isinstance(batch_actions, list) or stopped_reason is not None:
-        output["result"] = metadata
-    result = [
-        {
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        }
-    ]
+    # The frame rides with the call's text (a late failure such as the screenshot
+    # callback must not discard output from a command that already ran).
+    output: dict[str, Any] = {"type": "input_image", "image_url": data_url, "result": result_text()}
+    result = [{"type": "function_call_output", "call_id": call_id, "output": output}]
     await callbacks.fire("on_computer_call_end", item, result)
     await _present(
         presentation,
@@ -978,8 +1039,10 @@ class N2ComputerAgent:
 
     ``computer`` is any object with the async computer-handler surface
     (``screenshot``, ``click``, ``double_click``, ``scroll``, ``type``,
-    ``keypress``, ``drag``, ``move``, ``wait``, and optionally
-    ``run_shell_command``/``run_bash_command``). ``completions`` is a
+    ``keypress``, ``drag``, ``move``, ``wait``, and optionally the shell/file
+    tools: ``run_bash_command``, ``read_file``, ``write_file``, ``edit_file``
+    — see ``examples/navigator_n2/cua_sandbox.py`` for the reference
+    implementation). ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from
     ``api_key``/``base_url`` and closes it via ``aclose()`` or the async
@@ -992,10 +1055,42 @@ class N2ComputerAgent:
     to preserve native multi-click timing; otherwise the loop falls back to
     double-click followed by left-click.
 
-    ``run()`` yields step dicts: ``{"output": [items...], "usage": {...}}`` for
-    each model turn, then ``{"output": [result frame]}`` per executed tool
-    call. It terminates when the model answers with a plain assistant message
-    or a callback's ``on_run_continue`` returns False.
+    Each request echoes the previous response's ``request_id`` as
+    ``prev_request_id`` (``run()`` starts a new chain, ``resume()`` continues
+    it), so the platform reports the whole conversation as one session.
+
+    ``run(task)`` yields step dicts: ``{"output": [items...], "usage": {...},
+    "message": {...}}`` for each model turn (``message`` is the raw assistant
+    message), then ``{"output": [result items]}`` per executed tool call. It
+    ends when the model answers with text and no tool calls, a callback's
+    ``on_run_continue`` returns False, a ``max_steps`` /
+    ``agent_timeout_seconds`` budget is spent, or the next request would exceed
+    ``context_window_tokens``; ``stopped_by`` records which (``"final_answer"``,
+    ``"max_steps"``, ``"timeout"``, ``"context_limit"``, ``"callback"``). The
+    full trajectory is kept in ``trajectory``; ``resume(message)`` appends a
+    user message to it and continues the same conversation, so the caller
+    decides what a text-only answer means (a question to answer, a task to
+    steer, or the end).
+
+    Loop policies, all keywords:
+
+    - ``system_prompt``: sent as a system message ahead of the conversation
+      (the server appends it to its own system prompt).
+    - ``image_format``: the encoding request images are converted to (WebP by
+      default). The SDK never resizes: the computer handler's capture defines
+      the frame, so pick the viewport (and remove DPR scaling) in the handler.
+    - ``max_completion_tokens`` / ``reasoning_effort``: the model call's output
+      budget and, when set, ``reasoning_effort`` passthrough.
+    - ``api_timeout_seconds``: per-request timeout sent with each model call;
+      ``None`` leaves the client's own default.
+    - ``context_window_tokens``: the run ends with ``stopped_by="context_limit"``
+      once the last response's ``prompt_tokens`` plus the output budget and a
+      margin would exceed it; ``None`` disables the check. A ``compactor`` runs
+      first and may rewrite the trajectory before a model call.
+    - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
+      ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
+    - ``completion_kwargs``: extra fields merged into every chat-completions
+      request (e.g. ``top_p``) for callers who want explicit sampling settings.
     """
 
     def __init__(
@@ -1016,6 +1111,17 @@ class N2ComputerAgent:
         temperature: "float | None" = None,
         supports_click_modifiers: bool = False,
         supports_scroll_modifiers: "bool | None" = None,
+        system_prompt: "str | None" = None,
+        image_format: str = DEFAULT_IMAGE_FORMAT,
+        max_completion_tokens: int = N2_MAX_COMPLETION_TOKENS,
+        reasoning_effort: "str | None" = None,
+        api_timeout_seconds: "float | None" = N2_API_TIMEOUT_SECONDS,
+        context_window_tokens: "int | None" = N2_CONTEXT_WINDOW_TOKENS,
+        tool_call_timeout_seconds: "float | None" = N2_TOOL_CALL_TIMEOUT_SECONDS,
+        completion_kwargs: "dict[str, Any] | None" = None,
+        max_steps: "int | None" = None,
+        agent_timeout_seconds: "float | None" = None,
+        compactor: "N2Compactor | None" = None,
     ):
         if tool_set not in SUPPORTED_N2_TOOL_SETS:
             raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -1045,6 +1151,22 @@ class N2ComputerAgent:
         self._base_url = base_url
         self._owned_client: Any = None
         self.timings: dict[str, float] = {"model_ms": 0}
+        self.system_prompt = system_prompt
+        self.image_format = image_format
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
+        self.api_timeout_seconds = api_timeout_seconds
+        self.context_window_tokens = context_window_tokens
+        self.tool_call_timeout_seconds = tool_call_timeout_seconds
+        self.completion_kwargs = dict(completion_kwargs or {})
+        self.max_steps = max_steps
+        self.agent_timeout_seconds = agent_timeout_seconds
+        self.compactor = compactor
+        self.stopped_by: "str | None" = None
+        self.trajectory: list[dict[str, Any]] = []
+        self.last_request_id: "str | None" = None
+        self.last_usage: dict[str, Any] = {}
+        self._native_size: "tuple[int, int] | None" = None
 
     async def __aenter__(self) -> "N2ComputerAgent":
         return self
@@ -1080,23 +1202,31 @@ class N2ComputerAgent:
             items.insert(0, {"role": "user", "content": self.instructions})
         return items
 
+    async def _resolve_native_size(self) -> tuple[int, int]:
+        """The native pixel size actions are executed against, for a turn with no frame in history."""
+        current_observation = getattr(self.computer, "current_observation", None)
+        if isinstance(current_observation, N2Observation):
+            return current_observation.native_width, current_observation.native_height
+        if self._native_size is None:
+            get_dimensions = getattr(self.computer, "get_dimensions", None)
+            if callable(get_dimensions):
+                width, height = await get_dimensions()
+                self._native_size = (int(width), int(height))
+            else:
+                # A blind start on a handler that cannot report its size: measure
+                # one frame without sending it.
+                _, width, height, _ = _observation_data(await self.computer.screenshot())
+                self._native_size = (width, height)
+        return self._native_size
+
     async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
 
         latest_url = latest_image_url(completion_messages)
         if latest_url is None:
-            observation = await self.computer.screenshot()
-            latest_url, native_width, native_height, screenshot_b64 = _observation_data(observation)
-            await self._callbacks.fire("on_screenshot", screenshot_b64, "screenshot_before")
-            completion_messages.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": latest_url}},
-                        {"type": "text", "text": "Current desktop screen"},
-                    ],
-                }
-            )
+            # Blind start: the model's first turn sees the task alone and asks
+            # for a frame itself (a `screenshot` batch member).
+            native_width, native_height = await self._resolve_native_size()
         else:
             current_observation = getattr(self.computer, "current_observation", None)
             if isinstance(current_observation, N2Observation):
@@ -1104,12 +1234,14 @@ class N2ComputerAgent:
                 native_height = current_observation.native_height
             else:
                 native_width, native_height = image_dimensions(latest_url)
+        if self.system_prompt:
+            completion_messages.insert(0, {"role": "system", "content": self.system_prompt})
         # Strip historical screenshots before compression so long-running
         # trajectories do not repeatedly re-encode images that will not be
         # sent. Apply the byte budget after conversion because it measures the
         # actual request representation.
         completion_messages = retain_n2_image_window(completion_messages)
-        convert_request_images(completion_messages)
+        convert_request_images(completion_messages, self.image_format)
         completion_messages = fit_n2_request_images_to_budget(completion_messages, DEFAULT_MAX_MESSAGES_BYTES)
 
         request_bytes = serialized_messages_bytes(completion_messages)
@@ -1123,24 +1255,49 @@ class N2ComputerAgent:
             "model": self.model,
             "messages": completion_messages,
             "tool_set": self.tool_set,
-            "max_completion_tokens": N2_MAX_COMPLETION_TOKENS,
+            "max_completion_tokens": self.max_completion_tokens,
             "parallel_tool_calls": True,
         }
         if self.temperature is not None:
             api_kwargs["temperature"] = self.temperature
-        await self._callbacks.fire("on_api_start", api_kwargs)
-        model_started_at = time.monotonic()
-        try:
-            response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
-        finally:
-            self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
-        await self._callbacks.fire("on_api_end", api_kwargs, response)
+        if self.reasoning_effort is not None:
+            api_kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.api_timeout_seconds is not None:
+            api_kwargs["timeout"] = self.api_timeout_seconds
+        api_kwargs.update(self.completion_kwargs)
 
-        response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-        usage = response_dict.get("usage") or {}
-        await self._callbacks.fire("on_usage", usage)
+        for attempt in (0, 1):
+            if self.last_request_id is not None:
+                # Echo the previous response's request_id so the platform links the
+                # run's calls into one conversation. Sent through extra_body so any
+                # OpenAI-compatible completions object forwards it.
+                api_kwargs["extra_body"] = {
+                    **(api_kwargs.get("extra_body") or {}),
+                    "prev_request_id": self.last_request_id,
+                }
+            await self._callbacks.fire("on_api_start", api_kwargs)
+            model_started_at = time.monotonic()
+            try:
+                response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
+            finally:
+                self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
+            await self._callbacks.fire("on_api_end", api_kwargs, response)
 
-        message = (response_dict.get("choices") or [{}])[0].get("message") or {}
+            response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+            usage = response_dict.get("usage") or {}
+            self.last_usage = usage
+            self.last_request_id = response_dict.get("request_id") or self.last_request_id
+            await self._callbacks.fire("on_usage", usage)
+            message = (response_dict.get("choices") or [{}])[0].get("message") or {}
+            if attempt == 0 and needs_tool_call_format_nudge(message):
+                # One ephemeral retry: the malformed attempt and the reminder ride
+                # in the retry request only, never in the kept trajectory.
+                api_kwargs["messages"] = completion_messages + [
+                    {"role": "assistant", "content": message.get("content") or ""},
+                    {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE},
+                ]
+                continue
+            break
         output = parse_n2_tool_calls(
             message,
             native_width,
@@ -1151,33 +1308,83 @@ class N2ComputerAgent:
             allow_scroll_modifiers=self.supports_scroll_modifiers,
         )
         for output_item in output:
-            if output_item.get("type") == "reasoning":
-                text = _presentation_text(output_item, "summary")
-                if text:
-                    await _present(self.presentation, {"type": "reasoning", "text": text})
-            elif output_item.get("type") == "message" and not message.get("tool_calls"):
+            if output_item.get("type") != "message":
+                continue
+            if output_item.get("reasoning"):
+                await _present(self.presentation, {"type": "reasoning", "text": output_item["reasoning"]})
+            if not message.get("tool_calls"):
                 await _present(
                     self.presentation,
                     {"type": "final", "text": _presentation_text(output_item, "content")},
                 )
-        return {"output": output, "usage": usage}
+        return {"output": output, "usage": usage, "message": message}
 
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
-        """Run the agent until the model finishes or a callback stops it."""
-        old_items = self._initial_items(messages)
+        """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
+        self.trajectory = self._initial_items(messages)
+        self.last_request_id = None
+        async for step in self._drive(messages):
+            yield step
+
+    async def resume(self, message: Any) -> "AsyncGenerator[dict[str, Any], None]":
+        """Continue the previous run with one more user message (a string or content parts)."""
+        if not self.trajectory:
+            raise RuntimeError("resume() requires a prior run()")
+        self.trajectory.append({"role": "user", "content": message})
+        async for step in self._drive(message):
+            yield step
+
+    async def _drive(self, run_input: Any) -> "AsyncGenerator[dict[str, Any], None]":
+        old_items = self.trajectory
         new_items: list[dict[str, Any]] = []
         run_kwargs = {
-            "messages": messages,
+            "messages": run_input,
             "model": self.model,
             "tool_set": self.tool_set,
         }
+        self.stopped_by = None
+        started_at = time.monotonic()
+        turns = 0
         await self._callbacks.fire("on_run_start", run_kwargs, old_items)
         try:
             while new_items[-1].get("role") != "assistant" if new_items else True:
                 if not await self._callbacks.should_continue(run_kwargs, old_items, new_items):
+                    self.stopped_by = "callback"
+                    break
+                if self.max_steps is not None and turns >= self.max_steps:
+                    self.stopped_by = "max_steps"
+                    break
+                if (
+                    self.agent_timeout_seconds is not None
+                    and time.monotonic() - started_at >= self.agent_timeout_seconds
+                ):
+                    self.stopped_by = "timeout"
+                    break
+                if self.compactor is not None:
+                    compacted = await self.compactor.compact(
+                        old_items + new_items,
+                        last_usage=self.last_usage,
+                        completions=self._resolve_completions(),
+                        model=self.model,
+                        tool_set=self.tool_set,
+                    )
+                    if compacted is not None:
+                        old_items, new_items = list(compacted), []
+                        self.last_usage = {}
+                prompt_tokens = self.last_usage.get("prompt_tokens")
+                if (
+                    self.context_window_tokens is not None
+                    and isinstance(prompt_tokens, int)
+                    and prompt_tokens + self.max_completion_tokens + N2_CONTEXT_MARGIN_TOKENS
+                    > self.context_window_tokens
+                ):
+                    # The next request would be rejected; end the run cleanly so the
+                    # caller can still score the final state.
+                    self.stopped_by = "context_limit"
                     break
 
                 result = await self._predict_step(old_items + new_items)
+                turns += 1
                 yield result
                 new_items += result.get("output") or []
 
@@ -1189,17 +1396,19 @@ class N2ComputerAgent:
                     for item in result.get("output") or []
                     if item.get("type") == "function_call_output"
                 ]
+                executable: list[dict[str, Any]] = []
                 for item in result.get("output") or []:
                     if item.get("type") == "message":
                         await self._callbacks.fire("on_text", item)
-                        continue
-                    if item.get("type") != "function_call":
-                        continue
-                    if item.get("_computer_actions") is None:
-                        continue
-                    if item.get("call_id") in answered_call_ids:
-                        continue
-                    partial_items = await execute_n2_computer_call(
+                    elif (
+                        item.get("type") == "function_call"
+                        and item.get("_computer_actions") is not None
+                        and item.get("call_id") not in answered_call_ids
+                    ):
+                        executable.append(item)
+
+                for item in executable:
+                    execution = execute_n2_computer_call(
                         item,
                         self.computer,
                         callbacks=self._callbacks,
@@ -1207,10 +1416,31 @@ class N2ComputerAgent:
                         screenshot_delay=self.screenshot_delay,
                         presentation=self.presentation,
                     )
+                    try:
+                        if self.tool_call_timeout_seconds is not None:
+                            partial_items = await asyncio.wait_for(execution, self.tool_call_timeout_seconds)
+                        else:
+                            partial_items = await execution
+                    except asyncio.TimeoutError:
+                        partial_items = [
+                            {
+                                "type": "function_call_output",
+                                "call_id": item.get("call_id"),
+                                "output": (
+                                    f"ERROR_TIMEOUT: {item.get('call_id')} timed out after "
+                                    f"{self.tool_call_timeout_seconds:g} seconds"
+                                ),
+                            }
+                        ]
                     new_items += partial_items
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
+
+                if not (result.get("message") or {}).get("tool_calls"):
+                    # A turn without tool calls ends the run; the caller may resume().
+                    self.stopped_by = "final_answer"
         finally:
+            self.trajectory = old_items + new_items
             # Unlike the reference, this fires even when the very first
             # on_run_continue stops the run.
             await self._callbacks.fire("on_run_end", run_kwargs, old_items, new_items)

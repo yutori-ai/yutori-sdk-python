@@ -111,24 +111,6 @@ from yutori.navigator import (
 | `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260825"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. It supports all 15 batch primitives, including held mouse/key actions and screenshot. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
-**Historical n2 tool sets.** Published dated identifiers are immutable; the API keeps accepting them. New callers should use `TOOL_SET_COMPUTER_USE_LATEST`.
-
-| Constant | Value | Notes |
-|----------|-------|-------|
-| `TOOL_SET_COMPUTER_USE` | `"computer_use_tools-20260708"` | GUI-only, single actions. |
-| `TOOL_SET_COMPUTER_USE_BATCH` | `"computer_use_tools-20260716"` | GUI-only batched actions. |
-| `TOOL_SET_COMPUTER_USE_HYBRID` | `"computer_use_tools-20260728"` | GUI + `shell_command`. |
-| `TOOL_SET_COMPUTER_USE_HYBRID_BATCH` | `"computer_use_tools-20260729"` | GUI + `shell_command`, batched. |
-| `TOOL_SET_COMPUTER_USE_FILES` | `"computer_use_tools-20260807"` | GUI + shell + file tools (`read`/`write`/`edit`/`grep`/`glob`). |
-| `TOOL_SET_COMPUTER_USE_FILES_BATCH` | `"computer_use_tools-20260808"` | GUI + shell + file tools, batched. |
-| `TOOL_SET_COMPUTER_USE_BASH_BATCH` | `"computer_use_tools-20260812"` | `computer_batch` + `bash`. |
-| `TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS` | `"computer_use_tools-20260815"` | Adds click/scroll modifiers. |
-| `TOOL_SET_COMPUTER_USE_BASH_BATCH_SCREENSHOT` | `"computer_use_tools-20260821"` | Adds in-batch `screenshot` action. |
-| `TOOL_SET_COMPUTER_USE_BASH_BATCH_FULL` | `"computer_use_tools-20260822"` | Full batch: `computer_batch`, `edit`, `read`, `write`, `bash`. |
-| `TOOL_SET_COMPUTER_USE_BROWSER_BATCH` | `"computer_use_tools-20260818"` | `computer_batch` + `bash` + `goto_url`. |
-
-`SUPPORTED_N2_TOOL_SETS` is the `frozenset` of all accepted n2 tool-set identifiers.
-
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
 
 For pinned versions (e.g. `n1.5-20260428`) see [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5) and [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
@@ -141,7 +123,7 @@ OpenAI-compatible pixels-to-actions chat completions. Works with Navigator n1.5 
 
 | Method | HTTP | Endpoint | Returns |
 |--------|------|----------|---------|
-| `client.chat.completions.create(messages, *, model="n1.5-latest", tool_set=None, disable_tools=None, json_schema=None, **kwargs)` | POST | `/v1/chat/completions` | `openai.types.chat.ChatCompletion` |
+| `client.chat.completions.create(messages, *, model="n1.5-latest", tool_set=None, disable_tools=None, json_schema=None, prev_request_id=None, **kwargs)` | POST | `/v1/chat/completions` | `openai.types.chat.ChatCompletion` — echo a response's `request_id` back as `prev_request_id` to link calls into one conversation |
 
 #### `chat.completions.create`
 
@@ -474,18 +456,10 @@ Opt-in helpers for custom agent loops. They do **not** change the shape of `clie
 ```python
 from yutori.navigator import (
     # Models / tool sets
-    NAVIGATOR_N1_5_MODEL, NAVIGATOR_N2_MODEL,
+    NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
-    SUPPORTED_N2_TOOL_SETS,
     # Navigator n2 loop helpers
     N2ComputerAgent, parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
-    convert_n2_items_to_completion_messages, truncate_shell_result, prepare_n2_image_data_url,
-    # Navigator n2 action translation
-    N2ActionValidationError,
-    translate_n2_batch, translate_n2_action, translate_n2_bash, translate_n2_shell_command,
-    translate_n2_read, translate_n2_write, translate_n2_edit, translate_n2_grep, translate_n2_glob,
-    translate_n2_goto_url,
-    flatten_batch_member, parse_n2_key_expression,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
     # Coordinates
@@ -512,42 +486,32 @@ from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text or a callback's `on_run_continue` returns `False`. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which; `resume(message)` continues the same conversation. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
 `computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
-### Navigator n2 loop helpers
+### Loop policies
 
-Lower-level helpers that `N2ComputerAgent` uses internally. Useful for custom integrations that need finer control.
+`run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. Each request echoes the previous response's `request_id` as `prev_request_id` (`run()` starts a new chain, `resume()` continues it), so the platform reports the whole conversation as one session. A caller who wants an explicit completion convention (say, a `[DONE]` marker) asks for it in their own `system_prompt` and checks the final text in their outer loop, resuming until it appears.
 
-| Helper | Signature | Description |
-|--------|-----------|-------------|
-| `parse_n2_tool_calls` | `(message, native_width, native_height, *, tool_set=TOOL_SET_COMPUTER_USE_LATEST, execution_deadline=None, allow_click_modifiers=False, allow_scroll_modifiers=None) -> list[dict]` | Turn one model response message into validated trajectory items with attached executions. Returns reasoning, text, and function_call items; invalid calls get an inline `[ERROR]` result so the model can self-correct. |
-| `execute_n2_computer_call` | `async (item, computer, *, callbacks, confirmation_callback=None, screenshot_delay=0.5, presentation=None) -> list[dict]` | Execute one validated trajectory item against a computer adapter and capture the result frame. |
-| `convert_n2_items_to_completion_messages` | `(items: list[dict]) -> list[dict]` | Convert the n2 trajectory's responses items (message, reasoning, function_call, function_call_output) to Chat Completions messages for the next API request. |
-| `retain_n2_image_window` | `(messages: list[dict]) -> list[dict]` | Deep-copy messages and strip images outside the two newest image-bearing messages, matching the server's retention policy. |
-| `prepare_n2_image_data_url` | `(url: str) -> str` | Re-encode a data-URL screenshot as aspect-preserving WebP bounded by 1280×800. |
-| `truncate_shell_result` | `(output: str) -> str` | Bound shell output to the n2 wire contract's 8,000-character cap (keeps head + tail with a truncation notice). |
+What a result carries is the tool's own contract, not a loop policy: a `computer_batch` (or a single GUI action, or `screenshot`) returns one `[i:name]` line per member plus a fresh frame captured after its actions execute; `bash` and the file tools return the handler's text exactly as returned (`read` may return `{"text", "image_url"}` so an image file is shown as an image); the run starts without a screenshot and the model requests one with a `screenshot` batch member. Frames are sent at the computer handler's own capture size — the handler defines the viewport (with DPR scaling removed) — re-encoded to `image_format`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. A turn whose text carries literal `<tool_call>` markup but parsed no tool calls gets one retry with a format reminder (`TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`); neither the malformed attempt nor the reminder enters the kept trajectory. Key names in `key_press`/`hold_key` normalize to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the computer handler to accept or reject.
 
-### Navigator n2 action translation
+The keywords:
 
-Strict validators that turn model tool-call arguments into executor-ready action dicts. Raise `N2ActionValidationError` on malformed input.
+| Keyword | Default | What it controls |
+|---|---|---|
+| `system_prompt` | `None` | Sent as a system message ahead of the conversation (the server appends it to its own system prompt). |
+| `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes. |
+| `max_completion_tokens` | `20480` | Output budget per model call. |
+| `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
+| `api_timeout_seconds` | `600` | Per-request timeout sent with each model call. `None` uses the client's default. |
+| `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it. `None` disables the check. |
+| `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
+| `completion_kwargs` | `None` | Extra fields merged into every chat-completions request (e.g. `top_p`), for callers who want explicit sampling settings. |
+| `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
+| `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
 
-| Helper | Signature | Description |
-|--------|-----------|-------------|
-| `translate_n2_batch` | `(args, native_width, native_height, *, tool_set=TOOL_SET_COMPUTER_USE_LATEST, allow_click_modifiers=False, allow_scroll_modifiers=None) -> tuple[list[dict], list[dict]]` | Validate a complete `computer_batch` call. Returns `(validated_actions, executor_calls)`. |
-| `translate_n2_action` | `(action, args, native_width, native_height, *, batch_index=None, allow_click_modifiers=False, allow_scroll_modifiers=None) -> list[dict]` | Validate and translate one GUI action (click, scroll, type, keypress, drag, wait, screenshot, etc.) to computer-handler calls. |
-| `translate_n2_bash` | `(args) -> list[dict]` | Validate one `bash` call (`command` required, optional `timeout`). |
-| `translate_n2_shell_command` | `(args) -> list[dict]` | Validate one `shell_command` call (legacy; `command` required, optional `cwd`). |
-| `translate_n2_read` | `(args) -> list[dict]` | Validate a `read` file-tool call. |
-| `translate_n2_write` | `(args) -> list[dict]` | Validate a `write` file-tool call. |
-| `translate_n2_edit` | `(args) -> list[dict]` | Validate an `edit` (exact-string replacement) file-tool call. |
-| `translate_n2_grep` | `(args) -> list[dict]` | Validate a `grep` file-search call. |
-| `translate_n2_glob` | `(args) -> list[dict]` | Validate a `glob` file-name search call. |
-| `translate_n2_goto_url` | `(args) -> list[dict]` | Validate a `goto_url` browser-navigation call (20260818 tool set). |
-| `flatten_batch_member` | `(value: dict) -> dict` | Normalize a batch action from either envelope shape (`{"type": "computer_call", "action": {...}}` or `{"name": ..., "arguments": {...}}`) to the flat form. |
-| `parse_n2_key_expression` | `(expression) -> list[list[str]]` | Parse Yutori's `+` combo and space-separated sequence grammar into a list of key groups. |
-| `N2ActionValidationError` | exception | Raised when a model-emitted action fails strict schema validation. |
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
 
 ### Screenshot helpers
 

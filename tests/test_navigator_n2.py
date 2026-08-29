@@ -32,7 +32,6 @@ from yutori.navigator import (
     translate_n2_batch,
     translate_n2_read,
     translate_n2_shell_command,
-    truncate_shell_result,
 )
 from yutori.navigator.macos.types import CancellationLatch, N2Observation
 from yutori.navigator.n2 import _CallbackDispatcher
@@ -177,8 +176,9 @@ def test_click_and_scroll_modifier_capabilities_can_be_configured_independently(
 def test_key_press_parses_chords_sequences_and_aliases():
     assert parse_n2_key_expression("ctrl+a enter") == [["ctrl", "a"], ["enter"]]
     assert parse_n2_key_expression("Command+Period") == [["cmd", "."]]
-    with pytest.raises(N2ActionValidationError, match="unknown key name"):
-        parse_n2_key_expression("notakey")
+    assert parse_n2_key_expression("ArrowUp Insert") == [["up"], ["insert"]]
+    # Names outside the vocabulary pass through lowercased; the handler decides.
+    assert parse_n2_key_expression("notakey") == [["notakey"]]
     with pytest.raises(N2ActionValidationError, match="invalid key combination"):
         parse_n2_key_expression("ctrl++a")
 
@@ -231,11 +231,7 @@ def test_read_uses_the_served_one_based_line_offset():
 
 def test_historical_glob_rejects_a_null_path_like_the_served_schema():
     output = parse_n2_tool_calls(
-        {
-            "tool_calls": [
-                {"id": "glob", "function": {"name": "glob", "arguments": '{"pattern":"*.py","path":null}'}}
-            ]
-        },
+        {"tool_calls": [{"id": "glob", "function": {"name": "glob", "arguments": '{"pattern":"*.py","path":null}'}}]},
         100,
         100,
         tool_set=TOOL_SET_COMPUTER_USE_FILES,
@@ -314,12 +310,14 @@ def test_historical_batches_reject_modified_scroll_before_translating_any_member
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_image_downscales_to_webp_without_upscaling():
-    large = prepare_n2_image_data_url(_png_data_url(2560, 1600))
-    assert large.startswith("data:image/webp;base64,")
-    assert image_dimensions(large) == (1280, 800)
-    small = prepare_n2_image_data_url(_png_data_url(200, 100))
-    assert image_dimensions(small) == (200, 100)
+def test_prepare_image_converts_format_only_and_never_resizes():
+    frame = prepare_n2_image_data_url(_png_data_url(1920, 1080))
+    assert frame.startswith("data:image/webp;base64,")
+    assert image_dimensions(frame) == (1920, 1080)  # the capture defines the size
+    # A source already in the target encoding passes through byte-for-byte.
+    assert prepare_n2_image_data_url(frame) == frame
+    png = prepare_n2_image_data_url(_png_data_url(200, 100), "png")
+    assert png == _png_data_url(200, 100)
 
 
 def test_image_window_keeps_only_two_newest_image_messages():
@@ -328,8 +326,11 @@ def test_image_window_keeps_only_two_newest_image_messages():
 
     messages = [image_message(f"data:image/png;base64,{index}") for index in range(4)]
     windowed = retain_n2_image_window(messages)
-    kept = [bool(message["content"]) for message in windowed]
+    kept = [any(part["type"] == "image_url" for part in message["content"]) for message in windowed]
     assert kept == [False, False, True, True]
+    # Pruned frames leave the marker the model was trained on; `None` drops them outright.
+    assert windowed[0]["content"] == [{"type": "text", "text": "[older image omitted]"}]
+    assert retain_n2_image_window(messages, omitted_text=None)[0]["content"] == []
     # The original list is untouched.
     assert all(message["content"] for message in messages)
 
@@ -366,9 +367,9 @@ def test_converter_folds_calls_and_carries_shell_text_before_the_screenshot():
     ]
     messages = convert_n2_items_to_completion_messages(items)
     assert messages[0] == {"role": "user", "content": "task"}
-    # The call folds into the preceding assistant (reasoning) message, matching
-    # the reference converter.
+    # A legacy standalone reasoning item stays assistant text; the call folds into it.
     assert messages[1]["role"] == "assistant" and messages[1]["content"] == "thinking"
+    assert "reasoning_content" not in messages[1]
     assert messages[1]["tool_calls"][0]["function"]["name"] == "bash"
     tool_message = messages[2]
     assert tool_message["role"] == "tool" and tool_message["tool_call_id"] == "c1"
@@ -396,17 +397,18 @@ def test_parse_tool_calls_attaches_executions_and_feeds_back_validation_errors()
         tool_set=TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
         execution_deadline=12.5,
     )
-    assert output[0]["type"] == "reasoning"
-    assert output[1]["type"] == "message"
-    valid = output[2]
+    assert output[0]["type"] == "message"
+    assert output[0]["reasoning"] == "hmm"
+    valid = output[1]
     assert valid["_computer_actions"] == [{"type": "click", "x": 500, "y": 500, "button": "left"}]
     assert valid["_requires_confirmation"] is True
     assert valid["_execution_deadline"] == 12.5
-    assert [item.get("call_id") for item in output[3:]] == ["c2", "c2"]
-    assert "Refused stale parallel tool call" in output[-1]["output"]
+    # Every call of the turn is translated; the malformed second one is answered in place.
+    assert [item.get("call_id") for item in output[2:]] == ["c2", "c2"]
+    assert output[-1]["output"].startswith("[ERROR] Invalid left_click call:")
 
 
-def test_first_invalid_call_consumes_the_turn():
+def test_an_invalid_call_does_not_block_the_next_one():
     output = parse_n2_tool_calls(
         {
             "content": "",
@@ -420,13 +422,15 @@ def test_first_invalid_call_consumes_the_turn():
     )
     assert [item.get("call_id") for item in output] == ["bad", "bad", "good", "good"]
     assert output[1]["output"].startswith("[ERROR] Invalid left_click call:")
-    assert "Refused stale parallel tool call" in output[-1]["output"]
+    # The second call is still translated on its own terms (here: the batch-only
+    # default tool set does not expose a standalone left_click).
+    assert "does not expose left_click" in output[-1]["output"]
 
 
-def test_parse_tool_calls_terminal_message_defaults_to_task_completed():
+def test_parse_tool_calls_terminal_message_keeps_an_empty_answer_empty():
     output = parse_n2_tool_calls({"content": "", "tool_calls": []}, 100, 100)
     assert output[-1]["type"] == "message"
-    assert output[-1]["content"][0]["text"] == "Task completed."
+    assert output[-1]["content"][0]["text"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -532,15 +536,13 @@ def _batch_item(**overrides):
     return item
 
 
-async def test_execute_batch_reports_member_metadata_and_screenshot():
+async def test_execute_batch_reports_one_line_per_member_with_a_frame():
     computer = FakeComputer()
     result = await execute_n2_computer_call(
         _batch_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0
     )
     output = result[0]["output"]
-    assert output["type"] == "input_image"
-    assert output["result"]["completed"] == 2
-    assert output["result"]["status"] == "completed"
+    assert output["type"] == "input_image" and output["result"] == "[0:left_click] \n[1:key_press]"
     assert ("click", 0, 0, "left", 1, None) in computer.calls
 
 
@@ -550,11 +552,10 @@ async def test_execute_stops_the_batch_at_the_first_gui_failure():
     result = await execute_n2_computer_call(
         _batch_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0
     )
-    metadata = result[0]["output"]["result"]
-    assert metadata["status"] == "stopped"
-    assert metadata["failed_action_index"] == 0
-    assert metadata["skipped"] == 1
-    assert "driver refused click" in metadata["error"]
+    assert result[0]["output"]["result"] == (
+        "batch stopped at actions[0] (0:left_click): ERROR: RuntimeError: driver refused click (0 completed, 1 skipped)"
+    )
+    assert not [call for call in computer.calls if call[0] == "keypress"]
 
 
 def _bash_call_item(command="ls"):
@@ -565,16 +566,12 @@ def _bash_call_item(command="ls"):
     return parse_n2_tool_calls(message, 100, 100)[-1]
 
 
-async def test_execute_shell_returns_truncated_text_with_the_screenshot():
+async def test_execute_shell_returns_the_handler_text_as_is():
     computer = FakeComputer()
-    computer.shell_result = "x" * 9000
-    result = await execute_n2_computer_call(
-        _bash_call_item(), computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0
-    )
-    output = result[0]["output"]
-    assert output["type"] == "input_image"
-    assert output["result"].endswith("[result truncated]")
-    assert len(output["result"]) == 8000
+    computer.shell_result = "x" * 31_000
+    result = await execute_n2_computer_call(_bash_call_item(), computer, callbacks=_CallbackDispatcher(None))
+    # The tool owns its result: no loop-side rendering, truncation, or frame.
+    assert result[0]["output"] == "x" * 31_000
 
 
 async def test_execute_shell_failures_are_recoverable_tool_errors():
@@ -754,8 +751,7 @@ async def test_execute_expired_deadline_truncates_in_flight_actions():
     computer = FakeComputer()
     item = _batch_item(execution_deadline=time.monotonic() - 1)
     result = await execute_n2_computer_call(item, computer, callbacks=_CallbackDispatcher(None), screenshot_delay=0)
-    metadata = result[0]["output"]["result"]
-    assert metadata["status"] == "stopped" and metadata["error"] == "deadline_reached"
+    assert result[0]["output"]["result"].startswith("batch stopped at actions[0] (0:left_click): deadline_reached")
     assert not [call for call in computer.calls if call[0] == "click"]
 
 
@@ -922,9 +918,7 @@ async def test_triple_click_falls_back_for_legacy_computer_handlers():
     agent = N2ComputerAgent(
         computer=computer,
         tool_set=TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
-        completions=FakeCompletions(
-            [response, _turn({"content": "Done.", "tool_calls": []})]
-        ),
+        completions=FakeCompletions([response, _turn({"content": "Done.", "tool_calls": []})]),
         screenshot_delay=0,
     )
     async for _step in agent.run("task"):
@@ -944,7 +938,7 @@ async def test_triple_click_falls_back_for_legacy_computer_handlers():
         screenshot_delay=0,
     )
     assert failed_computer.calls == [("double_click", 100, 50, ())]
-    assert "double failed" in result[0]["output"]["result"]["error"]
+    assert "double failed" in result[0]["output"]["result"]
 
 
 async def test_agent_runs_a_click_turn_then_finishes():
@@ -964,7 +958,7 @@ async def test_agent_runs_a_click_turn_then_finishes():
                     ],
                 }
             ),
-            _turn({"content": "Done. [DONE]", "tool_calls": []}),
+            _turn({"content": "Done.", "tool_calls": []}),
         ]
     )
     computer = FakeComputer()
@@ -977,23 +971,27 @@ async def test_agent_runs_a_click_turn_then_finishes():
     )
     steps = [step async for step in agent.run("open calculator")]
 
-    # Bootstrap screenshot became the first observation.
+    # Blind start: a handler without get_dimensions is measured with one frame
+    # that is NOT sent; the first request carries the guidelines and the text alone.
     assert computer.calls[0] == ("screenshot",)
     first_request = completions.requests[0]
     assert first_request["tool_set"] == TOOL_SET_COMPUTER_USE_HYBRID_BATCH
     assert first_request["model"] == "n2"
-    assert first_request["max_completion_tokens"] == 16384
+    assert first_request["max_completion_tokens"] == 20480
     assert first_request["parallel_tool_calls"] is True
+    assert first_request["timeout"] == 600.0
     assert "temperature" not in first_request
     assert first_request["messages"][0] == {"role": "user", "content": "be careful"}
     assert first_request["messages"][1] == {"role": "user", "content": "open calculator"}
+    assert "system" not in {message["role"] for message in first_request["messages"]}
+    assert not any(isinstance(message.get("content"), list) for message in first_request["messages"])
 
-    # Turn 1 yields the model step, then the execution result frame.
+    # Turn 1 yields the model step, then the execution result — a GUI turn, so it carries the frame.
     assert steps[0]["usage"]["prompt_tokens"] == 5
     result_frames = [item for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
     assert len(result_frames) == 1
     assert result_frames[0]["output"]["type"] == "input_image"
-    # The click executed against the bootstrap capture's native size (200x100).
+    # The click executed against the measured native size (200x100).
     assert ("click", 100, 50, "left", 1, None) in computer.calls
 
     # Turn 2's terminal assistant message ended the run.
@@ -1030,15 +1028,14 @@ async def test_agent_defaults_to_latest_tool_set_and_preserves_native_observatio
                             "function": {
                                 "name": "computer_batch",
                                 "arguments": (
-                                    '{"actions":[{"name":"left_click",'
-                                    '"arguments":{"coordinates":[500,500]}}]}'
+                                    '{"actions":[{"name":"left_click","arguments":{"coordinates":[500,500]}}]}'
                                 ),
                             },
                         }
                     ],
                 }
             ),
-            _turn({"content": "Finished [INFEASIBLE]", "tool_calls": []}),
+            _turn({"content": "Finished", "tool_calls": []}),
         ]
     )
     computer = ObservationComputer()
@@ -1142,9 +1139,14 @@ async def test_agent_does_not_execute_calls_that_failed_validation():
         screenshot_delay=0,
     )
     steps = [step async for step in agent.run("task")]
-    errors = [item["output"] for step in steps for item in step["output"] if item.get("type") == "function_call_output"]
-    assert any(str(error).startswith("[ERROR] Invalid left_click call") for error in errors)
+    outputs = [
+        item["output"] for step in steps for item in step["output"] if item.get("type") == "function_call_output"
+    ]
+    # A call that never ran returns no frame: results come from the tool's own execution.
+    (error,) = outputs
+    assert str(error).startswith("[ERROR] Invalid left_click call")
     assert not [call for call in computer.calls if call[0] == "click"]
+    assert computer.calls.count(("screenshot",)) == 1  # only the blind-start size measurement
 
 
 async def test_agent_guard_can_stop_the_run_and_run_end_still_fires():
@@ -1214,15 +1216,8 @@ async def test_agent_requests_stay_within_the_two_image_window():
         if isinstance(part, dict) and part.get("type") == "image_url"
     ]
     assert len(image_parts) == 2
-    # Every image the wire carries is the WebP re-encode, not the raw PNG.
+    # Every image the wire carries is the default WebP re-encode of the raw capture.
     assert all(part["image_url"]["url"].startswith("data:image/webp;") for part in image_parts)
-
-
-def test_truncate_shell_result_is_exact_at_the_boundary():
-    assert truncate_shell_result("x" * 8000) == "x" * 8000
-    truncated = truncate_shell_result("x" * 8001)
-    assert len(truncated) == 8000
-    assert truncated.endswith("[result truncated]")
 
 
 async def test_agent_owns_a_real_client_when_given_credentials():

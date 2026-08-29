@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
+from examples.navigator_n2.cua_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
@@ -192,13 +192,11 @@ def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_pa
     assert str(notes) in glob_output
 
 
-@pytest.mark.parametrize("source", ["x" * 8_001, "x" * 8_000 + "\n"])
+@pytest.mark.parametrize("source", ["x" * 30_001, "x" * 30_000 + "y"])
 def test_public_cua_shell_truncation_retains_failure_exit_code(source: str) -> None:
     output = _format_shell_output(source, 7)
-    assert len(output) == 8_000
-    assert "[result truncated]" in output
-    assert "\n[exit code 7]" in output
-    assert output.endswith("[exit code 7]")
+    assert output.startswith("Exit code 7\nx")
+    assert output.endswith("[... output truncated, 1 more chars ...]")
 
 
 async def test_public_cua_adapter_labels_jpeg_screenshots_correctly() -> None:
@@ -265,7 +263,10 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
         for item in step["output"]
         if item.get("type") == "function_call_output" and item.get("call_id") == "current"
     )
-    assert result["output"]["result"]["completed"] == 15
+    # A GUI turn: the [i:name] member lines ride with the turn's frame.
+    member_lines = result["output"]["result"].splitlines()
+    assert len(member_lines) == 15 and member_lines[0] == "[0:left_click] "
+    assert result["output"]["type"] == "input_image"
     assert ("mouse_down", 120, 40, "left") in sandbox.calls
     assert ("mouse_up", 120, 40, "left") in sandbox.calls
     assert ("key_down", "ctrl") in sandbox.calls
@@ -299,4 +300,4 @@ async def test_public_cua_adapter_preserves_bash_cwd_when_the_command_fails() ->
     output = await computer.run_bash_command("false")
 
     assert computer._bash_cwd == "/next-workspace"
-    assert output == "command output\ncommand error\n[exit code 7]"
+    assert output == "Exit code 7\ncommand output\ncommand error"

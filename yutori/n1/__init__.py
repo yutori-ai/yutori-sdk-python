@@ -9,8 +9,8 @@ from ._compat import warn_renamed
 
 warn_renamed(__name__, suffix="Update imports to 'from yutori.navigator import ...'.")
 
-from yutori.navigator import *  # noqa: E402,F401,F403
-from yutori.navigator import __all__  # noqa: E402,F401
+from ..navigator import *  # noqa: E402,F401,F403
+from ..navigator import __all__  # noqa: E402,F401
 
 # Shim modules in this package: everything on disk except the _compat
 # helper, so adding or removing a shim file needs no registry edit.
