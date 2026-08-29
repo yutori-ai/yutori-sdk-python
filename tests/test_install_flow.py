@@ -810,6 +810,23 @@ def test_maybe_install_mcp_server_runs_add_mcp_on_consent():
     assert mock_run.call_args.args[0] == ("/usr/local/bin/npx", *MCP_SERVER_INSTALL_COMMAND[1:])
 
 
+def test_mcp_server_install_command_names_server_yutori():
+    # Regression: the interactive command used to omit `-n`, so add-mcp
+    # inferred the server name from the first word of "uvx yutori-mcp" and
+    # registered it as "uvx" in ~/.claude.json / ~/.codex/config.toml.
+    assert MCP_SERVER_INSTALL_COMMAND[MCP_SERVER_INSTALL_COMMAND.index("-n") + 1] == "yutori"
+    # The target stays a single argv token (add-mcp's quoted command string).
+    assert MCP_SERVER_INSTALL_COMMAND[-1] == "uvx yutori-mcp"
+
+
+def test_interactive_npx_commands_preanswer_npx_package_prompt():
+    # `-y` must sit directly after `npx` so npx consumes it (skipping its
+    # "Need to install the following packages" prompt) instead of forwarding
+    # it to add-mcp/skills.
+    for command in (MCP_SERVER_INSTALL_COMMAND, MCP_SKILLS_INSTALL_COMMAND):
+        assert command[:2] == ("npx", "-y")
+
+
 def test_maybe_install_mcp_server_failure_includes_retry_hint():
     # run_interactive_command inherits stdio so stdout/stderr are None in
     # production. The failure detail should still be useful — a retry hint
@@ -821,7 +838,7 @@ def test_maybe_install_mcp_server_failure_includes_retry_hint():
 
     assert result.status == "failed"
     assert "status 1" in result.detail
-    assert "npx add-mcp" in result.detail
+    assert "add-mcp -n yutori" in result.detail
 
 
 def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
@@ -837,7 +854,7 @@ def test_maybe_install_mcp_server_returncode_127_uses_generic_message():
     assert result.status == "failed"
     assert "status 127" in result.detail
     assert "Could not execute" not in result.detail
-    assert "npx add-mcp" in result.detail
+    assert "add-mcp -n yutori" in result.detail
 
 
 def test_maybe_install_mcp_server_failure_surfaces_timeout():
@@ -848,7 +865,7 @@ def test_maybe_install_mcp_server_failure_surfaces_timeout():
 
     assert result.status == "failed"
     assert "Timed out" in result.detail
-    assert "npx add-mcp" in result.detail
+    assert "add-mcp -n yutori" in result.detail
 
 
 def test_maybe_install_mcp_skills_runs_global_skills_on_consent():
