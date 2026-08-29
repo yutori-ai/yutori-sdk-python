@@ -67,10 +67,10 @@ The example implements a `MemoToolSuite` with three custom tools:
 
 A computer-use agent: Navigator n2 driving a disposable [Daytona](https://www.daytona.io) Linux desktop. `N2ComputerAgent` from `yutori.navigator` runs the loop — it sends the task and screenshot, executes the returned `computer_batch` and `bash` calls through a `DaytonaComputer` adapter, and sends the results back until the model answers with text. The Daytona-specific code is the adapter class; swap it to drive a different desktop. The sandbox is deleted when the run ends.
 
-Needs Python 3.10+, `yutori>=0.9.2`, and a Daytona API key; it is not part of the `examples` extra:
+Needs Python 3.10+, `yutori>=0.9.3`, and a Daytona API key; it is not part of the `examples` extra:
 
 ```bash
-pip install 'yutori>=0.9.2' daytona
+pip install 'yutori>=0.9.3' daytona
 export DAYTONA_API_KEY=...   # https://app.daytona.io
 python examples/navigator_n2_daytona.py "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
 ```
