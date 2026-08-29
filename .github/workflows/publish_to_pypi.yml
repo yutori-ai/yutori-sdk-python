@@ -5,31 +5,97 @@ on:
     types: [published]
 
 jobs:
-  publish:
+  build:
+    name: Build release artifacts
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
+      - name: Verify annotated release tag and package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          test "${RELEASE_TAG#v}" != "$RELEASE_TAG"
+          test "$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")" = "${RELEASE_TAG#v}"
+
       - name: Install build tools
         run: pip install build twine
 
-      # Gate publishing on the test suite — a broken tag must not ship.
       - name: Run tests
         run: |
           pip install -e ".[dev]"
           pytest -m "not slow"
 
-      - name: Build package
-        run: python -m build
+      - name: Build and validate exact distributions
+        run: |
+          python -m build
+          twine check dist/*
+          sha256sum dist/* > dist/SHA256SUMS
 
-      - name: Validate package metadata
-        run: twine check dist/*
+      - name: Store release distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish exact distributions to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/yutori
+    permissions:
+      id-token: write
+    steps:
+      - name: Retrieve tested distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Verify distribution hashes
+        run: (cd dist && sha256sum --check SHA256SUMS)
+
+      - name: Publish with PyPI Trusted Publishing
+        # release/v1, pinned to an immutable commit. This action creates and
+        # uploads PyPI attestations for the same distribution bytes by default.
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+        with:
+          packages-dir: dist/
+          attestations: true
+
+  release-assets:
+    name: Upload release checksums and installers
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Retrieve tested distribution hashes
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Verify distribution hashes
+        run: (cd dist && sha256sum --check SHA256SUMS)
 
       # install.sh is regenerated from the committed template + banner +
       # frames so the uploaded release asset matches the tagged commit
@@ -44,19 +110,13 @@ jobs:
           sha256sum install.sh > install.sh.sha256
           sha256sum uninstall.sh > uninstall.sh.sha256
 
-      - name: Publish to PyPI
-        run: twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-
-      - name: Upload installer assets to release
+      - name: Upload release assets
         # Pinned to a commit SHA: this third-party action runs with
-        # contents:write and uploads the curl|sh installer artifact, so a
-        # mutable tag would be a supply-chain risk.
+        # contents:write and uploads the curl|sh installer artifacts.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
+            dist/SHA256SUMS
             install.sh
             install.sh.sha256
             uninstall.sh

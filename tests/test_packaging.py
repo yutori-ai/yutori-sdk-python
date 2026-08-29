@@ -14,6 +14,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _extract_generated_sdist(tar: tarfile.TarFile, destination: Path) -> None:
+    """Extract the test-produced archive without accepting path traversal."""
+    if sys.version_info >= (3, 12):
+        tar.extractall(destination, filter="data")
+        return
+    destination_root = destination.resolve()
+    for member in tar.getmembers():
+        member_path = (destination / member.name).resolve()
+        if not member_path.is_relative_to(destination_root) or member.issym() or member.islnk():
+            raise ValueError(f"unsafe generated sdist member: {member.name}")
+        tar.extract(member, destination)
+
+
 def _write_dependency_stubs(stub_root: Path) -> None:
     openai_types_dir = stub_root / "openai" / "types"
     openai_types_dir.mkdir(parents=True)
@@ -129,6 +142,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     src_dir.mkdir()
     shutil.copytree(ROOT / "yutori", src_dir / "yutori", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "tests", src_dir / "tests", ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+    shutil.copytree(ROOT / "examples", src_dir / "examples", ignore=shutil.ignore_patterns("__pycache__", "uv.lock"))
     for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
         shutil.copy2(ROOT / fname, src_dir / fname)
 
@@ -154,21 +168,17 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
         "tests/__init__.py",
         "tests/_client_fixtures.py",
         "yutori/py.typed",
+        "yutori/navigator/macos/assets/provenance.json",
     ):
         assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
+    for source_path in (ROOT / "examples" / "navigator_n2").rglob("*"):
+        if source_path.is_file() and "__pycache__" not in source_path.parts and source_path.name != "uv.lock":
+            required = source_path.relative_to(ROOT).as_posix()
+            assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
 
     wheels = sorted(dist_dir.glob("yutori-*.whl"))
     assert wheels, "expected build to produce a wheel"
     wheel_path = wheels[0]
-
-    venv_dir = tmp_path / "venv"
-    venv.EnvBuilder(with_pip=True).create(venv_dir)
-    venv_python = venv_dir / ("Scripts" if os.name == "nt" else "bin") / "python"
-
-    subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "--no-deps", str(wheel_path)],
-        check=True,
-    )
 
     stubs_dir = tmp_path / "stubs"
     _write_dependency_stubs(stubs_dir)
@@ -176,11 +186,24 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     verify_script = textwrap.dedent(
         """
         from importlib import resources
+        from yutori.navigator import (
+            NAVIGATOR_N2_MODEL,
+            N2ComputerAgent,
+            TOOL_SET_COMPUTER_USE_LATEST,
+            translate_n2_read,
+            translate_n2_write,
+        )
         from yutori.navigator._assets import load_js_asset
+        from yutori.navigator.macos import MacOSComputer
 
         # PEP 561: without this marker, type checkers ignore every inline
         # annotation in the installed package.
         assert resources.files("yutori").joinpath("py.typed").is_file()
+        assert NAVIGATOR_N2_MODEL == "n2"
+        assert TOOL_SET_COMPUTER_USE_LATEST == "computer_use_tools-20260825"
+        assert N2ComputerAgent and MacOSComputer
+        assert translate_n2_read({"file_path": "notes.txt"})
+        assert translate_n2_write({"file_path": "notes.txt", "content": "hello"})
         from yutori.navigator.tools import (
             EXECUTE_JS_SCRIPT,
             EXTRACT_ELEMENTS_SCRIPT,
@@ -228,9 +251,39 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
 
         for script_name in expected:
             assert load_tool_script(script_name).strip()
+
+        macos_assets = resources.files("yutori.navigator.macos").joinpath("assets")
+        assert macos_assets.joinpath("provenance.json").is_file()
+        assert macos_assets.joinpath("macos-overlay-host.swift").is_file()
         """
     )
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(stubs_dir)
-    subprocess.run([str(venv_python), "-c", verify_script], check=True, env=env, cwd=tmp_path)
+
+    # Build a second wheel from an extracted sdist. This exercises the exact
+    # source distribution users receive instead of assuming the checkout and
+    # sdist contain the same files.
+    extracted_sdist_dir = tmp_path / "extracted-sdist"
+    with tarfile.open(sdists[0]) as tar:
+        _extract_generated_sdist(tar, extracted_sdist_dir)
+    sdist_source_dir = extracted_sdist_dir / sdist_root
+    sdist_wheel_dir = tmp_path / "sdist-wheel"
+    sdist_wheel_dir.mkdir()
+    subprocess.run(
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(sdist_wheel_dir)],
+        cwd=sdist_source_dir,
+        check=True,
+    )
+    sdist_wheels = sorted(sdist_wheel_dir.glob("yutori-*.whl"))
+    assert sdist_wheels, "expected extracted sdist build to produce a wheel"
+
+    for name, distribution in (("wheel", wheel_path), ("sdist-wheel", sdist_wheels[0])):
+        venv_dir = tmp_path / f"{name}-venv"
+        venv.EnvBuilder(with_pip=True).create(venv_dir)
+        venv_python = venv_dir / ("Scripts" if os.name == "nt" else "bin") / "python"
+        subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "--no-deps", str(distribution)],
+            check=True,
+        )
+        subprocess.run([str(venv_python), "-c", verify_script], check=True, env=env, cwd=tmp_path)
