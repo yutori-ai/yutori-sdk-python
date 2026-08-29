@@ -511,7 +511,7 @@ The keywords:
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
 | `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
 
-Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/remote_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
 
 ### Screenshot helpers
 

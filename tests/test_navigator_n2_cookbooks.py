@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from examples.navigator_n2.remote_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
+from examples.navigator_n2.cua_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
