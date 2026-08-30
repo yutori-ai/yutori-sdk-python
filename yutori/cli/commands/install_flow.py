@@ -930,7 +930,7 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
             console.print(_slate_line("  - Run `yutori auth login` on a machine with a browser"))
             console.print(
                 _slate_line(
-                    "  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com under Settings -> API Keys)"
+                    "  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com (-> API Keys))"
                 )
             )
             return (
