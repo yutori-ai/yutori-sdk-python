@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
+import yutori.navigator.macos.computer as computer_module
 from yutori.navigator.macos.computer import (
     MacOSActionRefusedError,
     MacOSComputer,
@@ -23,8 +24,9 @@ from yutori.navigator.macos.computer import (
     MacOSTargetCrashedError,
     MacOSUncertainActionError,
 )
+from yutori.navigator.macos.polling import FramePollResult
 from yutori.navigator.macos.transport import CuaDriverToolError, CuaDriverUncertainActionError
-from yutori.navigator.macos.types import MacOSPresentationStatus
+from yutori.navigator.macos.types import MacOSPresentationStatus, N2Observation
 
 
 def _png(width: int = 2560, height: int = 1600) -> bytes:
@@ -716,3 +718,89 @@ asyncio.run(main())
             os.killpg(supervisor_pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+
+
+def _frame(capture_id: int = 1) -> N2Observation:
+    return N2Observation(
+        capture_id=capture_id,
+        native_width=100,
+        native_height=100,
+        encoded_width=100,
+        encoded_height=100,
+        media_type="image/webp",
+        encoded_bytes=b"frame-bytes",
+    )
+
+
+def _poll_result(*, outcome: str, last_frame: object, waited_ms: int = 0, capture_ms: int = 0) -> FramePollResult:
+    return FramePollResult(
+        outcome=outcome,
+        waited_ms=waited_ms,
+        polls=1,
+        capture_ms=capture_ms,
+        last_frame=last_frame,
+        changed_fraction=None,
+    )
+
+
+async def test_wait_for_change_banks_polling_time_and_returns_the_changed_frame(monkeypatch):
+    computer = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+    changed_frame = _frame(2)
+
+    async def fake_poll(**kwargs: Any) -> FramePollResult:
+        return _poll_result(outcome="changed", last_frame=changed_frame, waited_ms=900, capture_ms=300)
+
+    monkeypatch.setattr(computer_module, "poll_until_frame_changes", fake_poll)
+
+    result = await computer.wait_for_change(500, _frame(1))
+
+    assert result is changed_frame
+    assert computer.timings["polling_ms"] == 600
+
+
+async def test_wait_for_change_falls_back_to_a_fresh_screenshot_when_the_poll_yields_no_frame(monkeypatch):
+    computer = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+    fresh_frame = _frame(3)
+
+    async def fake_poll(**kwargs: Any) -> FramePollResult:
+        return _poll_result(outcome="undiffable", last_frame=None)
+
+    async def fake_screenshot() -> N2Observation:
+        return fresh_frame
+
+    monkeypatch.setattr(computer_module, "poll_until_frame_changes", fake_poll)
+    monkeypatch.setattr(computer, "screenshot", fake_screenshot)
+
+    assert await computer.wait_for_change(500, _frame(1)) is fresh_frame
+
+
+async def test_poll_after_action_returns_the_reference_first_frame_when_the_poll_yields_no_frame(monkeypatch):
+    computer = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+    first_frame = _frame(4)
+
+    async def fake_poll(**kwargs: Any) -> FramePollResult:
+        return _poll_result(outcome="exhausted", last_frame=None)
+
+    async def unexpected_screenshot() -> N2Observation:
+        raise AssertionError("poll_after_action must not take a fresh screenshot of its own")
+
+    monkeypatch.setattr(computer_module, "poll_until_frame_changes", fake_poll)
+    monkeypatch.setattr(computer, "screenshot", unexpected_screenshot)
+
+    result = await computer.poll_after_action("left_click", _frame(1), first_frame)
+
+    assert result is first_frame
+
+
+async def test_wait_for_change_raises_on_an_aborted_poll(monkeypatch):
+    computer = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+
+    async def fake_poll(**kwargs: Any) -> FramePollResult:
+        return _poll_result(outcome="aborted", last_frame=None)
+
+    monkeypatch.setattr(computer_module, "poll_until_frame_changes", fake_poll)
+    computer.cancellation.request("operator_stop")
+    await asyncio.sleep(0)
+
+    with pytest.raises(asyncio.CancelledError, match="operator_stop"):
+        await computer.wait_for_change(500, _frame(1))
