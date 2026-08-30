@@ -23,7 +23,7 @@ from typing import Any, Literal
 from PIL import Image
 
 from .no_progress import NoProgressWatchdog
-from .polling import FRAME_POLL_ACTION_MAX_MS, frame_poll_wait_budget_ms, poll_until_frame_changes
+from .polling import FRAME_POLL_ACTION_MAX_MS, FramePollResult, frame_poll_wait_budget_ms, poll_until_frame_changes
 from .presentation import MacOSPresentationController
 from .process_lifecycle import cancel_and_drain
 from .sanitize import sanitize_command_preview
@@ -559,12 +559,7 @@ class MacOSComputer:
             deadline=self.execution_deadline,
             cancellation=self.cancellation,
         )
-        self.add_polling_time(max(0, result.waited_ms - result.capture_ms))
-        if result.outcome == "aborted":
-            self.cancellation.raise_if_cancelled()
-        if isinstance(result.last_frame, N2Observation):
-            return result.last_frame
-        return await self.screenshot()
+        return await self._settle_frame_poll(result)
 
     async def poll_after_action(
         self,
@@ -595,10 +590,25 @@ class MacOSComputer:
             deadline=self.execution_deadline,
             cancellation=self.cancellation,
         )
+        return await self._settle_frame_poll(result, fallback=first_frame)
+
+    async def _settle_frame_poll(
+        self, result: FramePollResult, *, fallback: "N2Observation | None" = None
+    ) -> N2Observation:
+        """Bank a completed poll's time/cancellation and resolve its frame.
+
+        A missing ``fallback`` means the caller had no frame of its own to fall
+        back to (:meth:`wait_for_change`'s blind wait), so a fresh capture
+        stands in instead.
+        """
         self.add_polling_time(max(0, result.waited_ms - result.capture_ms))
         if result.outcome == "aborted":
             self.cancellation.raise_if_cancelled()
-        return result.last_frame if isinstance(result.last_frame, N2Observation) else first_frame
+        if isinstance(result.last_frame, N2Observation):
+            return result.last_frame
+        if fallback is not None:
+            return fallback
+        return await self.screenshot()
 
     async def run_shell_command(
         self,
