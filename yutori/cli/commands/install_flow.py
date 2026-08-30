@@ -869,17 +869,6 @@ def maybe_install_mcp_skills(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
-    # The skills CLI clones its skill repository with git. Without git the
-    # step would die inside npx with a bare `spawn git ENOENT`, so surface an
-    # actionable skip here instead.
-    if _which("git", _resolve_env(env)) is None:
-        return StepResult(
-            "MCP skills",
-            "skipped",
-            "git is not on PATH and the skills CLI clones its skill repository with git. "
-            f"Install git, then retry. {_manual_retry_hint(MCP_SKILLS_INSTALL_COMMAND)}",
-        )
-
     # In non-TTY mode the skills CLI's agent picker is answered with `-y`,
     # which alone would install for every supported agent (~70 directories of
     # symlink scaffolding under $HOME). Scope it with the same client
@@ -895,6 +884,20 @@ def maybe_install_mcp_skills(
         success_detail = (
             f"Installed Yutori workflow skills at user scope for: {', '.join(clients)}. "
             "Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client."
+        )
+
+    # The skills CLI clones its skill repository with git. Without git the
+    # step would die inside npx with a bare `spawn git ENOENT`, so surface an
+    # actionable skip here instead. The retry hint must show the command this
+    # mode would actually run: hinting the bare base command at a no-TTY user
+    # would reproduce the unanswered-picker no-op it exists to prevent.
+    if _which("git", _resolve_env(env)) is None:
+        retry_command = MCP_SKILLS_INSTALL_COMMAND if interactive else noninteractive_command
+        return StepResult(
+            "MCP skills",
+            "skipped",
+            "git is not on PATH and the skills CLI clones its skill repository with git. "
+            f"Install git, then retry. {_manual_retry_hint(retry_command)}",
         )
 
     return _run_npx_step(

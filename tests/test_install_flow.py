@@ -1278,6 +1278,24 @@ def test_maybe_install_mcp_skills_skips_with_actionable_detail_when_git_is_missi
     fake_interactive.assert_not_called()
 
 
+def test_maybe_install_mcp_skills_git_skip_hint_matches_the_mode(monkeypatch):
+    # The retry hint in the git-missing skip must be the command the current
+    # mode would actually run: a no-TTY user retrying the bare base command
+    # would hit the unanswered-picker no-op again (Bugbot: git skip hint
+    # drops client scoping).
+    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
+
+    with patch("yutori.cli.commands.install_flow._which", return_value=None):
+        noninteractive = maybe_install_mcp_skills(Console(), interactive=False)
+        interactive = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert "-y -a codex" in noninteractive.detail
+    # The interactive hint is the base command (the TTY picker does the
+    # scoping); note "-a" alone would false-match "yutori-ai".
+    assert "-y -a" not in interactive.detail
+    assert "skills add yutori-ai/yutori-mcp -g` to retry." in interactive.detail
+
+
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
     # Without YUTORI_INSTALL_CLIENT, non-interactive installs target the
     # small popular default set -- not `--all` (which writes configs for
