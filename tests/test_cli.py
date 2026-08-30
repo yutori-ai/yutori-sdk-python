@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner, Result
 
 from yutori import __version__
-from yutori.cli.commands import truncate_for_display
+from yutori.cli.commands import html_to_text, truncate_for_display
 from yutori.cli.main import app
 
 runner = CliRunner()
@@ -29,6 +29,55 @@ def test_truncate_for_display_budget_includes_ellipsis_is_a_hard_cap():
 def test_truncate_for_display_no_truncation_when_within_max_len():
     assert truncate_for_display("short", 47) == "short"
     assert truncate_for_display("short", 47, budget_includes_ellipsis=True) == "short"
+
+
+def test_html_to_text_unwraps_browsing_pre_markdown():
+    # Browsing results come back as entity-escaped markdown inside <pre>.
+    raw = (
+        "<pre>## Summary of Findings\n\n"
+        "| **Links** | &quot;Learn more&quot; \u2192 `https://iana.org/domains/example` |\n"
+        "I&#x27;m done.</pre>"
+    )
+    assert html_to_text(raw) == (
+        '## Summary of Findings\n\n| **Links** | "Learn more" \u2192 `https://iana.org/domains/example` |\nI\'m done.'
+    )
+
+
+def test_html_to_text_flattens_research_article_markup():
+    # Research results are full HTML documents.
+    raw = (
+        "<article>\n  <h3>Title</h3>\n  <p>First <b>bold</b> paragraph.</p>\n"
+        "  <ul><li>one</li><li>two</li></ul>\n<hr/>\n  <p>Last &amp; final.</p>\n</article>"
+    )
+    assert html_to_text(raw) == "Title\n\nFirst bold paragraph.\n\none\ntwo\n\nLast & final."
+
+
+def test_html_to_text_keeps_table_rows_on_lines_and_separates_cells():
+    raw = "<table><tr><th>Name</th><th>Title</th></tr><tr><td>Ada</td><td>Eng</td></tr></table>"
+    assert html_to_text(raw) == "Name  Title\nAda  Eng"
+
+
+def test_html_to_text_drops_layout_whitespace_around_pretty_printed_cells():
+    # Server-rendered tables may be pretty-printed with newlines/indentation between
+    # tags; that layout whitespace must not leak into the cell separator/row break.
+    raw = "<table>\n<tr>\n<td>Ada</td><td>Eng</td>\n</tr>\n<tr>\n<td>Grace</td><td>Navy</td>\n</tr>\n</table>"
+    assert html_to_text(raw) == "Ada  Eng\nGrace  Navy"
+
+
+def test_html_to_text_keeps_significant_space_between_inline_tags():
+    # A whitespace-only text node between two inline tags (e.g. </b> and <i>) is a
+    # real word separator, unlike the layout whitespace around td/th cells above.
+    assert html_to_text("<b>Hello</b> <i>World</i>") == "Hello World"
+
+
+def test_html_to_text_drops_script_and_style_bodies():
+    raw = "<p>keep</p><style>p { color: red }</style><script>alert(1)</script><p>this</p>"
+    assert html_to_text(raw) == "keep\n\nthis"
+
+
+def test_html_to_text_leaves_plain_text_alone():
+    for plain in ("No employee info", "a < b and b > c", "set <YOUR_KEY> here", "x &amp; y stays escaped"):
+        assert html_to_text(plain) == plain
 
 
 def _make_client_mock() -> MagicMock:
@@ -413,6 +462,39 @@ def test_browse_get_renders_markup_like_start_url_literally():
 # ---------------------------------------------------------------------------
 # Friendly API error handling: no tracebacks for routine failures.
 # ---------------------------------------------------------------------------
+
+
+def test_browse_get_renders_html_result_as_text():
+    client = _make_client_mock()
+    client.browsing.get.return_value = {
+        "task_id": "task-123",
+        "status": "succeeded",
+        "result": "<pre>Summary of findings: I&#x27;m trying to find a &quot;Team&quot; page.</pre>",
+    }
+
+    result = _invoke_cli(client, ["browse", "get", "task-123"])
+
+    assert result.exit_code == 0
+    assert "Result:" in result.stdout
+    assert 'Summary of findings: I\'m trying to find a "Team" page.' in result.stdout
+    assert "<pre>" not in result.stdout
+    assert "&#x27;" not in result.stdout
+
+
+def test_research_get_renders_html_result_as_text():
+    client = _make_client_mock()
+    client.research.get.return_value = {
+        "task_id": "research-123",
+        "status": "succeeded",
+        "result": "<article><h3>Heading</h3><p>Body &amp; more.</p></article>",
+    }
+
+    result = _invoke_cli(client, ["research", "get", "research-123"])
+
+    assert result.exit_code == 0
+    assert "Heading" in result.stdout
+    assert "Body & more." in result.stdout
+    assert "<article>" not in result.stdout
 
 
 def test_browse_get_api_error_prints_message_not_traceback():
