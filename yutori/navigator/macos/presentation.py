@@ -331,6 +331,17 @@ class MacOSPresentationController:
         left, top, width, height = region
         return left <= x <= left + width and top <= y <= top + height
 
+    def _clear_action_labels(self) -> None:
+        """Reset the capsule's action-status, terminal-command, and active-key labels.
+
+        Shared by the ``reasoning``, ``action_done``, and ``final`` branches of
+        :meth:`present`, each of which clears these three fields immediately
+        before re-rendering the capsule.
+        """
+        self._action_status = ""
+        self._terminal_command = ""
+        self._active_keys = None
+
     async def present(self, event: dict[str, Any]) -> None:
         if not self._status.available or self._stopping:
             return
@@ -340,9 +351,7 @@ class MacOSPresentationController:
                 text = event.get("text")
                 if isinstance(text, str) and text.strip():
                     self._reasoning = text.strip()
-                    self._action_status = ""
-                    self._terminal_command = ""
-                    self._active_keys = None
+                    self._clear_action_labels()
                     await self._render_capsule()
             elif event_type in {"action", "batch_member"}:
                 await self._present_action(event)
@@ -350,15 +359,11 @@ class MacOSPresentationController:
                 if self._batch_is_last:
                     self._queue_active = False
                     self._batch_is_last = False
-                self._action_status = ""
-                self._terminal_command = ""
-                self._active_keys = None
+                self._clear_action_labels()
                 await self._render_capsule()
             elif event_type == "final":
                 self._reasoning = ""
-                self._action_status = ""
-                self._terminal_command = ""
-                self._active_keys = None
+                self._clear_action_labels()
                 await self._render_capsule()
             elif event_type == "shell":
                 shell_event = event.get("event")
