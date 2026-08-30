@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Annotated vX.Y.Z tag to publish"
+        description: "Annotated release tag to publish (vX.Y.Z or X.Y.Z)"
         required: true
         type: string
 
@@ -16,15 +16,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  normalize_tag:
+    name: Normalize release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.normalize.outputs.tag }}
+    steps:
+      - id: normalize
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          version="${INPUT_TAG#v}"
+          test -n "$version"
+          printf 'tag=v%s\n' "$version" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build release artifacts
+    needs: normalize_tag
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ needs.normalize_tag.outputs.tag }}
+    env:
+      RELEASE_TAG: ${{ needs.normalize_tag.outputs.tag }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v6
@@ -32,8 +51,6 @@ jobs:
           python-version: "3.12"
 
       - name: Verify annotated release tag and package version
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
@@ -43,7 +60,6 @@ jobs:
       - name: Refuse to overwrite a published release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           python - <<'PY'
           import json
@@ -92,8 +108,6 @@ jobs:
         run: pytest -m slow tests/test_packaging.py
 
       - name: Record public source provenance
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           python - <<'PY'
           import hashlib
@@ -150,6 +164,8 @@ jobs:
       url: https://pypi.org/p/yutori
     permissions:
       id-token: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
     steps:
       - name: Retrieve tested distributions
         uses: actions/download-artifact@v4
@@ -167,8 +183,6 @@ jobs:
 
       - name: Check whether PyPI already has these distributions
         id: pypi-release
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           python - <<'PY'
           import json
@@ -211,13 +225,15 @@ jobs:
 
   release-assets:
     name: Upload release checksums and installers
-    # Keep the public install/uninstall URLs available even if the independent
-    # PyPI publishing job fails. Both jobs consume the exact artifacts produced
-    # by `build`.
-    needs: build
+    # Do not let a release become latest until its PyPI distributions exist.
+    # This job still creates a draft first, then publishes it only after all
+    # installer assets have been verified and uploaded.
+    needs: [build, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
     steps:
       - name: Retrieve tested distribution hashes
         uses: actions/download-artifact@v4
@@ -269,8 +285,8 @@ jobs:
         # contents:write and uploads the curl|sh installer artifacts.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
-          tag_name: ${{ inputs.tag }}
-          name: yutori ${{ inputs.tag }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: yutori ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           draft: true
           fail_on_unmatched_files: true
@@ -285,5 +301,4 @@ jobs:
       - name: Publish release after verified assets upload
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
         run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
