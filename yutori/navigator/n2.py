@@ -1361,7 +1361,7 @@ class N2ComputerAgent:
                 # in the retry request only, never in the kept trajectory.
                 api_kwargs["messages"] = completion_messages + [
                     {"role": "assistant", "content": message.get("content") or ""},
-                    {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE},
+                    {"role": "user", "content": [{"type": "text", "text": TOOL_CALL_FORMAT_NUDGE}]},
                 ]
                 continue
             break
@@ -1464,7 +1464,7 @@ class N2ComputerAgent:
                                 self.last_request_id = compacted.request_id
                         else:
                             old_items, new_items = list(compacted), []
-                            self.trajectory = old_items
+                        self.trajectory = old_items
                         self.last_usage = {}
                 prompt_tokens = self.last_usage.get("prompt_tokens")
                 if (

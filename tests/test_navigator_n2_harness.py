@@ -530,7 +530,7 @@ async def test_a_leaked_tool_call_format_gets_one_ephemeral_nudge_retry():
     # Retry request = the same conversation plus the malformed attempt and the reminder.
     retry = completions.requests[1]["messages"]
     assert retry[-2] == {"role": "assistant", "content": malformed}
-    assert retry[-1] == {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE}
+    assert retry[-1] == {"role": "user", "content": [{"type": "text", "text": TOOL_CALL_FORMAT_NUDGE}]}
     # Neither entered the kept trajectory or the next request.
     assert all(TOOL_CALL_FORMAT_NUDGE not in str(item) for item in agent.trajectory)
     assert all(message.get("content") != malformed for message in completions.requests[2]["messages"])
@@ -636,3 +636,30 @@ async def test_a_length_cut_turn_is_re_requested_once():
     assert completions.requests[1]["messages"] == completions.requests[0]["messages"]
     assert agent.stopped_by == "final_answer"
     assert steps[-1]["output"][-1]["content"][0]["text"] == "done"
+
+
+async def test_compaction_result_commits_the_trajectory_immediately():
+    from yutori.navigator.n2_compaction import N2CompactionResult
+
+    class ResultCompactor:
+        async def compact(self, items, *, last_usage, completions, model, tool_set):
+            if last_usage.get("prompt_tokens", 0) < 7:
+                return None
+            rewritten = [items[0], {"role": "user", "content": [{"type": "text", "text": "checkpoint"}]}]
+            return N2CompactionResult(
+                items=rewritten, removed_item_count=len(items) - 1, retained_item_count=1, request_id="c-1"
+            )
+
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_bash("ls", "b1")]},
+            {"content": "", "tool_calls": [_bash("pwd", "b2")]},
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    agent = _agent(Desktop(), completions, compactor=ResultCompactor())
+    async for step in agent.run("task"):
+        if step.get("message") and len(completions.requests) == 3:
+            break  # abandon the generator right after compaction's next turn
+    assert agent.trajectory[1]["content"] == [{"type": "text", "text": "checkpoint"}]
+    assert agent.last_request_id in ("c-1", "req-3")
