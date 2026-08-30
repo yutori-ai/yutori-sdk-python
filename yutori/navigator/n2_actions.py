@@ -380,9 +380,7 @@ def _validate_wait_seconds(duration: Any, field: str) -> "int | float":
 def _validate_fields(action: str, args: dict[str, Any]) -> None:
     if action not in _ACTION_FIELDS:
         raise N2ActionValidationError(f"unsupported n2 action: {action}")
-    unknown = set(args) - _ACTION_FIELDS[action]
-    if unknown:
-        raise N2ActionValidationError(f"{action} received unsupported field(s): {', '.join(sorted(unknown))}")
+    _tool_arguments(args, action, _ACTION_FIELDS[action])
 
 
 def translate_n2_action(
