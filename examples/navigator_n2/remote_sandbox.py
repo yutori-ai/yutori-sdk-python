@@ -16,6 +16,20 @@ except ImportError:
     from shared import RunGuard, add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
 
 
+def _watch_url(sandbox) -> "str | None":
+    """Browser URL for the sandbox's noVNC viewer, when the runtime exposes one.
+
+    Reads the pinned cua-sandbox runtime's connection info (private attribute,
+    stable for the exact version pinned in pyproject.toml).
+    """
+    info = getattr(sandbox, "_runtime_info", None)
+    port = getattr(info, "vnc_port", None)
+    if not port:
+        return None
+    host = getattr(info, "host", None) or "localhost"
+    return f"http://{host}:{port}/vnc.html"
+
+
 async def main(args: argparse.Namespace) -> None:
     from cua import Image, Sandbox
 
@@ -24,6 +38,9 @@ async def main(args: argparse.Namespace) -> None:
     tool_set = selected_tool_set(args.tool_set)
     guard = RunGuard(args.max_steps)
     async with Sandbox.ephemeral(Image.linux(kind="container"), local=True) as sandbox:
+        watch = _watch_url(sandbox)
+        if watch:
+            print(f"Watch the desktop live: {watch}")
         computer = CuaSandboxComputer(sandbox)
         async with N2ComputerAgent(
             computer=computer,

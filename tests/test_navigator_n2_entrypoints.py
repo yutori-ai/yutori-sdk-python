@@ -142,6 +142,13 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
     assert seen["sandbox-closed"] is True
 
 
+def test_remote_sandbox_watch_url_comes_from_the_runtime_info() -> None:
+    info = SimpleNamespace(host="localhost", vnc_port=54423)
+    assert remote_sandbox._watch_url(SimpleNamespace(_runtime_info=info)) == "http://localhost:54423/vnc.html"
+    assert remote_sandbox._watch_url(SimpleNamespace(_runtime_info=None)) is None
+    assert remote_sandbox._watch_url(SimpleNamespace()) is None
+
+
 def test_daytona_cli_record_flag_is_optional_and_order_safe() -> None:
     assert navigator_n2_daytona.parse_args(["task"]).record is False
     assert navigator_n2_daytona.parse_args(["--record", "task"]).record is True

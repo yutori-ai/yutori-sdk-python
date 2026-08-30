@@ -209,6 +209,8 @@ uv sync --python 3.12
 uv run python remote_sandbox.py --auto-approve "Run bash: echo hello-from-n2"
 ```
 
+The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
+
 </details>
 
 <details>
