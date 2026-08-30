@@ -70,6 +70,13 @@ VERIFICATION_MAX_STEPS = 3
 # it add-mcp infers the server name from the first word of the target and
 # registers the server as "uvx".
 MCP_SERVER_INSTALL_COMMAND = ("npx", "-y", "add-mcp", "-n", "yutori", "uvx yutori-mcp")
+# The leading `-y` belongs to npx (it answers npx's own package-install
+# prompt). The skills CLI's `-y` is deliberately NOT part of the base command:
+# on a TTY the user should get the CLI's agent picker, while non-interactive
+# installs append `-y` plus explicit `-a <slug>` scoping in
+# maybe_install_mcp_skills -- a bare `-y` auto-confirms the picker for every
+# supported agent and sprays skill directories for ~70 agents the user never
+# installed.
 MCP_SKILLS_INSTALL_COMMAND = ("npx", "-y", "skills", "add", "yutori-ai/yutori-mcp", "-g")
 # Default set of clients to register MCP for when YUTORI_INSTALL_CLIENT is
 # unset in non-TTY installs. Covers the most-used coding agents without
@@ -862,18 +869,43 @@ def maybe_install_mcp_skills(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
+    # The skills CLI clones its skill repository with git. Without git the
+    # step would die inside npx with a bare `spawn git ENOENT`, so surface an
+    # actionable skip here instead.
+    if _which("git", _resolve_env(env)) is None:
+        return StepResult(
+            "MCP skills",
+            "skipped",
+            "git is not on PATH and the skills CLI clones its skill repository with git. "
+            f"Install git, then retry. {_manual_retry_hint(MCP_SKILLS_INSTALL_COMMAND)}",
+        )
+
+    # In non-TTY mode the skills CLI's agent picker is answered with `-y`,
+    # which alone would install for every supported agent (~70 directories of
+    # symlink scaffolding under $HOME). Scope it with the same client
+    # selection the MCP-server step uses: YUTORI_INSTALL_CLIENT when set,
+    # otherwise the small default client set.
+    noninteractive_command: Sequence[str] | None = None
+    success_detail = "Installed Yutori workflow skills at user scope."
+    if not interactive:
+        client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+        clients = (client,) if client else DEFAULT_NONINTERACTIVE_MCP_CLIENTS
+        agent_flags = tuple(flag for slug in clients for flag in ("-a", slug))
+        noninteractive_command = (*MCP_SKILLS_INSTALL_COMMAND, "-y", *agent_flags)
+        success_detail = (
+            f"Installed Yutori workflow skills at user scope for: {', '.join(clients)}. "
+            "Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client."
+        )
+
     return _run_npx_step(
         console,
         name="MCP skills",
         title="Yutori workflow skills",
         description="Installs slash-command workflow skills globally via the skills CLI.",
         command=MCP_SKILLS_INSTALL_COMMAND,
-        # `npx skills add ... -g` doesn't prompt, so the same argv works in
-        # both modes -- only the wrapper's confirm prompt and stdio-handling
-        # differ between interactive and non-interactive paths.
-        noninteractive_command=MCP_SKILLS_INSTALL_COMMAND,
+        noninteractive_command=noninteractive_command,
         confirm_question="Install Yutori workflow skills globally?",
-        success_detail="Installed Yutori workflow skills at user scope.",
+        success_detail=success_detail,
         interactive=interactive,
         env=env,
     )
@@ -893,7 +925,11 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
             print_prompt_block(console, "Authentication", "No interactive terminal detected.")
             console.print(_slate_line("Skipping auth. To finish setting up:"))
             console.print(_slate_line("  - Run `yutori auth login` on a machine with a browser"))
-            console.print(_slate_line("  - Or set YUTORI_API_KEY (get one at https://platform.yutori.com/settings)"))
+            console.print(
+                _slate_line(
+                    "  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com under Settings -> API Keys)"
+                )
+            )
             return (
                 StepResult(
                     "Auth",

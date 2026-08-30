@@ -320,7 +320,7 @@ def run_login_flow(
                 f"Login succeeded and an API key was created, but saving it to "
                 f"{get_config_path()} failed: {e}. Fix the path and run "
                 f"'yutori auth login' again, or set YUTORI_API_KEY to a key from "
-                f"https://platform.yutori.com/settings.",
+                f"https://platform.yutori.com (Settings -> API Keys).",
                 auth_url=auth_url,
                 api_key=api_key,
             )

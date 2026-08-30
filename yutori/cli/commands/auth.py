@@ -36,7 +36,7 @@ def login() -> None:
         raise typer.Exit(1)
 
     if get_stored_api_key() is not None:
-        console.print("[yellow]You are already authenticated.[/yellow]")
+        console.print("[yellow]An API key is already configured.[/yellow]")
         console.print("Run [bold]yutori auth logout[/bold] first to re-authenticate.")
         raise typer.Exit(1)
 
@@ -69,7 +69,7 @@ def logout() -> None:
 
 @app.command()
 def status() -> None:
-    """Show current authentication status."""
+    """Show whether an API key is configured locally."""
     auth_status = get_auth_status()
 
     if not auth_status.authenticated:
@@ -77,10 +77,12 @@ def status() -> None:
         console.print("Run [bold]yutori auth login[/bold] to authenticate.")
         raise typer.Exit(1)
 
-    console.print("[green]Authenticated[/green]")
+    console.print("[green]API key configured[/green] [yellow](not validated)[/yellow]")
     console.print(f"  API Key: {auth_status.masked_key}")
 
     if auth_status.source == "config_file":
         console.print(f"  Source: {auth_status.config_path}")
     elif auth_status.source == "env_var":
         console.print("  Source: YUTORI_API_KEY environment variable")
+
+    console.print("Run [bold]yutori usage[/bold] to validate this key against the API.")
