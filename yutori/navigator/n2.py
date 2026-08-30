@@ -80,7 +80,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor
+from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor, response_message
 from .n2_payload import (
     DEFAULT_IMAGE_FORMAT,
     DEFAULT_MAX_MESSAGES_BYTES,
@@ -1302,12 +1302,11 @@ class N2ComputerAgent:
                 self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
             await self._callbacks.fire("on_api_end", api_kwargs, response)
 
-            response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+            response_dict, message = response_message(response)
             usage = response_dict.get("usage") or {}
             self.last_usage = usage
             self.last_request_id = response_dict.get("request_id") or self.last_request_id
             await self._callbacks.fire("on_usage", usage)
-            message = (response_dict.get("choices") or [{}])[0].get("message") or {}
             if attempt == 0 and needs_tool_call_format_nudge(message):
                 # One ephemeral retry: the malformed attempt and the reminder ride
                 # in the retry request only, never in the kept trajectory.
