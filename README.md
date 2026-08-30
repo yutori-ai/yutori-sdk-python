@@ -206,7 +206,7 @@ The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool s
 ```bash
 cd examples/navigator_n2
 uv sync --python 3.12
-uv run python remote_sandbox.py --auto-approve "Run bash: echo hello-from-n2"
+uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 * 23"
 ```
 
 The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
