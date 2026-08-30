@@ -640,8 +640,10 @@ def _optional_boolean(args: dict[str, Any], field: str, tool_name: str, *, defau
     return value
 
 
-def _optional_nonnegative_integer(args: dict[str, Any], field: str, tool_name: str) -> int | None:
-    value = args.get(field)
+def _optional_nonnegative_integer(
+    args: dict[str, Any], field: str, tool_name: str, *, default: int | None = None
+) -> int | None:
+    value = args.get(field, default)
     if value is not None and (not is_strict_int(value) or value < 0):
         raise N2ActionValidationError(f"{tool_name}.{field} must be a non-negative integer or null")
     return value
@@ -658,9 +660,7 @@ def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
         output_mode = "files_with_matches"
     if output_mode not in {"content", "files_with_matches", "count"}:
         raise N2ActionValidationError("grep.output_mode must be content, files_with_matches, count, or null")
-    head_limit = args.get("head_limit", N2_GREP_DEFAULT_HEAD_LIMIT)
-    if head_limit is not None and (not is_strict_int(head_limit) or head_limit < 0):
-        raise N2ActionValidationError("grep.head_limit must be a non-negative integer or null")
+    head_limit = _optional_nonnegative_integer(args, "head_limit", "grep", default=N2_GREP_DEFAULT_HEAD_LIMIT)
     return [
         internal_file_action(
             "grep_files",
