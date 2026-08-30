@@ -544,8 +544,9 @@ after a valid tagged checkpoint, and the first actor call after replacement is e
 
 For another policy, implement `N2Compactor.compact(...)`. Existing compactors may continue returning
 `list[dict] | None`; implementations that accept the optional `context` keyword receive an
-`N2CompactionContext` with the exact actor request policy and may return `N2CompactionResult` to advance the
-request chain. A new `run()` resets usage and optional compactor state; `resume()` continues both.
+`N2CompactionContext` with the exact actor request and cancellation policy and may return
+`N2CompactionResult` to advance the request chain. A new `run()` resets usage and optional compactor state;
+`resume()` continues both.
 
 ### Screenshot helpers
 

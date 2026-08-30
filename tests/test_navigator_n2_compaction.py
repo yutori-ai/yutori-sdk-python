@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 from typing import Any
@@ -16,6 +17,7 @@ from yutori.navigator import (
     N2InlineCompactor,
     convert_n2_items_to_completion_messages,
 )
+from yutori.navigator.macos.types import CancellationLatch
 
 
 def _response(
@@ -66,6 +68,7 @@ def _context(previous_request_id: str = "actor-1") -> N2CompactionContext:
             "temperature": 0.6,
             "extra_body": {"caller": "test"},
         },
+        await_response=lambda awaitable: awaitable,
         previous_request_id=previous_request_id,
     )
 
@@ -295,6 +298,7 @@ async def test_inline_compactor_preserves_history_when_request_preparation_fails
     context = N2CompactionContext(
         prepare_messages=fail_to_prepare,
         request_kwargs={"model": "n2"},
+        await_response=lambda awaitable: awaitable,
         previous_request_id="actor",
     )
     result = await compactor.compact(
@@ -458,6 +462,53 @@ async def test_agent_compacts_end_to_end_before_context_guard_and_preserves_requ
     assert actor_two["extra_body"] == {"caller": "example", "prev_request_id": "compact-1"}
     assert "<working_checkpoint>\n## Goal\nlisted files" in actor_two["messages"][2]["content"]
     assert agent.trajectory[1].get("_n2_compaction_kind") == "working_checkpoint"
+
+
+async def test_operator_stop_cancels_an_in_flight_compaction_request():
+    class HangingCompactionCompletions:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.compaction_started = asyncio.Event()
+            self.compaction_cancelled = False
+
+        async def create(self, **_kwargs: Any) -> dict[str, Any]:
+            self.calls += 1
+            if self.calls == 1:
+                return _response("", request_id="actor-1", prompt_tokens=2, tool_calls=[_bash("ls")])
+            self.compaction_started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                self.compaction_cancelled = True
+                raise
+
+    computer = Desktop()
+    computer.cancellation = CancellationLatch()
+    completions = HangingCompactionCompletions()
+    compactor = N2InlineCompactor(
+        trigger_input_tokens=1,
+        keep_last_n_turns=0,
+        retry_delay_seconds=0,
+    )
+    agent = N2ComputerAgent(
+        computer=computer,
+        completions=completions,
+        tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+        compactor=compactor,
+    )
+
+    async def consume_run() -> None:
+        async for _ in agent.run("task"):
+            pass
+
+    running = asyncio.create_task(consume_run())
+    await completions.compaction_started.wait()
+    computer.cancellation.request("operator_stop")
+    with pytest.raises(asyncio.CancelledError, match="operator_stop"):
+        await running
+
+    assert completions.calls == 2
+    assert completions.compaction_cancelled is True
 
 
 async def test_new_run_resets_usage_and_compactor_but_resume_continues_them():

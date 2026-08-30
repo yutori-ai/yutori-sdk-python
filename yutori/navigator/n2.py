@@ -1259,6 +1259,11 @@ class N2ComputerAgent:
         request_kwargs.update(self.completion_kwargs)
         return request_kwargs
 
+    async def _await_completion(self, awaitable: Awaitable[Any]) -> Any:
+        """Apply this computer session's cancellation policy to a model call."""
+
+        return await _await_model_response(self.computer, awaitable)
+
     async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         completion_messages = self._prepare_completion_messages(items)
 
@@ -1292,7 +1297,7 @@ class N2ComputerAgent:
             await self._callbacks.fire("on_api_start", api_kwargs)
             model_started_at = time.monotonic()
             try:
-                response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
+                response = await self._await_completion(self._resolve_completions().create(**api_kwargs))
             finally:
                 self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
             await self._callbacks.fire("on_api_end", api_kwargs, response)
@@ -1397,6 +1402,7 @@ class N2ComputerAgent:
                         compact_kwargs["context"] = N2CompactionContext(
                             prepare_messages=self._prepare_completion_messages,
                             request_kwargs=request_kwargs,
+                            await_response=self._await_completion,
                             previous_request_id=self.last_request_id,
                         )
                     compacted = await self.compactor.compact(old_items + new_items, **compact_kwargs)

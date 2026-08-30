@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, Union
 
@@ -85,6 +85,7 @@ checkpoint. Reply with the tagged checkpoint only — no tool calls, no other te
 the size budget."""
 
 PrepareMessages = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+AwaitResponse = Callable[[Awaitable[Any]], Awaitable[Any]]
 
 
 @dataclass(frozen=True)
@@ -94,11 +95,13 @@ class N2CompactionContext:
     ``prepare_messages`` applies the actor's exact system-prompt, image-window,
     encoding, and request-size policy to a responses-items trajectory.
     ``request_kwargs`` contains the actor's resolved completion arguments except
-    for ``messages`` and request chaining.
+    for ``messages`` and request chaining. ``await_response`` applies the actor's
+    cancellation policy to an in-flight completion.
     """
 
     prepare_messages: PrepareMessages
     request_kwargs: dict[str, Any]
+    await_response: AwaitResponse
     previous_request_id: Optional[str] = None
 
 
@@ -418,7 +421,7 @@ class N2InlineCompactor:
                 extra_body[_LOGICAL_REQUEST_ID_FIELD] = logical_request_id
                 extra_body[_LOGICAL_ATTEMPT_FIELD] = attempt
                 request_kwargs["extra_body"] = extra_body
-                response = await completions.create(**request_kwargs)
+                response = await context.await_response(completions.create(**request_kwargs))
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
                 response_request_id = response_dict.get("request_id")
                 if isinstance(response_request_id, str) and response_request_id:
