@@ -688,3 +688,17 @@ async def test_result_backstop_is_length_only_and_never_touches_images():
     assert out["image_url"] == file_image
     assert out["result"].startswith("x" * 1000)
     assert out["result"].endswith("[... output truncated, 100 more chars ...]")
+
+
+async def test_breaking_at_the_model_turn_keeps_that_turn_in_the_trajectory():
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_bash("ls", "b1")]},
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    agent = _agent(Desktop(), completions)
+    async for step in agent.run("task"):
+        break  # abandon at the first yielded model turn
+    kinds = [item.get("type") or item.get("role") for item in agent.trajectory]
+    assert kinds == ["user", "function_call"]  # the yielded turn is already committed

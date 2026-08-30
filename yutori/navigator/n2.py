@@ -1480,9 +1480,11 @@ class N2ComputerAgent:
 
                 result = await self._predict_step(old_items + new_items)
                 turns += 1
-                yield result
+                # Commit before yielding: a consumer that breaks at this yield
+                # still keeps the turn it was just handed.
                 new_items += result.get("output") or []
                 self.trajectory = old_items + new_items
+                yield result
 
                 # A validation failure already produced this call's result
                 # frame; executing it anyway would run an action the model was
