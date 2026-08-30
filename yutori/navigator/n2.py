@@ -1068,7 +1068,7 @@ class N2ComputerAgent:
     (``screenshot``, ``click``, ``double_click``, ``scroll``, ``type``,
     ``keypress``, ``drag``, ``move``, ``wait``, and optionally the shell/file
     tools: ``run_bash_command``, ``read_file``, ``write_file``, ``edit_file``
-    — see ``examples/navigator_n2/cua_sandbox.py`` for the reference
+    — see ``examples/navigator_n2/cua_adapter.py`` for the reference
     implementation). ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from

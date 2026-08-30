@@ -63,16 +63,27 @@ The example implements a `MemoToolSuite` with three custom tools:
 - `add_options` - Add new options to an existing question
 - `list_records` - List all recorded questions and options in JSONL format
 
-## navigator_n2_daytona.py
+## navigator_n2/
 
-A computer-use agent: Navigator n2 driving a disposable [Daytona](https://www.daytona.io) Linux desktop. `N2ComputerAgent` from `yutori.navigator` runs the loop — it sends the task, executes the returned `computer_batch` and `bash` calls through a `DaytonaComputer` adapter, and sends the results back until the model answers with text. `N2InlineCompactor` shows how a harness can replace old turns with a working checkpoint before the context fills. The Daytona-specific code remains only the adapter class; swap it to drive a different desktop. The sandbox is deleted when the run ends.
-
-Needs Python 3.10+, the latest `yutori`, and a Daytona API key; it is not part of the `examples` extra:
+The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 with the complete current tool set in a local Docker container; its dedicated Python 3.12 environment keeps Cua's dependencies separate from the other examples.
 
 ```bash
-pip install 'yutori>=0.9.3' daytona
-export DAYTONA_API_KEY=...   # https://app.daytona.io
-python examples/navigator_n2_daytona.py "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+cd examples/navigator_n2
+uv sync --python 3.12
+uv run python remote_sandbox.py --auto-approve \
+    "Run bash: echo hello-from-n2"
 ```
 
-To drive your own Mac instead, use [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) (`uvx yutori-mcp computer-use setup`). Walkthrough: [Building agents with n2](https://docs.yutori.com/reference/n2-daytona).
+## navigator_n2_daytona.py
+
+A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It intentionally uses the immutable batch-plus-bash tool set. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
+
+The script declares Python 3.10+, Yutori SDK 0.9.4 or newer, and the tested Daytona version as inline metadata. `uv` installs them into an isolated environment automatically:
+
+```bash
+export DAYTONA_API_KEY=...   # https://app.daytona.io
+uv run examples/navigator_n2_daytona.py \
+    "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+```
+
+To drive your own Mac instead, use [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) (`uvx yutori-mcp computer-use setup`). Walkthrough: [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona).

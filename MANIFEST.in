@@ -7,5 +7,8 @@ graft examples
 # Cookbook lockfiles are intentionally developer-local; the public cookbook
 # pins its Cua dependency in pyproject.toml and must not inherit a local lock.
 exclude examples/navigator_n2/uv.lock
+# Never package a developer's ignored cookbook environment after they follow
+# the documented `uv sync` setup.
+prune examples/navigator_n2/.venv
 recursive-include yutori/navigator/macos/assets *
 global-exclude __pycache__ *.py[cod]

@@ -109,7 +109,7 @@ If they decline, skip the Scout demo and end with a recap of Research + Browsing
 
 Navigator is Yutori's visual-control model family. Navigator n1.5 (model id `n1.5-latest`) controls browsers. Navigator n2 (model id `n2`) controls a complete desktop through a CUA harness. Both use the **OpenAI Chat Completions-compatible endpoint**: you send a screenshot plus a task instruction, and the model returns actions as tool calls. You execute those actions, append the results, capture a fresh screenshot, and call again - an **agent loop** - until the model returns a text response with no tool calls.
 
-There is no `yutori` CLI command for Navigator loops; call them from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client. For n2, use Yutori MCP to drive a local Mac; to build your own n2 agent, start from `examples/navigator_n2_daytona.py`.
+There is no `yutori` CLI command for Navigator loops; call them from Python via `client.chat.completions.create(...)`, which is a drop-in OpenAI-compatible client. For n2, use Yutori MCP to drive a local Mac. To build your own n2 agent, use `examples/navigator_n2/` for local Docker or `examples/navigator_n2_daytona.py` for a separate third-party Daytona integration.
 
 ### Minimal single call
 
@@ -165,9 +165,10 @@ The core action space covers clicks, scroll, type, key press, drag, mouse move/d
 
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. `N2ComputerAgent` defaults to `model="n2"`; pin the current tool set with `tool_set=TOOL_SET_COMPUTER_USE_LATEST` (`"computer_use_tools-20260825"`). It exposes `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch holds up to 15 GUI primitives, runs sequentially against one observed frame, stops at its first error, and receives one screenshot result. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation; the server keeps images only in the two newest image-bearing messages.
+Navigator n2 operates a full desktop. `N2ComputerAgent` defaults to `model="n2"`; pin the current tool set with `tool_set=TOOL_SET_COMPUTER_USE_LATEST` (`"computer_use_tools-20260825"`). It exposes `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch holds up to 20 actions drawn from 15 GUI action types, runs sequentially against one observed frame, stops at its first error, and receives one screenshot result. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation; the server keeps images only in the two newest image-bearing messages.
 
-- **Sandboxed Linux desktop:** [`examples/navigator_n2_daytona.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n2_daytona.py) is a complete agent — the SDK's `N2ComputerAgent` runs the loop, `N2InlineCompactor` checkpoints long trajectories, and a `DaytonaComputer` adapter runs the actions. `pip install yutori daytona` (Python 3.10+) plus a `DAYTONA_API_KEY`. It explicitly pins the older `20260812` surface because Daytona's adapter does not implement the current file tools. Walkthrough: <https://docs.yutori.com/reference/n2-daytona>.
+- **Local Docker:** [`examples/navigator_n2/`](https://github.com/yutori-ai/yutori-sdk-python/tree/main/examples/navigator_n2) implements the full current tool set in a disposable local container.
+- **Third-party Daytona desktop:** [`examples/navigator_n2_daytona.py`](https://github.com/yutori-ai/yutori-sdk-python/blob/main/examples/navigator_n2_daytona.py) is a compact hosted example. The SDK runs the loop; a Yutori-maintained `DaytonaComputer` adapter and lifecycle wiring execute actions on Daytona. The script declares Python 3.10+, `yutori>=0.9.4`, and `daytona==0.207.0` as inline dependencies, so run it with `uv run examples/navigator_n2_daytona.py "<task>"` plus a `DAYTONA_API_KEY`. This compact adapter intentionally pins the immutable `20260812` batch-plus-bash surface. Walkthrough: <https://docs.yutori.com/reference/n2-daytona>.
 - **Local Mac:** install Yutori MCP and run
 
 ```bash
@@ -177,7 +178,7 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 
 `uvx yutori-mcp` then exposes the `run_computer_use_task` MCP tool on macOS. It controls the visible foreground desktop and sends what is on screen to Yutori, so run it while the user is not touching the Mac.
 
-`N2ComputerAgent` (SDK 0.9.3+) drives any adapter with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optional `bash` and file handlers. `yutori.navigator.macos.MacOSComputer` is the native Mac adapter Yutori MCP uses (`pip install 'yutori[macos]'`). It encodes full-screen observations as compressed WebP and enforces the 10 MB request budget. Model reference: <https://docs.yutori.com/reference/n2>.
+`N2ComputerAgent` drives any adapter with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. `yutori.navigator.macos.MacOSComputer` is the native Mac adapter Yutori MCP uses (`pip install 'yutori[macos]'`). It encodes full-screen observations as compressed WebP and enforces the 10 MB request budget. Model reference: <https://docs.yutori.com/reference/n2>.
 
 For SDK/API integration details, use:
 

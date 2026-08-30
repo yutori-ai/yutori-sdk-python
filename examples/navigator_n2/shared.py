@@ -113,7 +113,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--auto-approve",
         action="store_true",
-        help="Approve actions without prompting. Local shell commands still prompt.",
+        help="Approve environment actions without prompting. Host shell commands may still require confirmation.",
     )
     parser.add_argument("--max-steps", type=int, default=30, help="Maximum model turns (default: 30)")
 

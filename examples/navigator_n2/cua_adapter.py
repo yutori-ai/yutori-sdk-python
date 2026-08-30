@@ -1,4 +1,4 @@
-"""The Cua-sandbox computer handler for Navigator n2 — the reference tool implementations.
+"""The Cua computer handler for Navigator n2 — the reference tool implementations.
 
 ``CuaSandboxComputer`` implements the full handler surface `N2ComputerAgent` calls
 (GUI primitives, ``run_bash_command`` with a persistent working directory, and the

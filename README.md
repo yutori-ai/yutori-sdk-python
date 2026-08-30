@@ -186,7 +186,17 @@ async with AsyncYutoriClient() as client:
                         print(part["text"])
 ```
 
-`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class. It also shows how to attach `N2InlineCompactor`, the opt-in Praxis-compatible policy for long trajectories; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through the harness. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
+`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a compact hosted example using third-party [Daytona](https://www.daytona.io) infrastructure, with the Yutori-maintained adapter and lifecycle contained in that file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
+
+After authenticating with `yutori auth login`, run the Daytona example without installing its dependencies into your project:
+
+```bash
+export DAYTONA_API_KEY=...  # https://app.daytona.io
+uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
+    "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+```
+
+The script declares Python 3.10+ and its pinned Daytona dependency inline, so `uv` creates the isolated environment automatically.
 
 <details>
 <summary>Drive your own local Mac</summary>
@@ -221,7 +231,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 | `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set (SDK 0.9.3+).                                                       |
-| `N2InlineCompactor` / `N2Compactor`                         | Opt-in Praxis-compatible context compaction, or the protocol for a custom n2 history rewrite policy.                                  |
+| `N2InlineCompactor` / `N2Compactor`                         | Opt-in context compaction on current main; the inline implementation is not included in published SDK 0.9.4.                          |
 
 
 Full helper reference: [api.md](api.md).
@@ -390,7 +400,7 @@ Run `yutori --help` or `yutori <command> --help` for full options.
 
 ## Examples
 
-See [examples/](examples/) for complete working examples: Navigator n1.5 browser loops, custom tools, and a Navigator n2 computer-use agent on a Daytona desktop.
+See [examples/](examples/) for complete working examples: Navigator n1.5 browser loops, custom tools, and Navigator n2 on local Docker or Daytona infrastructure.
 
 ## Contributing
 

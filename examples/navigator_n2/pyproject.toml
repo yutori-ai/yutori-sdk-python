@@ -5,6 +5,10 @@ description = "Public Cua cookbooks for stable Yutori Navigator n2"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "cua==0.1.6",
+    # Newest cua-cli needs cua-sandbox>=0.1.28, whose API-key path can no longer
+    # create image-based cloud VMs. 0.1.17 keeps the local Docker runtime working;
+    # uv then resolves cua-cli back to 0.1.13, the newest release without that floor.
+    "cua-sandbox==0.1.17",
     "yutori==0.9.4",
 ]
 
