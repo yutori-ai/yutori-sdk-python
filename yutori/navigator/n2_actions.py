@@ -232,6 +232,16 @@ class N2ActionValidationError(ValueError):
     """Raised when an n2 action cannot be safely executed."""
 
 
+def is_strict_int(value: Any) -> bool:
+    """True for a genuine ``int``. ``bool`` is an ``int`` subclass, so it is excluded."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_strict_number(value: Any) -> bool:
+    """Like :func:`is_strict_int`, but also accepts ``float``."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _tool_arguments(args: Any, tool_name: str, allowed_fields: set[str]) -> dict[str, Any]:
     """Validate a tool-object envelope before checking its individual fields."""
     if not isinstance(args, dict):
@@ -342,7 +352,7 @@ def _coordinate(value: Any, path: str) -> "tuple[int, int]":
     if (
         not isinstance(value, (list, tuple))
         or len(value) != 2
-        or any(isinstance(component, bool) or not isinstance(component, int) for component in value)
+        or any(not is_strict_int(component) for component in value)
         or any(component < 0 or component > N2_COORDINATE_SCALE for component in value)
     ):
         raise N2ActionValidationError(f"{path} must be two integers in the inclusive 0-1000 range")
@@ -362,7 +372,7 @@ def native_point(value: Any, path: str, width: int, height: int) -> "tuple[int, 
 
 def _validate_wait_seconds(duration: Any, field: str) -> "int | float":
     """Validate a ``hold_key``/``wait`` duration: a number in [0, N2_MAX_WAIT_SECONDS]."""
-    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not 0 <= duration <= N2_MAX_WAIT_SECONDS:
+    if not is_strict_number(duration) or not 0 <= duration <= N2_MAX_WAIT_SECONDS:
         raise N2ActionValidationError(f"{field} must be between 0 and {N2_MAX_WAIT_SECONDS} seconds")
     return duration
 
@@ -461,7 +471,7 @@ def translate_n2_action(
         if direction not in {"up", "down"}:
             raise N2ActionValidationError("scroll.direction must be up or down")
         amount = args.get("amount")
-        if isinstance(amount, bool) or not isinstance(amount, int) or not 1 <= amount <= N2_MAX_SCROLL_AMOUNT:
+        if not is_strict_int(amount) or not 1 <= amount <= N2_MAX_SCROLL_AMOUNT:
             raise N2ActionValidationError(f"scroll.amount must be an integer between 1 and {N2_MAX_SCROLL_AMOUNT}")
         scroll_y = round(amount * native_height * 0.1) * (1 if direction == "down" else -1)
         return [
@@ -518,11 +528,7 @@ def translate_n2_shell_command(args: dict[str, Any]) -> list[dict[str, Any]]:
     if cwd is not None and not isinstance(cwd, str):
         raise N2ActionValidationError("shell_command.cwd must be a string")
     timeout_seconds = args.get("timeout_seconds", N2_SHELL_DEFAULT_TIMEOUT_SECONDS)
-    if (
-        isinstance(timeout_seconds, bool)
-        or not isinstance(timeout_seconds, int)
-        or not 1 <= timeout_seconds <= N2_SHELL_MAX_TIMEOUT_SECONDS
-    ):
+    if not is_strict_int(timeout_seconds) or not 1 <= timeout_seconds <= N2_SHELL_MAX_TIMEOUT_SECONDS:
         raise N2ActionValidationError(
             f"shell_command.timeout_seconds must be an integer between 1 and {N2_SHELL_MAX_TIMEOUT_SECONDS}"
         )
@@ -550,11 +556,7 @@ def translate_n2_bash(args: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(command, str) or not command.strip():
         raise N2ActionValidationError("bash requires a non-empty command string")
     timeout = args.get("timeout", N2_BASH_DEFAULT_TIMEOUT_SECONDS)
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not 0 <= timeout <= N2_BASH_MAX_TIMEOUT_SECONDS
-    ):
+    if not is_strict_number(timeout) or not 0 <= timeout <= N2_BASH_MAX_TIMEOUT_SECONDS:
         raise N2ActionValidationError(
             f"bash.timeout must be a number between 0 and {N2_BASH_MAX_TIMEOUT_SECONDS} seconds"
         )
@@ -582,10 +584,10 @@ def translate_n2_read(args: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate a read call for the current desktop file-tool contract."""
     args = _tool_arguments(args, "read", _READ_FILE_FIELDS)
     offset = args.get("offset", N2_FILE_READ_DEFAULT_OFFSET)
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 1:
+    if not is_strict_int(offset) or offset < 1:
         raise N2ActionValidationError("read.offset must be a positive 1-based integer")
     limit = args.get("limit", N2_FILE_READ_DEFAULT_LIMIT)
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+    if not is_strict_int(limit) or limit <= 0:
         raise N2ActionValidationError("read.limit must be a positive integer")
     return [internal_file_action("read_file", file_path=_file_path(args, "read"), offset=offset, limit=limit)]
 
@@ -640,7 +642,7 @@ def _optional_boolean(args: dict[str, Any], field: str, tool_name: str, *, defau
 
 def _optional_nonnegative_integer(args: dict[str, Any], field: str, tool_name: str) -> int | None:
     value = args.get(field)
-    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+    if value is not None and (not is_strict_int(value) or value < 0):
         raise N2ActionValidationError(f"{tool_name}.{field} must be a non-negative integer or null")
     return value
 
@@ -657,7 +659,7 @@ def translate_n2_grep(args: dict[str, Any]) -> list[dict[str, Any]]:
     if output_mode not in {"content", "files_with_matches", "count"}:
         raise N2ActionValidationError("grep.output_mode must be content, files_with_matches, count, or null")
     head_limit = args.get("head_limit", N2_GREP_DEFAULT_HEAD_LIMIT)
-    if head_limit is not None and (isinstance(head_limit, bool) or not isinstance(head_limit, int) or head_limit < 0):
+    if head_limit is not None and (not is_strict_int(head_limit) or head_limit < 0):
         raise N2ActionValidationError("grep.head_limit must be a non-negative integer or null")
     return [
         internal_file_action(
