@@ -18,6 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, Union
 
+from .n2_actions import is_strict_int
+
 COMPACTED_SUMMARY_OPEN_TAG = "<conversation_compaction_summary>"
 COMPACTED_SUMMARY_CLOSE_TAG = "</conversation_compaction_summary>"
 
@@ -418,7 +420,7 @@ class N2InlineCompactor:
             return None
 
         prompt_tokens = last_usage.get("prompt_tokens")
-        if isinstance(prompt_tokens, bool) or not isinstance(prompt_tokens, int):
+        if not is_strict_int(prompt_tokens):
             return None
         if prompt_tokens <= self.trigger_input_tokens:
             return None
