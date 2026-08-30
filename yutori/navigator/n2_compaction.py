@@ -229,6 +229,13 @@ def _assistant_turn_starts(items: list[dict[str, Any]]) -> list[int]:
 def _split_for_tail(
     items: list[dict[str, Any]], keep_last_n_turns: int, tail_token_budget: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split complete actor turns into a removed prefix and bounded tail.
+
+    If even the newest turn exceeds the tail budget, the tail is empty. The
+    caller restores the latest image observation after a successful rewrite so
+    the actor still has the last observed desktop state.
+    """
+
     if keep_last_n_turns <= 0:
         return items, []
     assistant_starts = _assistant_turn_starts(items)
@@ -251,6 +258,39 @@ def _split_for_tail(
     if len(assistant_starts) <= keep_last_n_turns and tail_start == assistant_starts[0]:
         return [], items
     return items[:tail_start], items[tail_start:]
+
+
+def _latest_inline_image_url(value: Any) -> Optional[str]:
+    """Return the last base64 image URL nested in a trajectory value."""
+
+    if isinstance(value, list):
+        for member in reversed(value):
+            image_url = _latest_inline_image_url(member)
+            if image_url is not None:
+                return image_url
+        return None
+    if not isinstance(value, dict):
+        return None
+
+    if value.get("type") in {"input_image", "image_url"}:
+        image_value = value.get("image_url")
+        if isinstance(image_value, dict):
+            image_value = image_value.get("url")
+        if isinstance(image_value, str) and image_value.startswith("data:image/") and ";base64," in image_value:
+            return image_value
+
+    for member in reversed(list(value.values())):
+        image_url = _latest_inline_image_url(member)
+        if image_url is not None:
+            return image_url
+    return None
+
+
+def _restored_image_item(image_url: str) -> dict[str, Any]:
+    return {
+        "role": "user",
+        "content": [{"type": "input_image", "image_url": image_url}],
+    }
 
 
 def _strip_code_fences(text: str) -> str:
@@ -305,6 +345,9 @@ class N2InlineCompactor:
     policy. It never mutates the supplied trajectory: a replacement is returned
     only after a valid checkpoint is produced. Failed attempts leave history
     untouched, allowing the agent's context-limit guard to stop the run cleanly.
+    When no recent turn fits in the retained tail, the latest image observation
+    is restored after the checkpoint so the actor can continue from the last
+    observed desktop state without spending a turn requesting another frame.
     """
 
     def __init__(
@@ -385,6 +428,8 @@ class N2InlineCompactor:
         if not removed:
             return None
 
+        current_image_url = _latest_inline_image_url(items) if not retained else None
+
         try:
             request_items = copy.deepcopy(original_prefix)
             if previous_checkpoints:
@@ -440,6 +485,8 @@ class N2InlineCompactor:
             replacement = copy.deepcopy(original_prefix)
             replacement.append(_working_checkpoint_item(checkpoint))
             replacement.extend(copy.deepcopy(retained))
+            if not retained and current_image_url is not None:
+                replacement.append(_restored_image_item(current_image_url))
             result = N2CompactionResult(
                 items=replacement,
                 request_id=previous_request_id,

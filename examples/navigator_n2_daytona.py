@@ -173,6 +173,8 @@ async def main(task: str) -> None:
 
     # These defaults match Yutori's Praxis harness. Implement N2Compactor
     # yourself when your harness needs a different trigger or rewrite policy.
+    # If no complete recent turn fits, the compactor restores the latest frame
+    # after its checkpoint so the next actor request still sees the desktop.
     compactor = N2InlineCompactor(
         trigger_input_tokens=53_760,
         keep_last_n_turns=5,

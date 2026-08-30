@@ -347,6 +347,70 @@ async def test_tail_budget_counts_an_image_as_tokens_not_base64_text():
     assert result.items[-1]["output"]["image_url"].endswith("x" * 100_000)
 
 
+async def test_empty_tail_restores_latest_image_after_checkpoint():
+    older_image = "data:image/png;base64,b2xk"
+    latest_image = "data:image/webp;base64,bmV3"
+    items = [
+        {"role": "user", "content": "task"},
+        *_tool_turn(
+            "one",
+            "screenshot",
+            {"type": "input_image", "image_url": older_image, "result": "older"},
+        ),
+        *_tool_turn(
+            "two",
+            "screenshot",
+            {"type": "input_image", "image_url": latest_image, "result": "latest"},
+        ),
+    ]
+    completions = QueueCompletions([_checkpoint_response("whole window", request_id="compact")])
+    compactor = N2InlineCompactor(
+        trigger_input_tokens=1,
+        keep_last_n_turns=0,
+        retry_delay_seconds=0,
+    )
+
+    result = await compactor.compact(
+        items,
+        last_usage={"prompt_tokens": 2},
+        completions=completions,
+        model="n2",
+        tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+        context=_context(),
+    )
+
+    assert isinstance(result, N2CompactionResult)
+    assert result.removed_item_count == 4
+    assert result.retained_item_count == 0
+    assert result.items[-1] == {
+        "role": "user",
+        "content": [{"type": "input_image", "image_url": latest_image}],
+    }
+
+
+async def test_empty_tail_without_an_image_adds_only_the_checkpoint():
+    items = [{"role": "user", "content": "task"}, *_tool_turn("one", "ls")]
+    completions = QueueCompletions([_checkpoint_response("no image", request_id="compact")])
+    compactor = N2InlineCompactor(
+        trigger_input_tokens=1,
+        keep_last_n_turns=0,
+        retry_delay_seconds=0,
+    )
+
+    result = await compactor.compact(
+        items,
+        last_usage={"prompt_tokens": 2},
+        completions=completions,
+        model="n2",
+        tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+        context=_context(),
+    )
+
+    assert isinstance(result, N2CompactionResult)
+    assert len(result.items) == 2
+    assert result.items[-1].get("_n2_compaction_kind") == "working_checkpoint"
+
+
 async def test_private_turn_identity_keeps_interleaved_parallel_calls_together():
     second_turn = [
         {

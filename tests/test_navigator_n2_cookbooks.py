@@ -127,9 +127,8 @@ async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
             display=SimpleNamespace(
                 get_info=AsyncMock(return_value=SimpleNamespace(displays=[SimpleNamespace(height=100)]))
             ),
-            screenshot=SimpleNamespace(
-                take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))
-            ),
+            screenshot=SimpleNamespace(take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))),
+            mouse=SimpleNamespace(click=AsyncMock()),
         ),
         process=SimpleNamespace(
             exec=AsyncMock(
@@ -151,8 +150,13 @@ async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
                             "content": "",
                             "tool_calls": [
                                 {
-                                    "id": "bash-1",
-                                    "function": {"name": "bash", "arguments": '{"command":"ls"}'},
+                                    "id": "screenshot-1",
+                                    "function": {
+                                        "name": "computer_batch",
+                                        "arguments": json.dumps(
+                                            {"actions": [{"action": "left_click", "coordinates": [500, 500]}]}
+                                        ),
+                                    },
                                 }
                             ],
                         }
@@ -200,10 +204,14 @@ async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
 
     assert steps[-1]["message"]["content"] == "done"
     assert compactor.compaction_count == 1
-    assert sandbox.process.exec.await_args.kwargs["cwd"] is None
+    sandbox.process.exec.assert_not_awaited()
+    assert sandbox.computer_use.screenshot.take_full_screen.await_count == 2
     assert completions.requests[1]["extra_body"]["prev_request_id"] == "actor-1"
     assert completions.requests[2]["extra_body"]["prev_request_id"] == "compact-1"
     assert "<working_checkpoint>\n## Goal\nList the files" in completions.requests[2]["messages"][1]["content"]
+    restored = completions.requests[2]["messages"][2]
+    assert restored["role"] == "user"
+    assert [part["type"] for part in restored["content"]] == ["image_url"]
 
 
 def test_cookbook_uses_a_public_pinned_cua_dependency() -> None:

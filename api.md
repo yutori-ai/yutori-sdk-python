@@ -540,7 +540,9 @@ five actor turns within an estimated 16,384-token tail, target a 9,000-character
 three compaction responses. The compaction request uses the actor's same completion surface, system prompt,
 tool set, image policy, sampling fields, output budget, and timeout. A successful request remains in the
 `prev_request_id` chain; tool-calling, empty, or malformed responses are retried. History is replaced only
-after a valid tagged checkpoint, and the first actor call after replacement is exempt from another compaction.
+after a valid tagged checkpoint. If no complete turn fits in the retained tail, the latest screenshot is
+restored after the checkpoint so the next actor call is not image-blind. The first actor call after replacement
+is exempt from another compaction.
 
 For another policy, implement `N2Compactor.compact(...)`. Existing compactors may continue returning
 `list[dict] | None`; implementations that accept the optional `context` keyword receive an
