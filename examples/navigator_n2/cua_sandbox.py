@@ -172,13 +172,16 @@ else:
 """
 
 
+def _append_stream(base: str, addition: str) -> str:
+    """Append a second output stream to the first, inserting a newline only where one is missing."""
+    if not addition:
+        return base
+    return f"{base}{'' if not base or base.endswith(chr(10)) else chr(10)}{addition}"
+
+
 def _result_output(result: Any) -> str:
     """Join Cua's separate stdout and stderr streams without losing either."""
-    output = str(getattr(result, "stdout", "") or "")
-    stderr = str(getattr(result, "stderr", "") or "")
-    if stderr:
-        output = f"{output}{'' if not output or output.endswith(chr(10)) else chr(10)}{stderr}"
-    return output
+    return _append_stream(str(getattr(result, "stdout", "") or ""), str(getattr(result, "stderr", "") or ""))
 
 
 def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
@@ -372,9 +375,7 @@ class CuaSandboxComputer:
         body, marker, new_cwd = stdout.rpartition(f"\n{sentinel}")
         if marker:
             self._bash_cwd = new_cwd.strip() or cwd
-            stderr = str(getattr(result, "stderr", "") or "")
-            if stderr:
-                body = f"{body}{'' if not body or body.endswith(chr(10)) else chr(10)}{stderr}"
+            body = _append_stream(body, str(getattr(result, "stderr", "") or ""))
             return _format_shell_output(body, int(getattr(result, "returncode", 0) or 0))
         return _shell_result(result)
 
