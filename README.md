@@ -161,9 +161,11 @@ This snippet shows a single model call. In practice, you'll run an agent loop: e
 
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
 
+If you'd rather not manage browser infrastructure, use the **Browsing API** below, which runs the Navigator n1.5 on Yutori's cloud browser.
+
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. It answers with `computer_batch` calls — an ordered sequence of GUI actions, answered with one screenshot taken after the last one — and `bash` calls, answered with the command's output. Implement the computer environment, then pass it to the SDK's agent loop:
+Navigator n2 operates a full desktop. It produces `computer_batch` calls — an ordered sequence of GUI actions — and `bash` calls. You implement the computer environment, and pass the output of the actions to the SDK's agent loop:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -186,17 +188,28 @@ async with AsyncYutoriClient() as client:
                         print(part["text"])
 ```
 
-`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a compact hosted example using third-party [Daytona](https://www.daytona.io) infrastructure, with the Yutori-maintained adapter and lifecycle contained in that file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
+`computer` is your adapter for interfacing with the computer: the loop calls it to capture screenshots and execute the model's actions. See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls.
 
-After authenticating with `yutori auth login`, run the Daytona example without installing its dependencies into your project:
+The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. After authenticating with `yutori auth login`, run it without installing anything into your project:
 
 ```bash
 export DAYTONA_API_KEY=...  # https://app.daytona.io
 uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
-    "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+    "Write 'hello from n2' to /tmp/demo.txt with bash, then open a terminal from the dock and cat the file"
 ```
 
-The script declares Python 3.10+ and its pinned Daytona dependency inline, so `uv` creates the isolated environment automatically.
+<details>
+<summary>Run in local Docker instead (Cua cookbook)</summary>
+
+The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set (`computer_batch`, `edit`, `read`, `write`, `bash`) in a disposable local Docker container — no cloud credential needed:
+
+```bash
+cd examples/navigator_n2
+uv sync --python 3.12
+uv run python remote_sandbox.py --auto-approve "Run bash: echo hello-from-n2"
+```
+
+</details>
 
 <details>
 <summary>Drive your own local Mac</summary>
@@ -209,12 +222,6 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 ```
 
 </details>
-
-See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, coordinate system, and request fields.
-
-The SDK also accepts the immutable `computer_use_tools-20260818` browser set for replay. It is not a desktop set: its
-extra `goto_url` call requires a computer handler that implements `async goto_url(url: str)`. The bundled desktop and
-public Cua sandbox adapters deliberately return a recoverable unsupported-environment result for that browser-only call.
 
 ### Agent-loop helpers
 
@@ -235,8 +242,6 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 
 
 Full helper reference: [api.md](api.md).
-
-If you'd rather not manage browser infrastructure, use the **Browsing API** below, which runs the Navigator on Yutori's cloud browser.
 
 ## Browsing API
 

@@ -9,25 +9,23 @@
 """
 A computer-use agent: Navigator n2 driving a disposable Daytona Linux desktop.
 
-Daytona is third-party infrastructure. This Yutori-maintained example owns the
-n2 adapter and lifecycle wiring that connect it to the Yutori SDK.
-
 Navigator n2 looks at a full-screen screenshot and answers with tool calls — a
 `computer_batch` of GUI actions, or a `bash` command. `N2ComputerAgent`, the
 SDK's n2 agent loop, executes each call through a small adapter, sends the
 result back (a fresh screenshot for the batch, the output for bash), and asks
 again until the model answers with text.
 
-The provider integration is contained in this example, primarily in
-`DaytonaComputer` plus the sandbox lifecycle in `main`. Swap those pieces for
-your own environment to drive a different desktop.
+Daytona is third-party infrastructure; this Yutori-maintained example contains
+the whole integration — the `DaytonaComputer` adapter plus the sandbox
+lifecycle in `main`. Swap those pieces for your own environment to drive a
+different desktop.
 
 Usage:
     yutori auth login                         # or export YUTORI_API_KEY=...
     export DAYTONA_API_KEY=...                # https://app.daytona.io
 
     uv run examples/navigator_n2_daytona.py \\
-        "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+        "Write 'hello from n2' to /tmp/demo.txt with bash, then open a terminal from the dock and cat the file"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
 

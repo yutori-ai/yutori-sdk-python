@@ -113,6 +113,8 @@ from yutori.navigator import (
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
 
+**Replay note.** The SDK also accepts the immutable `computer_use_tools-20260818` browser set for replaying recorded trajectories. It is not a desktop set: its extra `goto_url` call requires a computer handler that implements `async goto_url(url: str)`. The bundled desktop and public Cua sandbox adapters deliberately return a recoverable unsupported-environment result for that browser-only call.
+
 For pinned versions (e.g. `n1.5-20260428`) see [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5) and [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ## Namespaces
