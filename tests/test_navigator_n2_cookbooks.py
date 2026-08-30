@@ -208,7 +208,7 @@ async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
     assert sandbox.computer_use.screenshot.take_full_screen.await_count == 2
     assert completions.requests[1]["extra_body"]["prev_request_id"] == "actor-1"
     assert completions.requests[2]["extra_body"]["prev_request_id"] == "compact-1"
-    assert "<working_checkpoint>\n## Goal\nList the files" in completions.requests[2]["messages"][1]["content"]
+    assert "<working_checkpoint>\n## Goal\nList the files" in completions.requests[2]["messages"][1]["content"][0]["text"]
     restored = completions.requests[2]["messages"][2]
     assert restored["role"] == "user"
     assert [part["type"] for part in restored["content"]] == ["image_url"]

@@ -424,8 +424,10 @@ def test_an_invalid_call_does_not_block_the_next_one():
         100,
         100,
     )
-    assert [item.get("call_id") for item in output] == ["bad", "bad", "good", "good"]
-    assert output[1]["output"].startswith("[ERROR] Invalid left_click call:")
+    # Calls come first, validation-error results after the turn's full run of
+    # calls, so the wire keeps one assistant message.
+    assert [item.get("call_id") for item in output] == ["bad", "good", "bad", "good"]
+    assert output[2]["output"].startswith("[ERROR] Invalid left_click call:")
     # The second call is still translated on its own terms (here: the batch-only
     # default tool set does not expose a standalone left_click).
     assert "does not expose left_click" in output[-1]["output"]
