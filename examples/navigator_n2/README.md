@@ -16,7 +16,7 @@ Authenticate Yutori with yutori auth login or YUTORI_API_KEY. The sandbox exampl
 The local entrypoint uses yutori.navigator.macos.MacOSComputer, the public SDK runtime that yutori-mcp uses. Install the SDK macOS extra, grant Accessibility and Screen Recording to CuaDriver.app in an unlocked GUI session, and then run it:
 
 ~~~bash
-pip install 'yutori[macos]==0.9.3'
+pip install 'yutori[macos]==0.9.4'
 uv run --extra macos python local_macos.py "Open Calculator and compute 17 * 23"
 ~~~
 

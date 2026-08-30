@@ -5,11 +5,11 @@ description = "Public Cua cookbooks for stable Yutori Navigator n2"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "cua==0.1.6",
-    "yutori==0.9.3",
+    "yutori==0.9.4",
 ]
 
 [project.optional-dependencies]
-macos = ["yutori[macos]==0.9.3"]
+macos = ["yutori[macos]==0.9.4"]
 
 [tool.uv.sources]
 yutori = { path = "../..", editable = true }
