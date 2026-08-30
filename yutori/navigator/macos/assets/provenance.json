@@ -1,6 +1,6 @@
 {
   "runtime": "yutori.navigator.macos",
-  "sdk_version": "0.9.3",
+  "sdk_version": "0.9.4",
   "overlay_protocol_version": 2,
   "renderer_protocol_version": 3,
   "source": "Public yutori SDK distribution",

@@ -88,7 +88,7 @@ class CuaDriverTransport:
                 {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": {"name": "yutori-python-sdk", "version": "0.9.3"},
+                    "clientInfo": {"name": "yutori-python-sdk", "version": "0.9.4"},
                 },
             )
             await self._notify("notifications/initialized")
