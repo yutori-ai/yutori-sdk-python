@@ -71,7 +71,7 @@ The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 with the com
 cd examples/navigator_n2
 uv sync --python 3.12
 uv run python remote_sandbox.py --auto-approve \
-    "Run bash: echo hello-from-n2"
+    "Open Calculator and compute 17 * 23"
 ```
 
 ## navigator_n2_daytona.py
