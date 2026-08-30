@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import io
 import json
 import time
@@ -1260,3 +1261,30 @@ def test_converter_preserves_plain_string_assistant_turns():
         ]
     )
     assert {"role": "assistant", "content": "earlier answer"} in messages
+
+
+@pytest.mark.asyncio
+async def test_completion_request_is_public_wrapup_surface() -> None:
+    """completion_request() returns the actor's exact next request — windowed messages,
+    sampling fields, chaining — with optional harness-owned extra messages appended,
+    without advancing the loop or mutating the trajectory."""
+    agent = N2ComputerAgent(
+        computer=FakeComputer(),
+        tool_set=TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
+        completions=FakeCompletions([_turn({"content": "Done.", "tool_calls": []})]),
+        screenshot_delay=0,
+    )
+    async for _step in agent.run("task"):
+        pass
+    before = copy.deepcopy(agent.trajectory)
+    nudge = {"role": "user", "content": [{"type": "text", "text": "Stop here. Summarize."}]}
+    request = agent.completion_request([nudge])
+    assert request["model"] == agent.model
+    assert request["tool_set"] == agent.tool_set
+    assert request["max_completion_tokens"] == agent.max_completion_tokens
+    assert request["messages"][-1] == nudge
+    # the trajectory itself renders just before the nudge, exactly as the loop would send it
+    assert request["messages"][:-1] == agent._prepare_completion_messages(agent.trajectory)
+    assert agent.trajectory == before
+    if agent.last_request_id is not None:
+        assert request["extra_body"]["prev_request_id"] == agent.last_request_id

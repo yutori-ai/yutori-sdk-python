@@ -1280,6 +1280,31 @@ class N2ComputerAgent:
             )
         return completion_messages
 
+    def completion_request(
+        self, extra_messages: "list[dict[str, Any]] | None" = None, *, items: "list[dict[str, Any]] | None" = None
+    ) -> dict[str, Any]:
+        """The actor's next Chat Completions request for the current trajectory.
+
+        Returns exactly what the loop itself sends — system prompt, image-windowed
+        messages, sampling fields, and request chaining — optionally with ``extra_messages``
+        (chat-format) appended after the trajectory. Useful for harness-owned turns that
+        must not advance the loop or execute tools, such as a step-cap "stop and
+        summarize" wrap-up: send it yourself with the same client,
+        ``await client.chat.completions.create(**agent.completion_request([nudge]))``.
+        The call and its response stay the caller's own; the trajectory is not changed.
+        ``items`` overrides the rendered trajectory (the loop's own steps pass their
+        in-flight working set).
+        """
+        request = self._completion_request_kwargs()
+        # Historical merge order: callers should not pass ``messages`` through
+        # completion_kwargs, but it previously won if they did.
+        request.setdefault("messages", self._prepare_completion_messages(self.trajectory if items is None else items))
+        if extra_messages:
+            request["messages"] = list(request["messages"]) + copy.deepcopy(list(extra_messages))
+        if self.last_request_id is not None:
+            request["extra_body"] = {**(request.get("extra_body") or {}), "prev_request_id": self.last_request_id}
+        return request
+
     def _completion_request_kwargs(self) -> dict[str, Any]:
         """Return resolved actor call fields other than messages and chaining."""
 
@@ -1304,7 +1329,8 @@ class N2ComputerAgent:
         return await _await_model_response(self.computer, awaitable)
 
     async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
-        completion_messages = self._prepare_completion_messages(items)
+        api_kwargs = self.completion_request(items=items)
+        completion_messages = api_kwargs["messages"]
 
         latest_url = latest_image_url(completion_messages)
         if latest_url is None:
@@ -1322,11 +1348,6 @@ class N2ComputerAgent:
                 native_width, native_height = await self._resolve_native_size()
             else:
                 native_width, native_height = image_dimensions(latest_url)
-
-        api_kwargs = self._completion_request_kwargs()
-        # Preserve the historical merge order: callers should not pass
-        # ``messages`` through completion_kwargs, but it previously won if they did.
-        api_kwargs.setdefault("messages", completion_messages)
 
         for attempt in (0, 1):
             if self.last_request_id is not None:
