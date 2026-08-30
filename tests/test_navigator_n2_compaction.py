@@ -145,7 +145,7 @@ async def test_inline_compactor_uses_strict_threshold_and_atomically_rewrites_hi
         "tool",
         "user",
     ]
-    assert request["messages"][-2]["content"] == "ok"
+    assert request["messages"][-2]["content"] == [{"type": "text", "text": "ok"}]
     assert request["messages"][-1]["content"][0]["text"].startswith("## Internal compaction request")
     assert request["temperature"] == 0.6
     assert request["extra_body"]["prev_request_id"] == "actor-1"
@@ -524,7 +524,7 @@ async def test_agent_compacts_end_to_end_before_context_guard_and_preserves_requ
     assert compact["messages"][0] == actor_one["messages"][0] == {"role": "system", "content": "actor system"}
     assert compact["extra_body"]["prev_request_id"] == "actor-1"
     assert actor_two["extra_body"] == {"caller": "example", "prev_request_id": "compact-1"}
-    assert "<working_checkpoint>\n## Goal\nlisted files" in actor_two["messages"][2]["content"]
+    assert "<working_checkpoint>\n## Goal\nlisted files" in actor_two["messages"][2]["content"][0]["text"]
     assert agent.trajectory[1].get("_n2_compaction_kind") == "working_checkpoint"
 
 

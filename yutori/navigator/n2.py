@@ -16,7 +16,9 @@ contract, with these deliberate implementation choices:
   executes in order.
 - A turn with literal ``<tool_call>`` markup but zero parsed calls gets one
   format-reminder retry; neither the attempt nor the reminder enters the kept
-  trajectory.
+  trajectory. A response cut off at the output cap (``finish_reason ==
+  "length"``) with no tool calls is likewise re-requested once instead of being
+  read as a final answer.
 - A turn without tool calls ends the run (``stopped_by == "final_answer"``);
   ``resume(message)`` appends a user message and continues the conversation.
 - The model call goes through the SDK's chat-completions surface (or any
@@ -156,6 +158,21 @@ def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:
     return "<tool_call>" in text and "</tool_call>" in text
 
 
+# Tool text passes through as the handler returned it; this backstop only stops a
+# runaway result (a multi-megabyte cat) from overflowing the request and ending
+# the run. It sits above every sane adapter cap, so self-truncating tools never
+# trigger it — and when it does fire, it cuts by length alone, agnostic to the
+# adapter's own truncation format. Text only: image payloads are never touched.
+_RESULT_TEXT_BACKSTOP_CHARS = 256 * 1024
+
+
+def _backstop_result_text(text: str) -> str:
+    if len(text) <= _RESULT_TEXT_BACKSTOP_CHARS:
+        return text
+    cut = _RESULT_TEXT_BACKSTOP_CHARS
+    return f"{text[:cut]}\n\n[... output truncated, {len(text) - cut} more chars ...]"
+
+
 def _format_action_error(error: BaseException) -> str:
     return f"ERROR: {type(error).__name__}: {error}"
 
@@ -287,7 +304,8 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                         parts.append({"type": "text", "text": part.get("text")})
                 completion_messages.append({"role": "user", "content": parts})
             elif isinstance(content, str):
-                completion_messages.append({"role": "user", "content": content})
+                # Text rides as a single part, the shape the reference builder sends.
+                completion_messages.append({"role": "user", "content": [{"type": "text", "text": content}]})
 
         elif role == "assistant" or item_type == "message":
             content = item.get("content", [])
@@ -350,7 +368,13 @@ def convert_n2_items_to_completion_messages(items: list[dict[str, Any]]) -> list
                 content.append({"type": "image_url", "image_url": {"url": output.get("image_url")}})
                 completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
             else:
-                completion_messages.append({"role": "tool", "tool_call_id": call_id, "content": str(output).strip()})
+                completion_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": [{"type": "text", "text": str(output).strip()}],
+                    }
+                )
 
     return completion_messages
 
@@ -453,11 +477,12 @@ def parse_n2_tool_calls(
             message_item["reasoning"] = reasoning_text
         output.append(message_item)
 
-    for tool_call in tool_calls:
+    error_outputs: list[dict[str, Any]] = []
+    for index, tool_call in enumerate(tool_calls):
         function = tool_call.get("function") or {}
         name = function.get("name") or ""
         arguments = function.get("arguments", "{}")
-        call_id = tool_call.get("id") or "call_0"
+        call_id = tool_call.get("id") or f"call_{index}"
         call_item: dict[str, Any] = {
             "type": "function_call",
             "id": tool_call.get("id") or call_id,
@@ -545,7 +570,9 @@ def parse_n2_tool_calls(
             output.append(call_item)
         except (json.JSONDecodeError, N2ActionValidationError, TypeError, ValueError) as error:
             output.append(call_item)
-            output.append(
+            # Collected and appended after the turn's full run of calls, so the
+            # wire keeps one assistant message whose tool results follow it.
+            error_outputs.append(
                 {
                     "type": "function_call_output",
                     "call_id": call_id,
@@ -553,6 +580,7 @@ def parse_n2_tool_calls(
                 }
             )
 
+    output.extend(error_outputs)
     return output
 
 
@@ -812,6 +840,7 @@ async def execute_n2_computer_call(
         deadline = item.get("_execution_deadline")
         if isinstance(deadline, (int, float)) and time.monotonic() >= deadline:
             stopped_reason = "deadline_reached"
+            failed_index = action.get("batch_index") if isinstance(action.get("batch_index"), int) else 0
             break
         cancellation = getattr(computer, "cancellation", None)
         if cancellation is not None and cancellation.cancelled:
@@ -859,7 +888,7 @@ async def execute_n2_computer_call(
                 if shell_method is None:
                     raise RuntimeError(_shell_not_supported_error(str(action_type)))
                 shell_result = await shell_method(**action_args)
-                shell_output_text = "" if shell_result is None else str(shell_result)
+                shell_output_text = _backstop_result_text("" if shell_result is None else str(shell_result))
             elif action_type in FILE_ACTION_HANDLERS:
                 file_method = getattr(computer, FILE_ACTION_HANDLERS[action_type], None)
                 if file_method is None:
@@ -870,7 +899,7 @@ async def execute_n2_computer_call(
                 if isinstance(file_result, dict) and ("text" in file_result or "image_url" in file_result):
                     file_output_image = file_result.get("image_url")
                     file_result = file_result.get("text") or ""
-                file_output_text = "" if file_result is None else str(file_result)
+                file_output_text = _backstop_result_text("" if file_result is None else str(file_result))
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -918,6 +947,12 @@ async def execute_n2_computer_call(
         except asyncio.CancelledError:
             await release_keys(list(held_keys))
             release_after_next_action.clear()
+            release_mouse = getattr(computer, "release_held_mouse_button", None)
+            if callable(release_mouse):
+                try:
+                    await release_mouse()
+                except Exception:  # noqa: BLE001 - already unwinding on cancellation
+                    pass
             raise
         except Exception as error:  # noqa: BLE001 - classified below
             await release_keys(list(held_keys))
@@ -963,12 +998,16 @@ async def execute_n2_computer_call(
         if isinstance(batch_actions, list):
             names = [str(member.get("action") or "?") for member in batch_actions]
             outcomes = [member_outcomes.get(index, "") for index in range(len(names))]
+            if stopped_reason is not None and failed_index is None and len(completed_members) == len(names):
+                # A post-batch failure (screenshot callback, key release) must not
+                # fabricate a halted member: every action ran, so say so.
+                return f"{_format_batch_result(names, outcomes)}\n{stopped_reason}"
             error_index = failed_index if stopped_reason is not None else None
             if stopped_reason is not None and error_index is None:
                 error_index = min(len(completed_members), len(names) - 1)
             return _format_batch_result(names, outcomes, error_index=error_index, error_text=stopped_reason)
         if stopped_reason is not None:
-            return f"ERROR: {stopped_reason}"
+            return stopped_reason if stopped_reason.startswith("ERROR") else f"ERROR: {stopped_reason}"
         return _ACTION_EXECUTED_TEXT
 
     if file_output_text is not None and not isinstance(batch_actions, list):
@@ -1277,6 +1316,10 @@ class N2ComputerAgent:
             if isinstance(current_observation, N2Observation):
                 native_width = current_observation.native_width
                 native_height = current_observation.native_height
+            elif callable(getattr(self.computer, "get_dimensions", None)):
+                # The newest image may be a file image from `read`, not a frame;
+                # the handler's own dimensions are the coordinate space.
+                native_width, native_height = await self._resolve_native_size()
             else:
                 native_width, native_height = image_dimensions(latest_url)
 
@@ -1307,12 +1350,18 @@ class N2ComputerAgent:
             self.last_usage = usage
             self.last_request_id = response_dict.get("request_id") or self.last_request_id
             await self._callbacks.fire("on_usage", usage)
+            finish_reason = (response_dict.get("choices") or [{}])[0].get("finish_reason")
+            if attempt == 0 and finish_reason == "length" and not message.get("tool_calls"):
+                # The response hit the output cap mid-turn: what parsed is a
+                # truncated fragment that would otherwise read as a final answer.
+                # One plain re-request; sampling gives a fresh rollout.
+                continue
             if attempt == 0 and needs_tool_call_format_nudge(message):
                 # One ephemeral retry: the malformed attempt and the reminder ride
                 # in the retry request only, never in the kept trajectory.
                 api_kwargs["messages"] = completion_messages + [
                     {"role": "assistant", "content": message.get("content") or ""},
-                    {"role": "user", "content": TOOL_CALL_FORMAT_NUDGE},
+                    {"role": "user", "content": [{"type": "text", "text": TOOL_CALL_FORMAT_NUDGE}]},
                 ]
                 continue
             break
@@ -1345,6 +1394,9 @@ class N2ComputerAgent:
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
         self.trajectory = self._initial_items(messages)
         self.last_request_id = None
+        self.last_usage = {}
+        self._native_size = None
+        self.timings = {"model_ms": 0}
         self.last_usage = {}
         reset_compactor = getattr(self.compactor, "reset", None)
         if reset_compactor is not None:
@@ -1412,6 +1464,7 @@ class N2ComputerAgent:
                                 self.last_request_id = compacted.request_id
                         else:
                             old_items, new_items = list(compacted), []
+                        self.trajectory = old_items
                         self.last_usage = {}
                 prompt_tokens = self.last_usage.get("prompt_tokens")
                 if (
@@ -1427,8 +1480,11 @@ class N2ComputerAgent:
 
                 result = await self._predict_step(old_items + new_items)
                 turns += 1
-                yield result
+                # Commit before yielding: a consumer that breaks at this yield
+                # still keeps the turn it was just handed.
                 new_items += result.get("output") or []
+                self.trajectory = old_items + new_items
+                yield result
 
                 # A validation failure already produced this call's result
                 # frame; executing it anyway would run an action the model was
@@ -1474,9 +1530,16 @@ class N2ComputerAgent:
                                 ),
                             }
                         ]
+                        # The cancelled execution never reached its own end events.
+                        await self._callbacks.fire("on_computer_call_end", item, partial_items)
+                        await _present(
+                            self.presentation,
+                            {"type": "action_done", "call_id": item.get("call_id"), "error": "timeout"},
+                        )
                     for partial_item in partial_items:
                         partial_item["_n2_turn_id"] = item.get("_n2_turn_id")
                     new_items += partial_items
+                    self.trajectory = old_items + new_items
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
 
@@ -1484,7 +1547,8 @@ class N2ComputerAgent:
                     # A turn without tool calls ends the run; the caller may resume().
                     self.stopped_by = "final_answer"
         finally:
-            self.trajectory = old_items + new_items
+            # The trajectory is committed incrementally at each yield, so a caller
+            # that breaks out of the generator keeps everything up to that step.
             # Unlike the reference, this fires even when the very first
             # on_run_continue stops the run.
             await self._callbacks.fire("on_run_end", run_kwargs, old_items, new_items)

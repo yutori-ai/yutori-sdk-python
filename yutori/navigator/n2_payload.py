@@ -88,10 +88,25 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[s
             part for part in content if not (isinstance(part, dict) and part.get("type") == "image_url")
         ]
         return
-    message["content"] = [
+    replaced = [
         {"type": "text", "text": omitted_text} if isinstance(part, dict) and part.get("type") == "image_url" else part
         for part in content
     ]
+    # Adjacent text parts merge into one, the marker directly concatenated —
+    # the reference builder's rendering of a pruned frame.
+    merged: list[Any] = []
+    for part in replaced:
+        if (
+            merged
+            and isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(merged[-1], dict)
+            and merged[-1].get("type") == "text"
+        ):
+            merged[-1] = {"type": "text", "text": merged[-1].get("text", "") + part.get("text", "")}
+        else:
+            merged.append(part)
+    message["content"] = merged
 
 
 serialized_messages_bytes = estimate_messages_size_bytes
