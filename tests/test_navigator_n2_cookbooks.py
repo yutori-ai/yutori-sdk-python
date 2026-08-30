@@ -446,6 +446,16 @@ def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:
     png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">IIBBBBB", 64, 48, 8, 6, 0, 0, 0)
     (tmp_path / "img.png").write_bytes(png)
     assert run(**read_args, file_path="img.png").splitlines()[0] == "__YUTORI_IMAGE__"
+    # Image and PDF reads must record fingerprints too, or a later edit of the
+    # same path loops forever on the read-before-edit gate (Bugbot, PR #281).
+    assert not run(
+        operation="edit", file_path="img.png", old_string="nope", new_string="x", replace_all=False
+    ).startswith("ERROR: you must read")
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4 stub")
+    assert run(**read_args, file_path="doc.pdf").startswith("[pdf file: doc.pdf - ")
+    assert not run(
+        operation="edit", file_path="doc.pdf", old_string="nope", new_string="x", replace_all=False
+    ).startswith("ERROR: you must read")
 
     # Grep clamps columns at 500 and skips all six VCS directories.
     (tmp_path / ".hg").mkdir()

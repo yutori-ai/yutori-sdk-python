@@ -129,10 +129,12 @@ if operation == "read":
     data = path.read_bytes()
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
+        record_fingerprint(path, data)
         print("__YUTORI_IMAGE__")
         print(base64.b64encode(data).decode())
         raise SystemExit(0)
     if suffix == ".pdf":
+        record_fingerprint(path, data)
         done(f"[pdf file: {path.name} - {len(data)} bytes; binary content not shown]")
     if suffix == ".ipynb":
         try:
