@@ -504,9 +504,10 @@ async def test_operator_stop_cancels_an_in_flight_compaction_request():
     running = asyncio.create_task(consume_run())
     await completions.compaction_started.wait()
     computer.cancellation.request("operator_stop")
-    with pytest.raises(asyncio.CancelledError, match="operator_stop"):
+    with pytest.raises(asyncio.CancelledError):
         await running
 
+    assert computer.cancellation.cause == "operator_stop"
     assert completions.calls == 2
     assert completions.compaction_cancelled is True
 
