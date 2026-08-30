@@ -181,6 +181,13 @@ elif operation == "edit":
         done(f"File created successfully at: {display}")
     if not path.is_file():
         done(f"ERROR: file does not exist: {display}")
+    # NOTE: the decode/match/anchor semantics below deliberately reproduce the served
+    # n2 edit tool exactly — replace-mode decoding (invalid bytes become U+FFFD on
+    # write-back), matching against the raw text (read output is CRLF-normalized for
+    # display, the edit match is not), and anchoring the snippet on the first
+    # occurrence of new_string. Reproducing them byte-for-byte is the point of this
+    # reference implementation; "improving" them here would make results diverge
+    # from what n2 sees elsewhere.
     data = path.read_bytes()
     stale = check_read_before_edit(path, display, data)
     if stale is not None:
