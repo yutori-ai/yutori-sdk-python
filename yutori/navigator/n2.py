@@ -495,6 +495,14 @@ def parse_n2_tool_calls(
             args = json.loads(arguments) if isinstance(arguments, str) else arguments
             if not isinstance(args, dict):
                 raise N2ActionValidationError(f"{name} arguments must be an object")
+
+            def finish(
+                translated: list[dict[str, Any]], *, batch_actions: "list[dict[str, Any]] | None" = None
+            ) -> dict[str, Any]:
+                return _function_call_with_execution(
+                    name, args, call_id, translated, batch_actions=batch_actions, execution_deadline=execution_deadline
+                )
+
             if name == "computer_batch":
                 if tool_set not in TOOL_SETS_WITH_BATCH:
                     raise N2ActionValidationError(f"{tool_set} does not expose computer_batch")
@@ -506,28 +514,15 @@ def parse_n2_tool_calls(
                     allow_click_modifiers=allow_click_modifiers,
                     allow_scroll_modifiers=allow_scroll_modifiers,
                 )
-                call_item = _function_call_with_execution(
-                    name,
-                    args,
-                    call_id,
-                    translated,
-                    batch_actions=batch_actions,
-                    execution_deadline=execution_deadline,
-                )
+                call_item = finish(translated, batch_actions=batch_actions)
             elif name in SHELL_COMMAND_TOOL_NAMES:
                 if tool_set not in TOOL_SETS_WITH_SHELL_COMMAND:
                     raise N2ActionValidationError(f"{tool_set} does not expose shell_command")
-                translated = translate_n2_shell_command(args)
-                call_item = _function_call_with_execution(
-                    name, args, call_id, translated, execution_deadline=execution_deadline
-                )
+                call_item = finish(translate_n2_shell_command(args))
             elif name == BASH_TOOL_NAME:
                 if tool_set not in TOOL_SETS_WITH_BASH:
                     raise N2ActionValidationError(f"{tool_set} does not expose bash")
-                translated = translate_n2_bash(args)
-                call_item = _function_call_with_execution(
-                    name, args, call_id, translated, execution_deadline=execution_deadline
-                )
+                call_item = finish(translate_n2_bash(args))
             elif name in FILE_TOOL_NAMES:
                 if tool_set not in TOOL_SETS_WITH_FILE_TOOLS:
                     raise N2ActionValidationError(f"{tool_set} does not expose {name}")
@@ -540,32 +535,25 @@ def parse_n2_tool_calls(
                     "grep": translate_n2_grep,
                     "glob": translate_n2_glob,
                 }
-                translated = translators[name](args)
-                call_item = _function_call_with_execution(
-                    name, args, call_id, translated, execution_deadline=execution_deadline
-                )
+                call_item = finish(translators[name](args))
             elif name == "goto_url":
                 if tool_set not in TOOL_SETS_WITH_BROWSER_NAVIGATION:
                     raise N2ActionValidationError(f"{tool_set} does not expose goto_url")
-                translated = translate_n2_goto_url(args)
-                call_item = _function_call_with_execution(
-                    name, args, call_id, translated, execution_deadline=execution_deadline
-                )
+                call_item = finish(translate_n2_goto_url(args))
             elif name == "screenshot" and tool_set not in TOOL_SETS_WITH_STANDALONE_SCREENSHOT:
                 raise N2ActionValidationError(f"{tool_set} does not expose screenshot")
             elif tool_set == TOOL_SET_COMPUTER_USE_LATEST:
                 raise N2ActionValidationError(f"{tool_set} does not expose {name}")
             else:
-                translated = translate_n2_action(
-                    name,
-                    args,
-                    native_width,
-                    native_height,
-                    allow_click_modifiers=allow_click_modifiers,
-                    allow_scroll_modifiers=allow_scroll_modifiers,
-                )
-                call_item = _function_call_with_execution(
-                    name, args, call_id, translated, execution_deadline=execution_deadline
+                call_item = finish(
+                    translate_n2_action(
+                        name,
+                        args,
+                        native_width,
+                        native_height,
+                        allow_click_modifiers=allow_click_modifiers,
+                        allow_scroll_modifiers=allow_scroll_modifiers,
+                    )
                 )
             output.append(call_item)
         except (json.JSONDecodeError, N2ActionValidationError, TypeError, ValueError) as error:
