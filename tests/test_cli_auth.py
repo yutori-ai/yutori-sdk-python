@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner, Result
 
-from yutori.auth.types import LoginResult
+from yutori.auth.types import AuthStatus, LoginResult
 from yutori.cli.main import app
 
 runner = CliRunner()
@@ -99,3 +99,20 @@ def test_auth_login_ignores_placeholder_config_key(monkeypatch):
 
     assert result.exit_code == 0
     assert "Successfully authenticated!" in result.stdout
+
+
+def test_auth_status_distinguishes_configured_from_validated_key() -> None:
+    configured = AuthStatus(
+        authenticated=True,
+        masked_key="yt-...fake",
+        source="env_var",
+    )
+
+    with patch("yutori.cli.commands.auth.get_auth_status", return_value=configured):
+        result = runner.invoke(app, ["auth", "status"])
+
+    assert result.exit_code == 0
+    assert "API key configured" in result.stdout
+    assert "not validated" in result.stdout
+    assert "yutori usage" in result.stdout
+    assert "Authenticated" not in result.stdout

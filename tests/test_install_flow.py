@@ -1182,7 +1182,12 @@ def test_run_command_catches_generic_oserror_not_just_filenotfound():
     assert "/bin/bad-binary" in result.stderr
 
 
-def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
+def test_maybe_install_mcp_skills_runs_noninteractively_without_tty(monkeypatch):
+    # Without YUTORI_INSTALL_CLIENT, the no-TTY skills install answers the
+    # picker with `-y` but scopes it to the same default client set as the
+    # MCP-server step -- a bare `-y` would install symlink scaffolding for
+    # every one of the skills CLI's ~70 supported agents.
+    monkeypatch.delenv("YUTORI_INSTALL_CLIENT", raising=False)
     captured: dict[str, tuple[str, ...]] = {}
 
     with (
@@ -1194,9 +1199,101 @@ def test_maybe_install_mcp_skills_runs_noninteractively_without_tty():
 
     assert result.status == "success"
     fake_interactive.assert_not_called()
-    # Same argv as MCP_SKILLS_INSTALL_COMMAND, just with npx resolved to its
-    # absolute path -- `skills add ... -g` is already non-interactive.
-    assert captured["argv"] == ("/usr/local/bin/npx", *MCP_SKILLS_INSTALL_COMMAND[1:])
+    assert captured["argv"] == (
+        "/usr/local/bin/npx",
+        "-y",
+        "skills",
+        "add",
+        "yutori-ai/yutori-mcp",
+        "-g",
+        "-y",
+        "-a",
+        "claude-code",
+        "-a",
+        "codex",
+        "-a",
+        "cursor",
+        "-a",
+        "gemini-cli",
+    )
+    # Success detail should name the targeted clients and how to scope.
+    assert "claude-code" in result.detail
+    assert "YUTORI_INSTALL_CLIENT" in result.detail
+
+
+def test_maybe_install_mcp_skills_noninteractive_scopes_to_yutori_install_client(monkeypatch):
+    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
+    captured: dict[str, tuple[str, ...]] = {}
+
+    with (
+        patch("yutori.cli.commands.install_flow.resolve_npx_path", return_value="/usr/local/bin/npx"),
+        patch("yutori.cli.commands.install_flow.run_command", side_effect=_capturing_run_command(captured)),
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=False)
+
+    assert result.status == "success"
+    assert captured["argv"] == (
+        "/usr/local/bin/npx",
+        "-y",
+        "skills",
+        "add",
+        "yutori-ai/yutori-mcp",
+        "-g",
+        "-y",
+        "-a",
+        "codex",
+    )
+
+
+def test_maybe_install_mcp_skills_interactive_keeps_the_agent_picker():
+    # On a TTY the skills CLI's own agent picker is the scoping mechanism, so
+    # the interactive argv must not carry the picker-suppressing `-y` or any
+    # `-a` flags.
+    success = _completed_process(0, "", "")
+
+    with _patched_npx_install(run_result=success) as (_, mock_run):
+        result = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert result.status == "success"
+    argv = mock_run.call_args.args[0]
+    assert argv[-1] == "-g"
+    assert "-a" not in argv
+
+
+def test_maybe_install_mcp_skills_skips_with_actionable_detail_when_git_is_missing():
+    # The skills CLI clones its repository with git; without git it dies
+    # inside npx with a bare `spawn git ENOENT`. The step must skip with a
+    # real explanation instead, in both modes, before any npx invocation.
+    with (
+        patch("yutori.cli.commands.install_flow._which", return_value=None),
+        patch("yutori.cli.commands.install_flow.run_command") as fake_run,
+        patch("yutori.cli.commands.install_flow.run_interactive_command") as fake_interactive,
+    ):
+        result = maybe_install_mcp_skills(Console(), interactive=False)
+
+    assert result.status == "skipped"
+    assert "git" in result.detail
+    assert "skills add yutori-ai/yutori-mcp" in result.detail
+    fake_run.assert_not_called()
+    fake_interactive.assert_not_called()
+
+
+def test_maybe_install_mcp_skills_git_skip_hint_matches_the_mode(monkeypatch):
+    # The retry hint in the git-missing skip must be the command the current
+    # mode would actually run: a no-TTY user retrying the bare base command
+    # would hit the unanswered-picker no-op again (Bugbot: git skip hint
+    # drops client scoping).
+    monkeypatch.setenv("YUTORI_INSTALL_CLIENT", "codex")
+
+    with patch("yutori.cli.commands.install_flow._which", return_value=None):
+        noninteractive = maybe_install_mcp_skills(Console(), interactive=False)
+        interactive = maybe_install_mcp_skills(Console(), interactive=True)
+
+    assert "-y -a codex" in noninteractive.detail
+    # The interactive hint is the base command (the TTY picker does the
+    # scoping); note "-a" alone would false-match "yutori-ai".
+    assert "-y -a" not in interactive.detail
+    assert "skills add yutori-ai/yutori-mcp -g` to retry." in interactive.detail
 
 
 def test_maybe_install_mcp_server_noninteractive_defaults_to_popular_client_set(monkeypatch):
