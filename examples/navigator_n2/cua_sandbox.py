@@ -16,23 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from pathlib import PurePosixPath
 from typing import Any
+
+from PIL import Image
 
 BASH_RESULT_MAX_CHARS = 30_000
 
-_IMAGE_MIME_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-}
 
 _FILE_TOOL_SCRIPT = r"""
 from pathlib import Path
@@ -103,32 +97,6 @@ def check_read_before_edit(path, display, data):
         return f"ERROR: {display} changed since you last read it - read it again before editing."
     return None
 
-def image_dimensions(data):
-    try:
-        if data[:8] == b"\x89PNG\r\n\x1a\n":
-            return struct.unpack(">II", data[16:24])
-        if data[:6] in (b"GIF87a", b"GIF89a"):
-            return struct.unpack("<HH", data[6:10])
-        if data[:2] == b"BM":
-            width, height = struct.unpack("<ii", data[18:26])
-            return width, abs(height)
-        if data[:2] == b"\xff\xd8":
-            index = 2
-            while index + 9 < len(data):
-                if data[index] != 0xFF:
-                    index += 1
-                    continue
-                marker = data[index + 1]
-                if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-                    height, width = struct.unpack(">HH", data[index + 5 : index + 9])
-                    return width, height
-                index += 2 + struct.unpack(">H", data[index + 2 : index + 4])[0]
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP" and data[12:16] == b"VP8X":
-            return (int.from_bytes(data[24:27], "little") + 1, int.from_bytes(data[27:30], "little") + 1)
-    except Exception:
-        pass
-    return None
-
 def edit_snippet(text, anchor, extra_lines):
     lines = text.split("\n")
     line_no = text[: max(anchor, 0)].count("\n") + 1
@@ -161,8 +129,7 @@ if operation == "read":
     data = path.read_bytes()
     suffix = path.suffix.lower()
     if suffix in IMAGE_SUFFIXES:
-        dims = image_dimensions(data)
-        print("__YUTORI_IMAGE__ " + (f"{dims[0]}x{dims[1]}" if dims else "?"))
+        print("__YUTORI_IMAGE__")
         print(base64.b64encode(data).decode())
         raise SystemExit(0)
     if suffix == ".pdf":
@@ -340,6 +307,31 @@ def _shell_result(result: Any) -> str:
     )
 
 
+_IMAGE_VIEW_MAX_EDGE = 1568
+
+
+def _render_image_result(file_path: str, data: bytes) -> "dict[str, str] | str":
+    """Return an image read as visible image content: a note with the source
+    dimensions plus the image itself, downscaled to a 1568-px max edge and
+    WEBP-encoded — the same bounds the loop applies to screenshots."""
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        width, height = image.size
+        scale = min(1.0, _IMAGE_VIEW_MAX_EDGE / max(width, height)) if max(width, height) else 1.0
+        shown = image.resize((max(1, int(width * scale)), max(1, int(height * scale)))) if scale < 1.0 else image
+        if shown.mode not in ("RGB", "RGBA", "L"):
+            shown = shown.convert("RGB")
+        buffer = io.BytesIO()
+        shown.save(buffer, format="WEBP", quality=90)
+    except Exception as error:  # noqa: BLE001 - not a decodable image
+        return f"ERROR: {file_path} is not a readable image: {error}"
+    note = f"Loaded image {file_path} ({width}x{height})" + (
+        f", shown downscaled to {shown.size[0]}x{shown.size[1]}" if shown.size != (width, height) else ""
+    )
+    return {"text": note, "image_url": "data:image/webp;base64," + base64.b64encode(buffer.getvalue()).decode()}
+
+
 def _python_command(script: str, *arguments: str) -> str:
     return "python3 -c " + shlex.quote(script) + "".join(f" {shlex.quote(argument)}" for argument in arguments)
 
@@ -505,7 +497,8 @@ class CuaSandboxComputer:
         sentinel = f"__YUTORI_N2_BASH_CWD_{uuid.uuid4().hex}__"
         wrapped = f"{prefix}{command}\n__yutori_rc=$?\nprintf '\\n{sentinel}%s' \"$PWD\"\nexit $__yutori_rc"
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
-        # NORMAL result the model can react to, never a raised failure envelope.
+        # NORMAL result the model can react to, never a raised failure envelope. (The
+        # sandbox API discards partial output on expiry, so the result is the bare line.)
         timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
         if timeout_s == 0:
             return "Command timed out after 0s"
@@ -528,11 +521,8 @@ class CuaSandboxComputer:
             raise ValueError("read.offset must be a positive 1-based line number")
         output = await self._run_file_tool("read", file_path=file_path, offset=offset, limit=limit)
         if output.startswith("__YUTORI_IMAGE__"):
-            header, _, encoded = output.partition("\n")
-            dims = header.split(" ", 1)[1].strip() if " " in header else "?"
-            note = f"Loaded image {file_path}" + (f" ({dims})" if dims != "?" else "")
-            mime = _IMAGE_MIME_TYPES.get(PurePosixPath(file_path).suffix.lower(), "image/png")
-            return {"text": note, "image_url": f"data:{mime};base64,{encoded.strip()}"}
+            _, _, encoded = output.partition("\n")
+            return _render_image_result(file_path, base64.b64decode(encoded.strip()))
         return output.rstrip("\n")
 
     async def write_file(self, file_path: str, content: str) -> str:

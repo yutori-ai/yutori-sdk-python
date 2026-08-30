@@ -459,10 +459,10 @@ def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:
     (tmp_path / "empty.txt").write_text("", encoding="utf-8")
     assert run(**read_args, file_path="empty.txt") == "[file exists but is empty]"
 
-    # Image reads surface dimensions for the host to render as visible image content.
+    # Image reads hand raw bytes to the host, which renders visible image content.
     png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">IIBBBBB", 64, 48, 8, 6, 0, 0, 0)
     (tmp_path / "img.png").write_bytes(png)
-    assert run(**read_args, file_path="img.png").splitlines()[0] == "__YUTORI_IMAGE__ 64x48"
+    assert run(**read_args, file_path="img.png").splitlines()[0] == "__YUTORI_IMAGE__"
 
     # Grep clamps columns at 500 and skips all six VCS directories.
     (tmp_path / ".hg").mkdir()
@@ -486,3 +486,32 @@ def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:
     (wide_hit,) = [line for line in grep_output.splitlines() if "wide.txt" in line]
     assert len(wide_hit.split(":", 2)[2]) <= 500
     assert ".hg" not in grep_output
+
+
+def test_cua_read_file_returns_visible_image_content() -> None:
+    """`read` on an image must reach the model as image content: a note with the
+    source dimensions plus a WEBP data URL bounded to the 1568-px max edge."""
+    import asyncio
+    import io as _io
+
+    from PIL import Image as _Image
+
+    from examples.navigator_n2.cua_sandbox import CuaSandboxComputer
+
+    buffer = _io.BytesIO()
+    _Image.new("RGB", (2000, 500), (200, 30, 30)).save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+
+    class _Shell:
+        async def run(self, command: str, timeout: int = 30) -> SimpleNamespace:
+            if command.strip() == "pwd":
+                return SimpleNamespace(stdout="/root\n", stderr="", returncode=0)
+            return SimpleNamespace(stdout=f"__YUTORI_IMAGE__\n{encoded}\n", stderr="", returncode=0)
+
+    computer = CuaSandboxComputer(SimpleNamespace(shell=_Shell()))
+    result = asyncio.run(computer.read_file("shot.png"))
+    assert isinstance(result, dict)
+    assert result["text"] == "Loaded image shot.png (2000x500), shown downscaled to 1568x392"
+    assert result["image_url"].startswith("data:image/webp;base64,")
+    with _Image.open(_io.BytesIO(base64.b64decode(result["image_url"].split(",", 1)[1]))) as shown:
+        assert shown.size == (1568, 392)
