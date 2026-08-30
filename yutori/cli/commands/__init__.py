@@ -315,6 +315,7 @@ class _HTMLTextExtractor(HTMLParser):
         self._chunks: list[str] = []
         self._pending_breaks = 0
         self._skip_depth = 0
+        self._suppress_layout_ws = False
 
     def _request_break(self, tag: str) -> None:
         if tag in _HTML_PARAGRAPH_TAGS:
@@ -328,23 +329,27 @@ class _HTMLTextExtractor(HTMLParser):
         elif tag in _HTML_CELL_TAGS:
             if self._chunks and not self._pending_breaks:
                 self._chunks.append("  ")  # separate cells on the same row
+            self._suppress_layout_ws = True
         else:
             self._request_break(tag)
+            self._suppress_layout_ws = True
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _HTML_SKIPPED_TAGS:
             self._skip_depth = max(0, self._skip_depth - 1)
         else:
             self._request_break(tag)
+            self._suppress_layout_ws = True
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth:
             return
-        if self._pending_breaks and not data.strip():
-            return  # layout whitespace between tags
+        if (self._pending_breaks or self._suppress_layout_ws) and not data.strip():
+            return  # layout whitespace between tags, including around td/th cells
         if self._chunks and self._pending_breaks:
             self._chunks.append("\n" * self._pending_breaks)
         self._pending_breaks = 0
+        self._suppress_layout_ws = False
         self._chunks.append(data)
 
     def text(self) -> str:

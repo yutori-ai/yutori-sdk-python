@@ -57,6 +57,13 @@ def test_html_to_text_keeps_table_rows_on_lines_and_separates_cells():
     assert html_to_text(raw) == "Name  Title\nAda  Eng"
 
 
+def test_html_to_text_drops_layout_whitespace_around_pretty_printed_cells():
+    # Server-rendered tables may be pretty-printed with newlines/indentation between
+    # tags; that layout whitespace must not leak into the cell separator/row break.
+    raw = "<table>\n<tr>\n<td>Ada</td><td>Eng</td>\n</tr>\n<tr>\n<td>Grace</td><td>Navy</td>\n</tr>\n</table>"
+    assert html_to_text(raw) == "Ada  Eng\nGrace  Navy"
+
+
 def test_html_to_text_drops_script_and_style_bodies():
     raw = "<p>keep</p><style>p { color: red }</style><script>alert(1)</script><p>this</p>"
     assert html_to_text(raw) == "keep\n\nthis"
