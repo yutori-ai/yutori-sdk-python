@@ -181,22 +181,22 @@ async with AsyncYutoriClient() as client:
     )
 
     async for step in agent.run("Open Calculator and compute 17 * 23."):
-        for item in step.get("output") or []:
-            if item.get("type") == "message":
-                for part in item.get("content") or []:
-                    if isinstance(part, dict) and part.get("text"):
-                        print(part["text"])
+        ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to capture screenshots and execute the model's actions. See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
 
-The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. After authenticating with `yutori auth login`, run it without installing anything into your project:
+The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
-export DAYTONA_API_KEY=...  # https://app.daytona.io
+yutori auth login            # or export YUTORI_API_KEY=...
+export DAYTONA_API_KEY=...   # https://app.daytona.io
+
 uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
+
+See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls.
 
 <details>
 <summary>Run in local Docker instead (Cua cookbook)</summary>
