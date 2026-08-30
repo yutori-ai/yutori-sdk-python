@@ -613,3 +613,26 @@ async def test_requests_chain_via_prev_request_id():
     async for _ in agent.run("other task"):
         pass
     assert "extra_body" not in completions.requests[3]
+
+
+async def test_a_length_cut_turn_is_re_requested_once():
+    class LengthCutCompletions(FakeCompletions):
+        async def create(self, **kwargs):
+            response = await super().create(**kwargs)
+            if len(self.requests) == 1:
+                response["choices"][0]["finish_reason"] = "length"
+            return response
+
+    completions = LengthCutCompletions(
+        [
+            {"content": "I will now open the ter", "tool_calls": []},  # truncated fragment
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    agent = _agent(Desktop(), completions)
+    steps = [step async for step in agent.run("task")]
+    # The fragment never entered the run; the retry's answer is the final one.
+    assert len(completions.requests) == 2
+    assert completions.requests[1]["messages"] == completions.requests[0]["messages"]
+    assert agent.stopped_by == "final_answer"
+    assert steps[-1]["output"][-1]["content"][0]["text"] == "done"

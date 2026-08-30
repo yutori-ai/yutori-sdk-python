@@ -16,7 +16,9 @@ contract, with these deliberate implementation choices:
   executes in order.
 - A turn with literal ``<tool_call>`` markup but zero parsed calls gets one
   format-reminder retry; neither the attempt nor the reminder enters the kept
-  trajectory.
+  trajectory. A response cut off at the output cap (``finish_reason ==
+  "length"``) with no tool calls is likewise re-requested once instead of being
+  read as a final answer.
 - A turn without tool calls ends the run (``stopped_by == "final_answer"``);
   ``resume(message)`` appends a user message and continues the conversation.
 - The model call goes through the SDK's chat-completions surface (or any
@@ -1314,6 +1316,12 @@ class N2ComputerAgent:
             self.last_usage = usage
             self.last_request_id = response_dict.get("request_id") or self.last_request_id
             await self._callbacks.fire("on_usage", usage)
+            finish_reason = (response_dict.get("choices") or [{}])[0].get("finish_reason")
+            if attempt == 0 and finish_reason == "length" and not message.get("tool_calls"):
+                # The response hit the output cap mid-turn: what parsed is a
+                # truncated fragment that would otherwise read as a final answer.
+                # One plain re-request; sampling gives a fresh rollout.
+                continue
             if attempt == 0 and needs_tool_call_format_nudge(message):
                 # One ephemeral retry: the malformed attempt and the reminder ride
                 # in the retry request only, never in the kept trajectory.
