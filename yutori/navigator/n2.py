@@ -47,7 +47,6 @@ import copy
 import functools
 import inspect
 import json
-import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -161,13 +160,14 @@ def needs_tool_call_format_nudge(message: "dict[str, Any]") -> bool:
 
 # Tool text passes through as the handler returned it; this backstop only stops a
 # runaway result (a multi-megabyte cat) from overflowing the request and ending
-# the run. Idempotent on text an adapter already capped with the same marker.
+# the run. It sits above every sane adapter cap, so self-truncating tools never
+# trigger it — and when it does fire, it cuts by length alone, agnostic to the
+# adapter's own truncation format. Text only: image payloads are never touched.
 _RESULT_TEXT_BACKSTOP_CHARS = 256 * 1024
-_TRUNCATION_MARKER = re.compile(r"\[\.\.\. output truncated, \d+ more chars \.\.\.\]\s*$")
 
 
 def _backstop_result_text(text: str) -> str:
-    if len(text) <= _RESULT_TEXT_BACKSTOP_CHARS or _TRUNCATION_MARKER.search(text):
+    if len(text) <= _RESULT_TEXT_BACKSTOP_CHARS:
         return text
     cut = _RESULT_TEXT_BACKSTOP_CHARS
     return f"{text[:cut]}\n\n[... output truncated, {len(text) - cut} more chars ...]"

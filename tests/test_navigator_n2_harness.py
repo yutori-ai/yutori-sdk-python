@@ -663,3 +663,28 @@ async def test_compaction_result_commits_the_trajectory_immediately():
             break  # abandon the generator right after compaction's next turn
     assert agent.trajectory[1]["content"] == [{"type": "text", "text": "checkpoint"}]
     assert agent.last_request_id in ("c-1", "req-3")
+
+
+async def test_result_backstop_is_length_only_and_never_touches_images():
+    big = "x" * (256 * 1024 + 100)
+    marked = "y" * 1000 + "\n\n[... output truncated, 999 more chars ...]"
+    file_image = "data:image/png;base64," + _png_b64(8, 8)
+
+    class BigDesktop(Desktop):
+        async def read_file(self, file_path, offset, limit):
+            return {"text": big, "image_url": file_image}
+
+    desktop = BigDesktop()
+    desktop.bash_result = marked
+    items = parse_n2_tool_calls(
+        {"content": "", "tool_calls": [_bash("ok", "b1"), _read("/tmp/a.png", "r1")]}, 1920, 1080
+    )
+    bash_out = await execute_n2_computer_call(items[0], desktop, callbacks=_CallbackDispatcher({}))
+    read_out = await execute_n2_computer_call(items[1], desktop, callbacks=_CallbackDispatcher({}))
+    # Under the cap: untouched, whatever markers it carries.
+    assert bash_out[0]["output"] == [marked] or bash_out[0]["output"] == marked
+    # Over the cap: cut by length alone; the image payload is byte-identical.
+    out = read_out[0]["output"]
+    assert out["image_url"] == file_image
+    assert out["result"].startswith("x" * 1000)
+    assert out["result"].endswith("[... output truncated, 100 more chars ...]")
