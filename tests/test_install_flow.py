@@ -187,7 +187,7 @@ def test_hidden_install_ui_alias_dispatches_to_install_flow_command():
         assert label in flow_result.stdout
 
 
-def test_detect_sdk_install_plan_prefers_pyproject(tmp_path: Path, monkeypatch):
+def test_detect_sdk_install_plan_uses_uv_for_pep621_project(tmp_path: Path, monkeypatch):
     (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
@@ -197,6 +197,90 @@ def test_detect_sdk_install_plan_prefers_pyproject(tmp_path: Path, monkeypatch):
     assert plan.command == ("/usr/bin/uv", "add", "yutori")
     assert plan.default is True
     assert plan.availability_error is None
+
+
+def test_detect_sdk_install_plan_uses_poetry_for_poetry_project(tmp_path: Path, monkeypatch):
+    # No Python range anywhere in the project: Poetry would reject `yutori`
+    # (Requires-Python >=3.9) against its implicit "any Python", so the SDK's
+    # range is stated on the dependency.
+    (tmp_path / "pyproject.toml").write_text("[tool.poetry]\nname='demo'\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+    ):
+        plan = detect_sdk_install_plan()
+
+    assert plan.reason == "Detected a Poetry project in the current directory."
+    assert plan.command == ("/usr/bin/poetry", "add", "--python", ">=3.9", "yutori")
+    assert plan.default is True
+    assert plan.availability_error is None
+
+
+def test_detect_sdk_install_plan_poetry_project_with_python_range_omits_python_flag(tmp_path: Path, monkeypatch):
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.poetry]\nname = "demo"\n\n[tool.poetry.dependencies]\npython = "^3.11"  # trailing comment\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+    ):
+        plan = detect_sdk_install_plan()
+
+    assert plan.command == ("/usr/bin/poetry", "add", "yutori")
+
+
+def test_detect_sdk_install_plan_prefers_poetry_for_pep621_project_managed_by_poetry(tmp_path: Path, monkeypatch):
+    # Poetry 2 projects carry both tables; `uv add` would edit [project] and
+    # leave poetry.lock stale, so Poetry wins. `requires-python` counts as a
+    # declared range.
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nrequires-python = ">=3.11"\n\n[tool.poetry]\npackage-mode = false\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+    ):
+        plan = detect_sdk_install_plan()
+
+    assert plan.reason == "Detected a Poetry project in the current directory."
+    assert plan.command == ("/usr/bin/poetry", "add", "yutori")
+
+
+def test_detect_sdk_install_plan_flags_missing_poetry(tmp_path: Path, monkeypatch):
+    (tmp_path / "pyproject.toml").write_text("[tool.poetry]\nname='demo'\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch("yutori.cli.commands.install_flow._which", return_value=None),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+    ):
+        plan = detect_sdk_install_plan()
+
+    assert plan.command == ("poetry", "add", "--python", ">=3.9", "yutori")
+    assert plan.availability_error == "`poetry` is required for Poetry project installs."
+
+
+def test_detect_sdk_install_plan_does_not_treat_tool_only_pyproject_as_uv_project(tmp_path: Path, monkeypatch):
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length=100\n", encoding="utf-8")
+    venv_python = tmp_path / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    venv_python.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / ".venv"))
+
+    with patch("yutori.cli.commands.install_flow.python_has_pip", return_value=True):
+        plan = detect_sdk_install_plan()
+
+    assert plan.command == (str(venv_python), "-m", "pip", "install", "yutori")
 
 
 def test_detect_sdk_install_plan_uses_bootstrap_uv_env_var(tmp_path: Path, monkeypatch):

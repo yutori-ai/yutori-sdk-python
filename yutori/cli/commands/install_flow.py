@@ -26,7 +26,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
 from typing import Literal
 
@@ -416,6 +416,13 @@ def _yutori_version() -> str:
         return "unknown"
 
 
+def _yutori_requires_python() -> str | None:
+    try:
+        return metadata("yutori").get("Requires-Python") or None
+    except PackageNotFoundError:
+        return None
+
+
 def render_header(console: Console, *, interactive: bool) -> None:
     mode = "Interactive terminal detected." if interactive else "Non-interactive terminal detected."
     # Only used when bash didn't render its own intro (direct
@@ -534,14 +541,71 @@ def inspect_cli_install(env: Mapping[str, str] | None = None) -> tuple[CLIInstal
     return state, StepResult("CLI", "success", detail)
 
 
+def _pyproject_declared_keys(path: Path) -> set[str]:
+    """Return the dotted table headers and simple keys declared by ``path``.
+
+    Table headers appear as-is (``"tool.poetry"``); ``key = value`` lines
+    appear prefixed by their table (``"project.requires-python"``,
+    ``"tool.poetry.dependencies.python"``). The installer supports Python 3.9+,
+    so it cannot rely on stdlib ``tomllib``; this is enough to recognize the
+    canonical project formats and whether they pin a Python range, without
+    parsing arbitrary TOML values.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return set()
+
+    keys: set[str] = set()
+    table = ""
+    for line in lines:
+        candidate = line.partition("#")[0].strip()
+        if not candidate:
+            continue
+        if candidate.startswith("[") and candidate.endswith("]"):
+            table = "".join(candidate.strip("[]").split()).replace('"', "").replace("'", "")
+            keys.add(table)
+            continue
+        key, separator, _ = candidate.partition("=")
+        key = key.strip().strip("\"'")
+        if separator and key:
+            keys.add(f"{table}.{key}" if table else key)
+    return keys
+
+
 def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | None = None) -> SDKInstallPlan:
     resolved_cwd = cwd or Path.cwd()
     resolved_env = _resolve_env(env)
 
-    if (resolved_cwd / "pyproject.toml").exists():
+    pyproject_path = resolved_cwd / "pyproject.toml"
+    pyproject_keys = _pyproject_declared_keys(pyproject_path) if pyproject_path.exists() else set()
+    if "tool.poetry" in pyproject_keys:
+        poetry_path = _which("poetry", resolved_env)
+        poetry_command = [poetry_path or "poetry", "add"]
+        declares_python_range = bool(
+            {"project.requires-python", "tool.poetry.dependencies.python"} & pyproject_keys
+        )
+        requires_python = _yutori_requires_python()
+        if requires_python and not declares_python_range:
+            # A Poetry project with no Python range of its own is treated by
+            # Poetry as supporting every Python, so it refuses any dependency
+            # that pins one. Stating the SDK's range on this dependency is the
+            # only way `poetry add` succeeds there. Projects that declare a
+            # range resolve fine without it, and shouldn't get a redundant
+            # `python = ...` marker written into their pyproject.
+            poetry_command.extend(("--python", requires_python))
+        poetry_command.append("yutori")
+        return SDKInstallPlan(
+            reason="Detected a Poetry project in the current directory.",
+            command=tuple(poetry_command),
+            default=True,
+            availability_error=None if poetry_path else "`poetry` is required for Poetry project installs.",
+        )
+
+    if "project" in pyproject_keys:
         uv_path = resolve_uv_path(resolved_env)
         return SDKInstallPlan(
-            reason="Detected pyproject.toml in the current directory.",
+            reason="Detected a PEP 621 project in the current directory.",
             command=((uv_path or "uv"), "add", "yutori"),
             default=True,
             availability_error=None if uv_path else "`uv` is required for project installs.",
