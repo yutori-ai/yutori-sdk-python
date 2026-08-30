@@ -74,7 +74,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_compaction import N2Compactor
+from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor, N2InlineCompactor
 from .n2_payload import (
     DEFAULT_IMAGE_FORMAT,
     OLDER_IMAGE_OMITTED_TEXT,
@@ -98,8 +98,11 @@ __all__ = [
     "NAVIGATOR_N1_MODEL",
     "NAVIGATOR_N2_MODEL",
     "N2ActionValidationError",
+    "N2CompactionContext",
+    "N2CompactionResult",
     "N2ComputerAgent",
     "N2Compactor",
+    "N2InlineCompactor",
     "DEFAULT_IMAGE_FORMAT",
     "OLDER_IMAGE_OMITTED_TEXT",
     "SUPPORTED_N2_TOOL_SETS",

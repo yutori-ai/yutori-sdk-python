@@ -80,7 +80,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_compaction import N2Compactor
+from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor
 from .n2_payload import (
     DEFAULT_IMAGE_FORMAT,
     DEFAULT_MAX_MESSAGES_BYTES,
@@ -1219,21 +1219,10 @@ class N2ComputerAgent:
                 self._native_size = (width, height)
         return self._native_size
 
-    async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
-        completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
+    def _prepare_completion_messages(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Render trajectory items with the actor's exact prompt and image policy."""
 
-        latest_url = latest_image_url(completion_messages)
-        if latest_url is None:
-            # Blind start: the model's first turn sees the task alone and asks
-            # for a frame itself (a `screenshot` batch member).
-            native_width, native_height = await self._resolve_native_size()
-        else:
-            current_observation = getattr(self.computer, "current_observation", None)
-            if isinstance(current_observation, N2Observation):
-                native_width = current_observation.native_width
-                native_height = current_observation.native_height
-            else:
-                native_width, native_height = image_dimensions(latest_url)
+        completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
         if self.system_prompt:
             completion_messages.insert(0, {"role": "system", "content": self.system_prompt})
         # Strip historical screenshots before compression so long-running
@@ -1250,21 +1239,51 @@ class N2ComputerAgent:
                 f"Serialized n2 request is {request_bytes} bytes, above the "
                 f"{MAX_REQUEST_BODY_BYTES}-byte request limit."
             )
+        return completion_messages
 
-        api_kwargs: dict[str, Any] = {
+    def _completion_request_kwargs(self) -> dict[str, Any]:
+        """Return resolved actor call fields other than messages and chaining."""
+
+        request_kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": completion_messages,
             "tool_set": self.tool_set,
             "max_completion_tokens": self.max_completion_tokens,
             "parallel_tool_calls": True,
         }
         if self.temperature is not None:
-            api_kwargs["temperature"] = self.temperature
+            request_kwargs["temperature"] = self.temperature
         if self.reasoning_effort is not None:
-            api_kwargs["reasoning_effort"] = self.reasoning_effort
+            request_kwargs["reasoning_effort"] = self.reasoning_effort
         if self.api_timeout_seconds is not None:
-            api_kwargs["timeout"] = self.api_timeout_seconds
-        api_kwargs.update(self.completion_kwargs)
+            request_kwargs["timeout"] = self.api_timeout_seconds
+        request_kwargs.update(self.completion_kwargs)
+        return request_kwargs
+
+    async def _await_completion(self, awaitable: Awaitable[Any]) -> Any:
+        """Apply this computer session's cancellation policy to a model call."""
+
+        return await _await_model_response(self.computer, awaitable)
+
+    async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        completion_messages = self._prepare_completion_messages(items)
+
+        latest_url = latest_image_url(completion_messages)
+        if latest_url is None:
+            # Blind start: the model's first turn sees the task alone and asks
+            # for a frame itself (a `screenshot` batch member).
+            native_width, native_height = await self._resolve_native_size()
+        else:
+            current_observation = getattr(self.computer, "current_observation", None)
+            if isinstance(current_observation, N2Observation):
+                native_width = current_observation.native_width
+                native_height = current_observation.native_height
+            else:
+                native_width, native_height = image_dimensions(latest_url)
+
+        api_kwargs = self._completion_request_kwargs()
+        # Preserve the historical merge order: callers should not pass
+        # ``messages`` through completion_kwargs, but it previously won if they did.
+        api_kwargs.setdefault("messages", completion_messages)
 
         for attempt in (0, 1):
             if self.last_request_id is not None:
@@ -1278,7 +1297,7 @@ class N2ComputerAgent:
             await self._callbacks.fire("on_api_start", api_kwargs)
             model_started_at = time.monotonic()
             try:
-                response = await _await_model_response(self.computer, self._resolve_completions().create(**api_kwargs))
+                response = await self._await_completion(self._resolve_completions().create(**api_kwargs))
             finally:
                 self.timings["model_ms"] += (time.monotonic() - model_started_at) * 1000
             await self._callbacks.fire("on_api_end", api_kwargs, response)
@@ -1307,7 +1326,11 @@ class N2ComputerAgent:
             allow_click_modifiers=self.supports_click_modifiers,
             allow_scroll_modifiers=self.supports_scroll_modifiers,
         )
+        turn_id = _random_id()
         for output_item in output:
+            # Private trajectory identity makes complete-turn retention exact
+            # even when a response contains interleaved invalid parallel calls.
+            output_item["_n2_turn_id"] = turn_id
             if output_item.get("type") != "message":
                 continue
             if output_item.get("reasoning"):
@@ -1323,6 +1346,12 @@ class N2ComputerAgent:
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
         self.trajectory = self._initial_items(messages)
         self.last_request_id = None
+        self.last_usage = {}
+        reset_compactor = getattr(self.compactor, "reset", None)
+        if reset_compactor is not None:
+            reset_result = reset_compactor()
+            if inspect.isawaitable(reset_result):
+                await reset_result
         async for step in self._drive(messages):
             yield step
 
@@ -1361,15 +1390,29 @@ class N2ComputerAgent:
                     self.stopped_by = "timeout"
                     break
                 if self.compactor is not None:
-                    compacted = await self.compactor.compact(
-                        old_items + new_items,
-                        last_usage=self.last_usage,
-                        completions=self._resolve_completions(),
-                        model=self.model,
-                        tool_set=self.tool_set,
-                    )
+                    compact_kwargs: dict[str, Any] = {
+                        "last_usage": self.last_usage,
+                        "completions": self._resolve_completions(),
+                        "model": self.model,
+                        "tool_set": self.tool_set,
+                    }
+                    if _accepts_kwarg(self.compactor.compact, "context"):
+                        request_kwargs = self._completion_request_kwargs()
+                        request_kwargs.pop("messages", None)
+                        compact_kwargs["context"] = N2CompactionContext(
+                            prepare_messages=self._prepare_completion_messages,
+                            request_kwargs=request_kwargs,
+                            await_response=self._await_completion,
+                            previous_request_id=self.last_request_id,
+                        )
+                    compacted = await self.compactor.compact(old_items + new_items, **compact_kwargs)
                     if compacted is not None:
-                        old_items, new_items = list(compacted), []
+                        if isinstance(compacted, N2CompactionResult):
+                            old_items, new_items = list(compacted.items), []
+                            if compacted.request_id is not None:
+                                self.last_request_id = compacted.request_id
+                        else:
+                            old_items, new_items = list(compacted), []
                         self.last_usage = {}
                 prompt_tokens = self.last_usage.get("prompt_tokens")
                 if (
@@ -1432,6 +1475,8 @@ class N2ComputerAgent:
                                 ),
                             }
                         ]
+                    for partial_item in partial_items:
+                        partial_item["_n2_turn_id"] = item.get("_n2_turn_id")
                     new_items += partial_items
                     if partial_items:
                         yield {"output": partial_items, "usage": {}}
