@@ -459,7 +459,8 @@ from yutori.navigator import (
     NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
     # Navigator n2 loop helpers
-    N2ComputerAgent, parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
+    N2ComputerAgent, N2CompactionContext, N2CompactionResult, N2Compactor, N2InlineCompactor,
+    parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
     # Coordinates
@@ -479,10 +480,10 @@ from yutori.navigator import (
 
 ### Navigator n2 loop
 
-Importable from SDK 0.9.3+:
+Imports:
 
 ```python
-from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
+from yutori.navigator import N2ComputerAgent, N2InlineCompactor, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
@@ -509,9 +510,42 @@ The keywords:
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
 | `completion_kwargs` | `None` | Extra fields merged into every chat-completions request (e.g. `top_p`), for callers who want explicit sampling settings. |
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
-| `compactor` | `None` | `async compact(items, *, last_usage, completions, model, tool_set) -> items | None`, called before each model call; return a replacement trajectory to compact the context. |
+| `compactor` | `None` | An `N2Compactor`, called before each model request and the context-limit guard. Return a replacement trajectory to compact the context. |
 
 Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
+
+### N2 context compaction
+
+`N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
+harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,
+and keeps recent complete turns verbatim. Compaction is opt-in:
+
+```python
+from yutori.navigator import N2ComputerAgent, N2InlineCompactor
+
+agent = N2ComputerAgent(
+    computer=computer,
+    completions=client.chat.completions,
+    model="n2",
+    compactor=N2InlineCompactor(
+        trigger_input_tokens=53_760,
+        keep_last_n_turns=5,
+        tail_token_budget=16_384,
+    ),
+)
+```
+
+The defaults trigger only when the previous actor request used more than 53,760 prompt tokens, retain at most
+five actor turns within an estimated 16,384-token tail, target a 9,000-character checkpoint, and try at most
+three compaction responses. The compaction request uses the actor's same completion surface, system prompt,
+tool set, image policy, sampling fields, output budget, and timeout. A successful request remains in the
+`prev_request_id` chain; tool-calling, empty, or malformed responses are retried. History is replaced only
+after a valid tagged checkpoint, and the first actor call after replacement is exempt from another compaction.
+
+For another policy, implement `N2Compactor.compact(...)`. Existing compactors may continue returning
+`list[dict] | None`; implementations that accept the optional `context` keyword receive an
+`N2CompactionContext` with the exact actor request policy and may return `N2CompactionResult` to advance the
+request chain. A new `run()` resets usage and optional compactor state; `resume()` continues both.
 
 ### Screenshot helpers
 

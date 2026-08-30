@@ -186,7 +186,7 @@ async with AsyncYutoriClient() as client:
                         print(part["text"])
 ```
 
-`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through it. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
+`computer` is any adapter with async screenshot and input methods; shell and file methods are optional. [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) is a complete agent on a sandbox [Daytona](https://www.daytona.io) Linux desktop, with everything Daytona-specific in one small adapter class. It also shows how to attach `N2InlineCompactor`, the opt-in Praxis-compatible policy for long trajectories; [Building agents with n2](https://docs.yutori.com/reference/n2-daytona) walks through the harness. For direct `client.chat.completions.create(...)` calls and request fields, see the [API reference](api.md#navigator-n2).
 
 <details>
 <summary>Drive your own local Mac</summary>
@@ -221,6 +221,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 | `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set (SDK 0.9.3+).                                                       |
+| `N2InlineCompactor` / `N2Compactor`                         | Opt-in Praxis-compatible context compaction, or the protocol for a custom n2 history rewrite policy.                                  |
 
 
 Full helper reference: [api.md](api.md).

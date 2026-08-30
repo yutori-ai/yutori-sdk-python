@@ -12,13 +12,21 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
 
 from examples.navigator_n2.cua_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
-from yutori.navigator import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST, N2ComputerAgent
+from examples.navigator_n2_daytona import CWD_SENTINEL, DaytonaComputer
+from yutori.navigator import (
+    NAVIGATOR_N2_MODEL,
+    TOOL_SET_COMPUTER_USE_BASH_BATCH,
+    TOOL_SET_COMPUTER_USE_LATEST,
+    N2ComputerAgent,
+    N2InlineCompactor,
+)
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 from .conftest import FakeCompletions
@@ -109,6 +117,93 @@ def test_every_ported_example_is_importable_without_its_optional_runtime() -> No
         "examples.navigator_n2_daytona",
     ):
         assert importlib.import_module(name)
+
+
+async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
+    screenshot = f"data:image/png;base64,{_screenshot_base64()}"
+    sandbox = SimpleNamespace(
+        computer_use=SimpleNamespace(
+            start=AsyncMock(),
+            display=SimpleNamespace(
+                get_info=AsyncMock(return_value=SimpleNamespace(displays=[SimpleNamespace(height=100)]))
+            ),
+            screenshot=SimpleNamespace(
+                take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))
+            ),
+        ),
+        process=SimpleNamespace(
+            exec=AsyncMock(
+                return_value=SimpleNamespace(
+                    result=f"listed files\n{CWD_SENTINEL}/workspace",
+                    exit_code=0,
+                )
+            )
+        ),
+    )
+    computer = DaytonaComputer(sandbox)
+    await computer.start()
+    completions = FakeCompletions(
+        [
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "bash-1",
+                                    "function": {"name": "bash", "arguments": '{"command":"ls"}'},
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 2},
+                "request_id": "actor-1",
+            },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "<conversation_compaction_summary>\n"
+                                "## Goal\nList the files\n"
+                                "</conversation_compaction_summary>"
+                            ),
+                            "tool_calls": [],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 2},
+                "request_id": "compact-1",
+            },
+            {
+                "choices": [{"message": {"content": "done", "tool_calls": []}}],
+                "usage": {"prompt_tokens": 1},
+                "request_id": "actor-2",
+            },
+        ]
+    )
+    compactor = N2InlineCompactor(
+        trigger_input_tokens=1,
+        keep_last_n_turns=0,
+        retry_delay_seconds=0,
+    )
+    agent = N2ComputerAgent(
+        computer=computer,
+        completions=completions,
+        tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+        compactor=compactor,
+    )
+
+    steps = [step async for step in agent.run("list files")]
+
+    assert steps[-1]["message"]["content"] == "done"
+    assert compactor.compaction_count == 1
+    assert sandbox.process.exec.await_args.kwargs["cwd"] is None
+    assert completions.requests[1]["extra_body"]["prev_request_id"] == "actor-1"
+    assert completions.requests[2]["extra_body"]["prev_request_id"] == "compact-1"
+    assert "<working_checkpoint>\n## Goal\nList the files" in completions.requests[2]["messages"][1]["content"]
 
 
 def test_cookbook_uses_a_public_pinned_cua_dependency() -> None:
