@@ -29,6 +29,8 @@ Usage:
     uv run examples/navigator_n2_daytona.py \\
         "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
 
+Add --record to save a screen recording of the run to n2-daytona-run.mp4.
+
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
 """
 
@@ -50,6 +52,9 @@ SNAPSHOT = "daytonaio/sandbox:0.6.0"
 # One `keyboard.type` call longer than this is silently cut off by the sandbox.
 TYPE_CHUNK_MAX_CHARS = 500
 
+# Where --record saves the screen recording after the run.
+RECORDING_PATH = "n2-daytona-run.mp4"
+
 # The n2 `bash` tool caps one result at this many characters.
 BASH_RESULT_MAX_CHARS = 30_000
 MAX_STEPS = 30
@@ -70,6 +75,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_positive_int,
         default=MAX_STEPS,
         help=f"Maximum model turns (default: {MAX_STEPS})",
+    )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help=f"Record the sandbox screen and save the video to {RECORDING_PATH} when the run ends.",
     )
     return parser.parse_args(argv)
 
@@ -195,7 +205,7 @@ class DaytonaComputer:
         return output or "(Bash completed with no output)"
 
 
-async def main(task: str, max_steps: int = MAX_STEPS) -> None:
+async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> None:
     # Validate the Yutori credential before entering or allocating third-party infrastructure.
     async with AsyncYutoriClient() as client:
         await client.get_usage()
@@ -204,9 +214,12 @@ async def main(task: str, max_steps: int = MAX_STEPS) -> None:
 
         async with AsyncDaytona() as daytona:
             sandbox = await daytona.create(CreateSandboxFromSnapshotParams(snapshot=SNAPSHOT, ephemeral=True))
+            recording = None
             try:
                 computer = DaytonaComputer(sandbox)
                 await computer.start()
+                if record:
+                    recording = await sandbox.computer_use.recording.start(label="yutori-n2")
                 agent = N2ComputerAgent(
                     computer=computer,
                     completions=client.chat.completions,
@@ -232,7 +245,14 @@ async def main(task: str, max_steps: int = MAX_STEPS) -> None:
                             elif isinstance(output, dict) and output.get("result") is not None:
                                 print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
             finally:
-                await sandbox.delete(wait=True)
+                try:
+                    if recording is not None:
+                        stopped = await sandbox.computer_use.recording.stop(recording.id)
+                        await sandbox.computer_use.recording.download(recording.id, RECORDING_PATH)
+                        seconds = stopped.duration_seconds or 0
+                        print(f"Saved screen recording ({seconds:.0f}s) to {RECORDING_PATH}")
+                finally:
+                    await sandbox.delete(wait=True)
 
     if agent.stopped_by == "max_steps":
         raise RuntimeError(f"Stopped after {max_steps} steps")
@@ -240,4 +260,4 @@ async def main(task: str, max_steps: int = MAX_STEPS) -> None:
 
 if __name__ == "__main__":
     cli_args = parse_args()
-    asyncio.run(main(cli_args.task, max_steps=cli_args.max_steps))
+    asyncio.run(main(cli_args.task, max_steps=cli_args.max_steps, record=cli_args.record))

@@ -142,6 +142,13 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
     assert seen["sandbox-closed"] is True
 
 
+def test_daytona_cli_record_flag_is_optional_and_order_safe() -> None:
+    assert navigator_n2_daytona.parse_args(["task"]).record is False
+    assert navigator_n2_daytona.parse_args(["--record", "task"]).record is True
+    args = navigator_n2_daytona.parse_args(["task", "--record"])
+    assert args.record is True and args.task == "task"
+
+
 def test_daytona_cli_help_is_safe_without_optional_runtime(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
         navigator_n2_daytona.parse_args(["--help"])

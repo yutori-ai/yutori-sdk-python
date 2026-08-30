@@ -86,4 +86,6 @@ uv run examples/navigator_n2_daytona.py \
     "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
 ```
 
+Pass `--record` to capture the desktop during the run; the video is downloaded to `n2-daytona-run.mp4` before the sandbox is deleted.
+
 To drive your own Mac instead, use [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) (`uvx yutori-mcp computer-use setup`). Walkthrough: [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona).
