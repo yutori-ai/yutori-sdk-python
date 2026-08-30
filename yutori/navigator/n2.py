@@ -1280,6 +1280,26 @@ class N2ComputerAgent:
             )
         return completion_messages
 
+    def completion_request(self, extra_messages: "list[dict[str, Any]] | None" = None) -> dict[str, Any]:
+        """The actor's next Chat Completions request for the current trajectory.
+
+        Returns exactly what the loop itself would send — system prompt, image-windowed
+        messages, sampling fields, and request chaining — optionally with ``extra_messages``
+        (chat-format) appended after the trajectory. Useful for harness-owned turns that
+        must not advance the loop or execute tools, such as a step-cap "stop and
+        summarize" wrap-up: send it yourself with the same client,
+        ``await client.chat.completions.create(**agent.completion_request([nudge]))``.
+        The call and its response stay the caller's own; the trajectory is not changed.
+        """
+        request = self._completion_request_kwargs()
+        messages = self._prepare_completion_messages(self.trajectory)
+        if extra_messages:
+            messages = messages + copy.deepcopy(list(extra_messages))
+        request["messages"] = messages
+        if self.last_request_id is not None:
+            request["extra_body"] = {**(request.get("extra_body") or {}), "prev_request_id": self.last_request_id}
+        return request
+
     def _completion_request_kwargs(self) -> dict[str, Any]:
         """Return resolved actor call fields other than messages and chaining."""
 
