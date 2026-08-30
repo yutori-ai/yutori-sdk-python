@@ -83,7 +83,7 @@ The script declares Python 3.10+, Yutori SDK 0.9.4 or newer, and the tested Dayt
 ```bash
 export DAYTONA_API_KEY=...   # https://app.daytona.io
 uv run examples/navigator_n2_daytona.py \
-    "Write 'hello from n2' to /tmp/demo.txt with bash, then open a terminal from the dock and cat the file"
+    "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
 
 Pass `--record` to capture the desktop during the run; the video is downloaded to `n2-daytona-run.mp4` before the sandbox is deleted.

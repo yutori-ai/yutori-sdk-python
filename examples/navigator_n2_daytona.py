@@ -25,7 +25,7 @@ Usage:
     export DAYTONA_API_KEY=...                # https://app.daytona.io
 
     uv run examples/navigator_n2_daytona.py \\
-        "Write 'hello from n2' to /tmp/demo.txt with bash, then open a terminal from the dock and cat the file"
+        "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
 

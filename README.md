@@ -195,7 +195,7 @@ The complete runnable example is [examples/navigator_n2_daytona.py](examples/nav
 ```bash
 export DAYTONA_API_KEY=...  # https://app.daytona.io
 uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
-    "Write 'hello from n2' to /tmp/demo.txt with bash, then open a terminal from the dock and cat the file"
+    "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
 
 <details>
@@ -238,7 +238,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 | `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set (SDK 0.9.3+).                                                       |
-| `N2InlineCompactor` / `N2Compactor`                         | Opt-in context compaction on current main; the inline implementation is not included in published SDK 0.9.4.                          |
+| `N2InlineCompactor` / `N2Compactor`                         | Opt-in context compaction for long n2 trajectories, and the protocol for a custom history rewrite policy.                          |
 
 
 Full helper reference: [api.md](api.md).
