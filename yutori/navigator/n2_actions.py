@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from ._key_symbols import PUNCTUATION_KEY_NAMES
 from .models import (
     TOOL_SET_COMPUTER_USE,
     TOOL_SET_COMPUTER_USE_BASH_BATCH,
@@ -177,21 +178,6 @@ _MODIFIER_ALIASES = {
 # model was never taught to ask for.
 MODIFIABLE_ACTIONS = frozenset({"left_click", "double_click", "triple_click", "middle_click", "right_click", "scroll"})
 
-_PUNCTUATION_KEYS = {
-    "minus": "-",
-    "plus": "+",
-    "equal": "=",
-    "comma": ",",
-    "period": ".",
-    "slash": "/",
-    "backslash": "\\",
-    "semicolon": ";",
-    "quote": "'",
-    "backquote": "`",
-    "bracketleft": "[",
-    "bracketright": "]",
-}
-
 _KEY_ALIASES = {
     "meta": "cmd",
     "command": "cmd",
@@ -206,7 +192,7 @@ _KEY_ALIASES = {
     "arrowdown": "down",
     "arrowleft": "left",
     "arrowright": "right",
-    **_PUNCTUATION_KEYS,
+    **PUNCTUATION_KEY_NAMES,
 }
 
 _ACTION_FIELDS = {
