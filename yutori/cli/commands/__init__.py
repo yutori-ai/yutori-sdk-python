@@ -332,14 +332,14 @@ class _HTMLTextExtractor(HTMLParser):
             self._suppress_layout_ws = True
         else:
             self._request_break(tag)
-            self._suppress_layout_ws = True
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _HTML_SKIPPED_TAGS:
             self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag in _HTML_CELL_TAGS:
+            self._suppress_layout_ws = True
         else:
             self._request_break(tag)
-            self._suppress_layout_ws = True
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth:

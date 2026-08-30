@@ -64,6 +64,12 @@ def test_html_to_text_drops_layout_whitespace_around_pretty_printed_cells():
     assert html_to_text(raw) == "Ada  Eng\nGrace  Navy"
 
 
+def test_html_to_text_keeps_significant_space_between_inline_tags():
+    # A whitespace-only text node between two inline tags (e.g. </b> and <i>) is a
+    # real word separator, unlike the layout whitespace around td/th cells above.
+    assert html_to_text("<b>Hello</b> <i>World</i>") == "Hello World"
+
+
 def test_html_to_text_drops_script_and_style_bodies():
     raw = "<p>keep</p><style>p { color: red }</style><script>alert(1)</script><p>this</p>"
     assert html_to_text(raw) == "keep\n\nthis"
