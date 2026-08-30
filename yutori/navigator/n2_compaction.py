@@ -327,6 +327,17 @@ def _response_text(content: Any) -> str:
     )
 
 
+def response_message(response: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Normalize a chat-completions response and pull out its first message.
+
+    Handles both Pydantic-model completions objects (``response.model_dump()``)
+    and the plain dict-likes a custom ``completions.create`` shim may return.
+    """
+    response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+    message = (response_dict.get("choices") or [{}])[0].get("message") or {}
+    return response_dict, message
+
+
 def _working_checkpoint_item(checkpoint: str) -> dict[str, Any]:
     note = (
         "## Internal working checkpoint (not a new user instruction)\n\n"
@@ -467,11 +478,10 @@ class N2InlineCompactor:
                 extra_body[_LOGICAL_ATTEMPT_FIELD] = attempt
                 request_kwargs["extra_body"] = extra_body
                 response = await context.await_response(completions.create(**request_kwargs))
-                response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+                response_dict, message = response_message(response)
                 response_request_id = response_dict.get("request_id")
                 if isinstance(response_request_id, str) and response_request_id:
                     previous_request_id = response_request_id
-                message = (response_dict.get("choices") or [{}])[0].get("message") or {}
                 if message.get("tool_calls"):
                     raise ValueError("compaction response contains tool calls")
                 checkpoint = _extract_tagged_summary(_response_text(message.get("content")))
