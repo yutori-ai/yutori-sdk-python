@@ -360,6 +360,13 @@ def native_point(value: Any, path: str, width: int, height: int) -> "tuple[int, 
     )
 
 
+def _validate_wait_seconds(duration: Any, field: str) -> "int | float":
+    """Validate a ``hold_key``/``wait`` duration: a number in [0, N2_MAX_WAIT_SECONDS]."""
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not 0 <= duration <= N2_MAX_WAIT_SECONDS:
+        raise N2ActionValidationError(f"{field} must be between 0 and {N2_MAX_WAIT_SECONDS} seconds")
+    return duration
+
+
 def _validate_fields(action: str, args: dict[str, Any]) -> None:
     if action not in _ACTION_FIELDS:
         raise N2ActionValidationError(f"unsupported n2 action: {action}")
@@ -483,23 +490,11 @@ def translate_n2_action(
             raise N2ActionValidationError("hold_key.key must name exactly one key")
         if "duration" not in args:
             return [internal("hold_key_until_next_action", key=sequence[0][0])]
-        duration = args["duration"]
-        if (
-            isinstance(duration, bool)
-            or not isinstance(duration, (int, float))
-            or not 0 <= duration <= N2_MAX_WAIT_SECONDS
-        ):
-            raise N2ActionValidationError(f"hold_key.duration must be between 0 and {N2_MAX_WAIT_SECONDS} seconds")
+        duration = _validate_wait_seconds(args["duration"], "hold_key.duration")
         return [internal("hold_key", key=sequence[0][0], ms=round(float(duration) * 1000))]
 
     if action == "wait":
-        duration = args.get("duration", N2_DEFAULT_WAIT_SECONDS)
-        if (
-            isinstance(duration, bool)
-            or not isinstance(duration, (int, float))
-            or not 0 <= duration <= N2_MAX_WAIT_SECONDS
-        ):
-            raise N2ActionValidationError(f"wait.duration must be between 0 and {N2_MAX_WAIT_SECONDS} seconds")
+        duration = _validate_wait_seconds(args.get("duration", N2_DEFAULT_WAIT_SECONDS), "wait.duration")
         return [internal("wait", ms=round(float(duration) * 1000))]
 
     if action == "screenshot":
