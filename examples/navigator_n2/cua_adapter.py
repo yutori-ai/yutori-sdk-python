@@ -132,23 +132,22 @@ class CuaSandboxComputer(ShellFileToolsMixin):
     async def wait(self, ms: int = 1_000) -> None:
         await asyncio.sleep(ms / 1_000)
 
-    async def left_mouse_down(self, x: int | None = None, y: int | None = None) -> None:
+    def _resolve_and_set_pointer(self, x: int | None, y: int | None, *, action: str) -> tuple[int, int]:
         if (x is None) != (y is None):
-            raise ValueError("mouse_down coordinates must include both x and y")
+            raise ValueError(f"{action} coordinates must include both x and y")
         point = (x, y) if x is not None and y is not None else self._pointer
         if point is None:
-            raise ValueError("mouse_down requires coordinates before the pointer has moved")
+            raise ValueError(f"{action} requires coordinates before the pointer has moved")
         self._pointer = point
+        return point
+
+    async def left_mouse_down(self, x: int | None = None, y: int | None = None) -> None:
+        point = self._resolve_and_set_pointer(x, y, action="mouse_down")
         await self.sandbox.mouse.mouse_down(*point)
         self._left_mouse_down = True
 
     async def left_mouse_up(self, x: int | None = None, y: int | None = None) -> None:
-        if (x is None) != (y is None):
-            raise ValueError("mouse_up coordinates must include both x and y")
-        point = (x, y) if x is not None and y is not None else self._pointer
-        if point is None:
-            raise ValueError("mouse_up requires coordinates before the pointer has moved")
-        self._pointer = point
+        point = self._resolve_and_set_pointer(x, y, action="mouse_up")
         try:
             await self.sandbox.mouse.mouse_up(*point)
         finally:
