@@ -9,6 +9,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from .._http import apply_chat_extra_body
+from ..config import DEFAULT_MAX_RETRIES
 from ..navigator.models import NAVIGATOR_N1_5_MODEL
 
 
@@ -65,13 +66,20 @@ class ChatNamespace:
     """Namespace for Navigator API operations (pixels-to-actions LLM).
 
     Requests go through the bundled OpenAI client, which retries failures
-    (connection errors, timeouts, 429/5xx) twice by default; this is not
-    configurable through the SDK surface. The other SDK namespaces never
-    retry.
+    (connection errors, timeouts, 429/5xx) with exponential backoff, honoring
+    a ``Retry-After`` header when the server sends one. The depth is
+    ``max_retries`` (default :data:`~yutori.config.DEFAULT_MAX_RETRIES`), set
+    on the client. The other SDK namespaces never retry.
     """
 
-    def __init__(self, base_url: str, api_key: str, timeout: float) -> None:
-        self._openai_client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        timeout: float,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+    ) -> None:
+        self._openai_client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=max_retries)
         self.completions = ChatCompletions(self._openai_client)
 
     def close(self) -> None:

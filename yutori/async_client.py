@@ -15,7 +15,7 @@ from ._async import (
 )
 from ._http import _AsyncBaseNamespace, build_query_params
 from .auth.credentials import require_api_key
-from .config import DEFAULT_BASE_URL, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
+from .config import DEFAULT_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT_SECONDS, sanitize_base_url
 
 
 class AsyncYutoriClient(_AsyncBaseNamespace):
@@ -45,6 +45,7 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         *,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         """Initialize the async Yutori client.
 
@@ -53,6 +54,9 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
                 reads from the YUTORI_API_KEY environment variable.
             base_url: API base URL (default: https://api.yutori.com/v1).
             timeout: Request timeout in seconds (default: 30).
+            max_retries: How many times a Navigator (``client.chat``) model call is
+                retried on a connection error, timeout, 429 or 5xx, with exponential
+                backoff (default: 4). Other namespaces never retry.
 
         Raises:
             AuthenticationError: If no API key is provided or found in environment.
@@ -66,6 +70,7 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         self.browsing = AsyncBrowsingNamespace(self._client, self._base_url, self._api_key)
         self.research = AsyncResearchNamespace(self._client, self._base_url, self._api_key)
         self._timeout = timeout
+        self._max_retries = max_retries
         self._chat: AsyncChatNamespace | None = None
 
     async def get_usage(self, *, period: str | None = None) -> dict[str, Any]:
@@ -92,7 +97,7 @@ class AsyncYutoriClient(_AsyncBaseNamespace):
         AsyncYutoriClient, even for callers that never use chat completions.
         """
         if self._chat is None:
-            self._chat = AsyncChatNamespace(self._base_url, self._api_key, self._timeout)
+            self._chat = AsyncChatNamespace(self._base_url, self._api_key, self._timeout, self._max_retries)
         return self._chat
 
     async def close(self) -> None:
