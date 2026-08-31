@@ -610,6 +610,66 @@ async def test_new_run_resets_usage_and_compactor_but_resume_continues_them():
     assert compactor.seen == [{}, {"prompt_tokens": 11}, {}]
 
 
+async def test_compactor_defaults_to_a_fresh_inline_compactor_per_agent():
+    a = N2ComputerAgent(computer=Desktop(), api_key="yt_test")
+    b = N2ComputerAgent(computer=Desktop(), api_key="yt_test")
+
+    assert isinstance(a.compactor, N2InlineCompactor)
+    assert isinstance(b.compactor, N2InlineCompactor)
+    assert a.compactor is not b.compactor  # per-agent state, never shared
+    await a.aclose()
+    await b.aclose()
+
+
+async def test_compactor_none_disables_compaction():
+    agent = N2ComputerAgent(computer=Desktop(), api_key="yt_test", compactor=None)
+
+    assert agent.compactor is None
+    await agent.aclose()
+
+
+async def test_explicit_compactor_instance_is_used_as_is():
+    compactor = N2InlineCompactor(trigger_input_tokens=7)
+    agent = N2ComputerAgent(computer=Desktop(), api_key="yt_test", compactor=compactor)
+
+    assert agent.compactor is compactor
+    await agent.aclose()
+
+
+async def test_applied_compaction_fires_on_compaction_with_item_counts():
+    class OneShotCompactor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def compact(self, items, **_kwargs):
+            self.calls += 1
+            return list(items) if self.calls == 1 else None
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.events = []
+
+        async def on_compaction(self, info) -> None:
+            self.events.append(info)
+
+    completions = QueueCompletions([_response("done", request_id="r-done")])
+    recorder = Recorder()
+    agent = N2ComputerAgent(
+        computer=Desktop(),
+        completions=completions,
+        compactor=OneShotCompactor(),
+        callbacks=[recorder],
+    )
+
+    [step async for step in agent.run("task")]
+
+    assert agent.stopped_by == "final_answer"
+    assert recorder.events, "on_compaction never fired"
+    info = recorder.events[0]
+    assert set(info) == {"items_before", "items_after"}
+    assert info["items_after"] <= info["items_before"]
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [

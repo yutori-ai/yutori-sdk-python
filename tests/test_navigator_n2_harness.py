@@ -422,7 +422,9 @@ async def test_context_guard_ends_the_run_before_an_oversized_request():
 
     turns = [{"content": "", "tool_calls": [_bash("ls", f"b{i}")]} for i in range(3)]
     completions = BigContextCompletions(turns)
-    agent = _agent(Desktop(), completions)  # defaults: 128k window, 20480 output, 4096 margin
+    # compactor=None: this test pins the guard itself; the default "auto"
+    # compactor would intercept at these token counts before the guard fires.
+    agent = _agent(Desktop(), completions, compactor=None)  # defaults: 128k window, 20480 output, 4096 margin
     async for _ in agent.run("task"):
         pass
     assert len(completions.requests) == 1
@@ -430,7 +432,7 @@ async def test_context_guard_ends_the_run_before_an_oversized_request():
 
     # `None` disables the guard: the loop keeps calling.
     completions = BigContextCompletions(list(turns) + [{"content": "done", "tool_calls": []}])
-    agent = _agent(Desktop(), completions, context_window_tokens=None)
+    agent = _agent(Desktop(), completions, context_window_tokens=None, compactor=None)
     async for _ in agent.run("task"):
         pass
     assert len(completions.requests) == 4 and agent.stopped_by == "final_answer"

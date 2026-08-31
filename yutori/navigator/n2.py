@@ -82,7 +82,7 @@ from .n2_actions import (
     translate_n2_shell_command,
     translate_n2_write,
 )
-from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor, response_message
+from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor, N2InlineCompactor, response_message
 from .n2_payload import (
     DEFAULT_IMAGE_FORMAT,
     DEFAULT_MAX_MESSAGES_BYTES,
@@ -1114,6 +1114,11 @@ class N2ComputerAgent:
       once the last response's ``prompt_tokens`` plus the output budget and a
       margin would exceed it; ``None`` disables the check. A ``compactor`` runs
       first and may rewrite the trajectory before a model call.
+    - ``compactor``: ``"auto"`` (the default) attaches a fresh
+      ``N2InlineCompactor`` — long runs are checkpointed once usage crosses its
+      trigger instead of ending at the context limit; pass ``None`` to disable,
+      or an ``N2Compactor`` for a custom policy. Each applied compaction fires
+      the ``on_compaction`` callback with the before/after item counts.
     - ``tool_call_timeout_seconds``: budget for executing one tool call (a whole
       ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
     - ``completion_kwargs``: extra fields merged into every chat-completions
@@ -1148,7 +1153,7 @@ class N2ComputerAgent:
         completion_kwargs: "dict[str, Any] | None" = None,
         max_steps: "int | None" = None,
         agent_timeout_seconds: "float | None" = None,
-        compactor: "N2Compactor | None" = None,
+        compactor: "N2Compactor | None | str" = "auto",
     ):
         if tool_set not in SUPPORTED_N2_TOOL_SETS:
             raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
@@ -1188,7 +1193,10 @@ class N2ComputerAgent:
         self.completion_kwargs = dict(completion_kwargs or {})
         self.max_steps = max_steps
         self.agent_timeout_seconds = agent_timeout_seconds
-        self.compactor = compactor
+        # "auto" (the default) gives every agent its own inline compactor so long
+        # runs checkpoint instead of dying at the context limit; None disables
+        # compaction and the run stops cleanly with stopped_by="context_limit".
+        self.compactor = N2InlineCompactor() if compactor == "auto" else compactor
         self.stopped_by: "str | None" = None
         self.trajectory: list[dict[str, Any]] = []
         self.last_request_id: "str | None" = None
@@ -1465,6 +1473,7 @@ class N2ComputerAgent:
                             await_response=self._await_completion,
                             previous_request_id=self.last_request_id,
                         )
+                    items_before = len(old_items) + len(new_items)
                     compacted = await self.compactor.compact(old_items + new_items, **compact_kwargs)
                     if compacted is not None:
                         if isinstance(compacted, N2CompactionResult):
@@ -1475,6 +1484,9 @@ class N2ComputerAgent:
                             old_items, new_items = list(compacted), []
                         self.trajectory = old_items
                         self.last_usage = {}
+                        await self._callbacks.fire(
+                            "on_compaction", {"items_before": items_before, "items_after": len(old_items)}
+                        )
                 prompt_tokens = self.last_usage.get("prompt_tokens")
                 if (
                     self.context_window_tokens is not None
