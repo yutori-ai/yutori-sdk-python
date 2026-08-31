@@ -565,6 +565,8 @@ Failure conventions: a GUI handler reports failure by returning `{"success": Fal
 
 #### Tool ownership
 
+The split follows one principle: the loop implements what only transforms the protocol; the adapter implements every tool whose effect happens inside the environment.
+
 | Tool | Implemented by | Notes |
 |---|---|---|
 | `computer_batch` (and the older sets' standalone GUI actions and `screenshot`) | The loop | Validates the batch, maps coordinates, normalizes key names, runs members in order, stops at the first error, captures the one post-batch frame, and formats the `[i:name]` result. The adapter only executes the GUI primitives above. |
@@ -583,7 +585,7 @@ For any sandbox whose shell has `python3` (stdlib only) on PATH, mix `yutori.nav
 | `run_sandbox_shell(command, *, timeout_seconds)` | Run one shell command in the sandbox; return any object with `stdout`, `stderr`, and `returncode` attributes. |
 | `file_tool_cwd() -> str` | The directory relative paths resolve against (usually the bash tool's tracked cwd). |
 
-To implement the file tools without a shell, reproduce the contracts of the sandbox-side `FILE_TOOL_SCRIPT` (`yutori/navigator/sandbox_tools.py`).
+The shell is one transport, not the contract: to implement the file tools without one — as `MacOSComputer` does natively — reproduce the contracts of the sandbox-side `FILE_TOOL_SCRIPT` (`yutori/navigator/sandbox_tools.py`).
 
 #### Callbacks and confirmation
 

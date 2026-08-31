@@ -189,13 +189,13 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-The tool implementations live either in the `N2ComputerAgent` harness or in your `MyComputer` environment:
+The tool implementations live either in the `N2ComputerAgent` harness or in your `MyComputer` environment — the harness implements tools that only transform the protocol, your environment implements every tool whose effect happens inside it:
 
 | Tool | Implemented by | What you write / reuse |
 |---|---|---|
-| `computer_batch` | SDK's `N2ComputerAgent` | implementation of GUI actions (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
+| `computer_batch` | SDK's `N2ComputerAgent` | the single-action GUI primitives the batch executes through (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
 | `bash` | your `MyComputer` | `run_bash_command` — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
-| `read`/`write`/`edit` | your `MyComputer` | inherit the SDK's [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py), which implements all three over your sandbox's shell |
+| `read`/`write`/`edit` | your `MyComputer` | inherit the SDK's [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py), which implements all three over your sandbox's shell — or implement them natively, as [MacOSComputer](yutori/navigator/macos/computer.py) does |
 
 The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop).
 
