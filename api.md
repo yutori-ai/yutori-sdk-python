@@ -526,7 +526,7 @@ Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ...
 
 `N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
 harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,
-and keeps recent complete turns verbatim. Compaction is opt-in:
+and keeps recent complete turns verbatim. It is attached by default (`compactor="auto"`); to customize the policy, construct it explicitly:
 
 ```python
 from yutori.navigator import N2ComputerAgent, N2InlineCompactor
