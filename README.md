@@ -193,7 +193,7 @@ async with AsyncYutoriClient() as client:
 
 #### Run in local Docker (Cua cookbook)
 
-The [Cua cookbook](examples/navigator_n2/README.md) instantiates this agent loop in a local Docker container — no cloud account needed beyond your Yutori login:
+The [Cua cookbook](examples/navigator_n2/README.md) instantiates this agent loop in a local Docker container:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
@@ -207,7 +207,7 @@ The script prints a `Watch the desktop live:` URL at startup — open it in a br
 
 #### Run on a Daytona Linux VM
 
-[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) runs the same agent on a [Daytona](https://www.daytona.io) Linux VM — a `DAYTONA_API_KEY` is the one extra credential; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
+[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) runs the same agent on a [Daytona](https://www.daytona.io) Linux VM — create a `DAYTONA_API_KEY` at [app.daytona.io](https://app.daytona.io); [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
