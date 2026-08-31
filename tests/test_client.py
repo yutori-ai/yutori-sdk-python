@@ -510,3 +510,26 @@ class TestLazyChatNamespace:
         with patch.object(httpx.Client, "close"):
             client.close()
         assert client._chat is None
+
+
+class TestModelCallRetries:
+    """Navigator model calls retry transient failures; the depth is caller-visible.
+
+    The eval that motivated this lost 20 of 108 tasks to three ~2-minute bursts of
+    gateway `upstream_error` 5xx: the bundled client's own default of 2 retries spans
+    under ~2s of backoff, so a brief incident ends a long agent run outright.
+    """
+
+    def test_default_depth_is_the_sdk_default_not_the_vendor_default(self, client):
+        from yutori.config import DEFAULT_MAX_RETRIES
+
+        assert client.chat._openai_client.max_retries == DEFAULT_MAX_RETRIES
+        assert DEFAULT_MAX_RETRIES > 2  # the openai client's own default
+
+    def test_caller_can_raise_the_depth(self):
+        deep = YutoriClient(api_key="yt-test", max_retries=9)
+        assert deep.chat._openai_client.max_retries == 9
+
+    def test_caller_can_disable_retries(self):
+        none = YutoriClient(api_key="yt-test", max_retries=0)
+        assert none.chat._openai_client.max_retries == 0
