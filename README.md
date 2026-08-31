@@ -191,11 +191,11 @@ async with AsyncYutoriClient() as client:
 
 Your `MyComputer` environment is responsible for tool implementations (they are system-dependent); the `N2ComputerAgent` harness is responsible for tool transformation and batching:
 
-| Tool | Implemented by | What you write / reuse |
+| Tool | You implement | The SDK provides |
 |---|---|---|
-| `computer_batch` | SDK's `N2ComputerAgent` | the single-action GUI primitives the batch executes through (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
-| `bash` | your `MyComputer` | `run_bash_command` — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
-| `read`/`write`/`edit` | your `MyComputer` | inherit the SDK's [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py), which implements all three over your sandbox's shell — or implement them natively, as [MacOSComputer](yutori/navigator/macos/computer.py) does |
+| `computer_batch` | the single-action GUI primitives (`click`, `type`, etc)<br>[reference implementation: [cua_adapter.py](examples/navigator_n2/cua_adapter.py)] | the batching: validation, coordinate mapping, sequencing, the screenshot result |
+| `bash` | `run_bash_command`<br>[reference implementation: [cua_adapter.py](examples/navigator_n2/cua_adapter.py)] | [`format_shell_output`](yutori/navigator/sandbox_tools.py) for the result format |
+| `read`/`write`/`edit` | `read_file`/`write_file`/`edit_file`<br>[reference implementation: [MacOSComputer](yutori/navigator/macos/computer.py)] | [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py): a complete implementation over your sandbox's shell |
 
 The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop).
 
