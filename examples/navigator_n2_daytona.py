@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "daytona==0.207.0",
-#   "yutori>=0.9.4",
+#   "yutori>=0.9.5",
 # ]
 # ///
 """
@@ -28,6 +28,7 @@ Usage:
         "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
+Long runs compact automatically (the SDK default); each compaction prints a notice.
 
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
 """
@@ -92,6 +93,13 @@ def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
 # `exec` is a fresh process. Each command reports where it ended up on this
 # sentinel line and the next one starts there.
 CWD_SENTINEL = "__YUTORI_N2_CWD__"
+
+
+class CompactionNotice:
+    """Print when the SDK's default compactor rewrites the conversation."""
+
+    async def on_compaction(self, info: dict) -> None:
+        print(f"Compacted context: {info['items_before']} -> {info['items_after']} items")
 
 
 class DaytonaComputer:
@@ -226,6 +234,7 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
                     # bash only, so it pins the compatible immutable batch-plus-bash contract.
                     tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
                     max_steps=max_steps,
+                    callbacks=[CompactionNotice()],
                 )
 
                 async for step in agent.run(task):

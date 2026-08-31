@@ -18,7 +18,7 @@ def test_daytona_script_declares_its_uv_environment_inline() -> None:
 
     assert '# requires-python = ">=3.10"' in script
     assert '#   "daytona==0.207.0",' in script
-    assert '#   "yutori>=0.9.4",' in script
+    assert '#   "yutori>=0.9.5",' in script
 
 
 def test_remote_sandbox_cli_accepts_documented_docker_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -263,6 +263,126 @@ async def test_daytona_validates_yutori_before_ephemeral_sandbox_and_waits_for_d
     assert "/workspace" in printed
     assert 'RESULT "[1:left_click] OK"' in printed
     assert "base64,secret" not in printed
+
+
+async def test_daytona_example_compacts_long_runs_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main() with the real agent: usage past the default trigger is checkpointed
+    (SDK-default compactor, no compactor wiring in the example) and announced."""
+    import base64 as _b64
+    import io as _io
+    import json as _json
+    from unittest.mock import AsyncMock
+
+    from PIL import Image as _Image
+
+    buffer = _io.BytesIO()
+    _Image.new("RGB", (100, 100), (10, 20, 30)).save(buffer, format="PNG")
+    screenshot = f"data:image/png;base64,{_b64.b64encode(buffer.getvalue()).decode()}"
+
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "act-1",
+                                "function": {
+                                    "name": "computer_batch",
+                                    "arguments": _json.dumps(
+                                        {"actions": [{"action": "left_click", "coordinates": [500, 500]}]}
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 60_000},  # past the default 53,760 trigger
+            "request_id": "actor-1",
+        },
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "<conversation_compaction_summary>\n## Goal\nsummarize\n</conversation_compaction_summary>"
+                        ),
+                        "tool_calls": [],
+                    }
+                }
+            ],
+            "usage": {"prompt_tokens": 2},
+            "request_id": "compact-1",
+        },
+        {
+            "choices": [{"message": {"content": "done", "tool_calls": []}}],
+            "usage": {"prompt_tokens": 2},
+            "request_id": "actor-2",
+        },
+    ]
+    requests: list[dict] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs: object) -> dict:
+            requests.append(kwargs)
+            return responses[len(requests) - 1]
+
+    class FakeYutoriClient:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        async def __aenter__(self) -> "FakeYutoriClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def get_usage(self) -> dict:
+            return {}
+
+    fake_sandbox = SimpleNamespace(
+        computer_use=SimpleNamespace(
+            start=AsyncMock(),
+            display=SimpleNamespace(
+                get_info=AsyncMock(return_value=SimpleNamespace(displays=[SimpleNamespace(height=100)]))
+            ),
+            screenshot=SimpleNamespace(
+                take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))
+            ),
+            mouse=SimpleNamespace(click=AsyncMock()),
+        ),
+        delete=AsyncMock(),
+    )
+
+    class FakeDaytona:
+        async def __aenter__(self) -> "FakeDaytona":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def create(self, _params: object) -> object:
+            return fake_sandbox
+
+    monkeypatch.setattr(navigator_n2_daytona, "AsyncYutoriClient", FakeYutoriClient)
+    monkeypatch.setitem(
+        sys.modules,
+        "daytona",
+        SimpleNamespace(AsyncDaytona=FakeDaytona, CreateSandboxFromSnapshotParams=lambda **kwargs: kwargs),
+    )
+
+    await navigator_n2_daytona.main("long task")
+
+    assert len(requests) == 3, "expected actor -> compaction -> actor"
+    request_text = _json.dumps(requests[2].get("messages", []))
+    assert "working_checkpoint" in request_text, "compacted checkpoint never reached the next actor request"
+    printed = capsys.readouterr().out
+    assert "Compacted context:" in printed
+    assert "done" in printed
 
 
 async def test_daytona_rejected_yutori_key_never_enters_daytona(monkeypatch: pytest.MonkeyPatch) -> None:
