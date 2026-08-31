@@ -522,12 +522,12 @@ def _daytona_computer_with_exec(exec_) -> "navigator_n2_daytona.DaytonaComputer"
     return navigator_n2_daytona.DaytonaComputer(sandbox)
 
 
-async def test_daytona_triple_click_is_three_rapid_clicks() -> None:
-    clicks: list[tuple[int, int, str]] = []
+async def test_daytona_triple_click_pairs_a_native_double_with_one_single() -> None:
+    clicks: list[tuple[int, int, str, bool]] = []
 
     class FakeMouse:
         async def click(self, x: int, y: int, button: str = "left", double: bool = False) -> None:
-            clicks.append((x, y, button))
+            clicks.append((x, y, button, double))
 
     computer = navigator_n2_daytona.DaytonaComputer(
         SimpleNamespace(process=SimpleNamespace(), computer_use=SimpleNamespace(mouse=FakeMouse()))
@@ -535,7 +535,9 @@ async def test_daytona_triple_click_is_three_rapid_clicks() -> None:
 
     await computer.triple_click(5, 9)
 
-    assert clicks == [(5, 9, "left")] * 3
+    # The native double survives any network latency; the single completes the
+    # triple when round-trips fit the OS multi-click window.
+    assert clicks == [(5, 9, "left", True), (5, 9, "left", False)]
 
 
 async def test_daytona_file_tools_ride_the_shared_mixin() -> None:

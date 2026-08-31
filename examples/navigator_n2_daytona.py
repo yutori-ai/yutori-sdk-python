@@ -146,10 +146,13 @@ class DaytonaComputer(ShellFileToolsMixin):
         await self._cu.mouse.click(x, y, "left", double=True)
 
     async def triple_click(self, x: int, y: int) -> None:
-        # Daytona's REST API has no native triple click; three rapid clicks match
-        # the toolkit convention (select paragraph/line).
-        for _ in range(3):
-            await self._cu.mouse.click(x, y, "left")
+        # Daytona's REST API has no native triple click. A native double first
+        # preserves the OS multi-click pairing regardless of network latency;
+        # the follow-up click completes the triple when round-trips fit the
+        # multi-click window (measured ~230ms vs the ~400ms GTK default), and
+        # still leaves a double-click selection behind when they don't.
+        await self._cu.mouse.click(x, y, "left", double=True)
+        await self._cu.mouse.click(x, y, "left")
 
     async def move(self, x: int, y: int) -> None:
         await self._cu.mouse.move(x, y)
