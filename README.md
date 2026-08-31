@@ -189,7 +189,7 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-The tool implementations live either in the `N2ComputerAgent` harness or in your `MyComputer` environment — the harness implements tools that only transform the protocol, your environment implements every tool whose effect happens inside it:
+Your `MyComputer` environment is responsible for tool implementations (they are system-dependent); the `N2ComputerAgent` harness is responsible for tool transformation and batching:
 
 | Tool | Implemented by | What you write / reuse |
 |---|---|---|
