@@ -170,7 +170,7 @@ If you'd rather not manage browser infrastructure, use the **Browsing API** belo
 
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. It produces `computer_batch` calls — an ordered sequence of GUI actions — plus `bash` and file-tool (`read`/`write`/`edit`) calls. You implement the computer environment, and pass the output of the actions to the SDK's agent loop:
+Navigator n2 operates a full desktop. It produces `computer_batch` calls — an ordered sequence of GUI actions — plus `bash` and file-tool (`read`/`write`/`edit`) calls. You implement the computer environment; the SDK's agent loop calls it to execute each action and sends the results back to the model:
 
 ```python
 from yutori import AsyncYutoriClient
