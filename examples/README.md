@@ -15,6 +15,8 @@ yutori auth login
 uv run playwright install chromium
 ```
 
+These steps cover the `navigator_n1_5*` examples. The two Navigator n2 examples manage their own environments (see their sections below) — only the `yutori auth login` step applies to them.
+
 The examples rely on the SDK's normal credential resolution. They do not expose a separate `--api-key` flag.
 
 ## navigator_n1_5.py
@@ -65,7 +67,7 @@ The example implements a `MemoToolSuite` with three custom tools:
 
 ## navigator_n2/
 
-The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 with the complete current tool set in a local Docker container; its dedicated Python 3.12 environment keeps Cua's dependencies separate from the other examples.
+The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 in a local Docker container. It keeps its own Python 3.12 environment (Cua's requirement), so it works independently of the Setup above — only `yutori auth login` carries over:
 
 ```bash
 cd examples/navigator_n2
@@ -76,7 +78,7 @@ uv run python remote_sandbox.py --auto-approve \
 
 ## navigator_n2_daytona.py
 
-A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It serves the full current tool set: GUI and `bash` natively, the file tools via the SDK's `ShellFileToolsMixin`.py`](navigator_n2/cua_adapter.py) and [api.md](../api.md)'s "Navigator n2" section rather than from this example's minimal surface. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
+A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It serves the full current tool set: GUI and `bash` natively, and the file tools (`read`/`write`/`edit`/`grep`/`glob`) via the SDK's `ShellFileToolsMixin` — [cua_adapter.py](navigator_n2/cua_adapter.py) shows a second wiring of the same mixin, and [api.md](../api.md)'s "Navigator n2" section documents the contract. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
 
 The script declares Python 3.10+, the Yutori SDK, and the tested Daytona version as inline metadata; `uv` installs them into an isolated environment automatically. If the run hits the step cap, the example takes one summarize-only turn (no tool execution) and prints the model's summary of progress before exiting:
 

@@ -157,7 +157,7 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
         ...
 ```
 
-This snippet shows a single model call. In practice, you'll run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it returns text with no `tool_calls`. Complete agent loops live in [examples/](examples/).
+This snippet shows a single model call. In practice, you'll run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it returns text with no `tool_calls`. The complete agent loop lives in [examples/navigator_n1_5.py](examples/navigator_n1_5.py), with custom-tool variants alongside it.
 
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
 
@@ -184,9 +184,9 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. A few conventions the model is trained around — `bash` over a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows (SDK 0.9.5+); pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows; pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
 
-The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
+The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a [Daytona](https://www.daytona.io) Linux VM; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
@@ -201,8 +201,7 @@ See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the t
 <details>
 <summary>Run in local Docker instead (Cua cookbook)</summary>
 
-The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set (`computer_batch`, `edit`, `read`, `write`, `bash`) in a disposable local Docker container — no cloud credential needed:
-
+The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
 ```bash
 cd examples/navigator_n2
 uv sync --python 3.12
@@ -239,7 +238,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `trimmed_messages_to_fit(messages, max_bytes, keep_recent)` | Drop older screenshots to stay under the API size limit.                                                                                 |
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
-| `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set (SDK 0.9.3+).                                                       |
+| `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set.                                                       |
 | `N2InlineCompactor` / `N2Compactor`                         | Default-on context compaction for long n2 trajectories (pass `compactor=None` to disable), and the protocol for a custom history rewrite policy. |
 
 
