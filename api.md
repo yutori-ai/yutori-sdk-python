@@ -565,7 +565,7 @@ Failure conventions: a GUI handler reports failure by returning `{"success": Fal
 
 #### Tool ownership
 
-The split follows one principle: the loop implements what only transforms the protocol; the adapter implements every tool whose effect happens inside the environment.
+The split follows one principle: the adapter is responsible for tool implementations (they are system-dependent); the loop is responsible for tool transformation and batching.
 
 | Tool | Implemented by | Notes |
 |---|---|---|
