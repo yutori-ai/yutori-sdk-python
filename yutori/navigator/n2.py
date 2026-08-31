@@ -215,6 +215,76 @@ class SupportsN2ChatCompletionsCreate(Protocol):
         """Create a chat completion."""
 
 
+class N2Computer(Protocol):
+    """The computer-adapter surface the current n2 tool set drives.
+
+    Structural: any object with these async methods satisfies it, so annotate
+    your adapter (``computer: N2Computer = MyComputer(...)``) to have a type
+    checker verify the surface. The loop itself stays duck-typed — an adapter
+    for an older tool set may implement less. GUI coordinates arrive as native
+    pixels (the loop maps the model's normalized space), and a GUI method's
+    return value is ignored unless it is a dict with ``success=False``, which
+    fails the action with its ``error``. Shell and file handlers own their
+    result text (the loop adds only a 256K runaway backstop);
+    ``yutori.navigator.ShellFileToolsMixin`` is the reference file-tool
+    implementation.
+
+    Optional extensions the loop probes for (see the Navigator n2 loop section
+    of ``api.md`` and ``examples/navigator_n2/cua_adapter.py``, the
+    full-surface reference): ``triple_click`` (else double-click plus click),
+    ``hold_key(key, ms)`` plus the ``key_down``/``key_up`` pair for held keys,
+    ``left_mouse_down``/``left_mouse_up`` and ``release_held_mouse_button``,
+    ``get_dimensions()`` returning ``(width, height)``, a ``modifier=``
+    keyword on click/scroll handlers when ``supports_click_modifiers``/
+    ``supports_scroll_modifiers`` is set, and a ``model_action=`` keyword on
+    any GUI handler that wants the model's untranslated call. The current
+    tool set can emit the held-key and held-mouse actions inside a batch — an
+    adapter without those handlers fails that action with a model-visible
+    error and the run continues. ``screenshot`` may also return a native
+    ``N2Observation`` frame (as ``MacOSComputer`` does), which unlocks
+    ``wait_for_change``/``poll_after_action`` and skips the settle delay.
+    """
+
+    async def screenshot(self) -> Any:
+        """Capture the desktop; return a data-URL or raw-base64 string (or a native ``N2Observation``)."""
+
+    async def click(self, x: int, y: int, button: str = "left") -> Any:
+        """Click at native pixel (x, y); button is left, right, or middle."""
+
+    async def double_click(self, x: int, y: int) -> Any:
+        """Double-click at (x, y)."""
+
+    async def move(self, x: int, y: int) -> Any:
+        """Move the pointer to (x, y)."""
+
+    async def drag(self, path: list[dict[str, int]]) -> Any:
+        """Drag along ``path`` — two ``{"x", "y"}`` points, start and end."""
+
+    async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> Any:
+        """Scroll at (x, y) by (scroll_x, scroll_y) pixels; positive scroll_y is down."""
+
+    async def type(self, text: str) -> Any:
+        """Type text into the focused element."""
+
+    async def keypress(self, keys: list[str]) -> Any:
+        """Press one key combination, e.g. ``["ctrl", "c"]``."""
+
+    async def wait(self, ms: int) -> Any:
+        """Idle for ``ms`` milliseconds."""
+
+    async def run_bash_command(self, command: str, timeout: float = 120.0, run_in_background: bool = False) -> str:
+        """Run a command in the persistent bash session and return its rendered output."""
+
+    async def read_file(self, file_path: str, offset: int = 1, limit: int = 2000) -> "str | dict[str, str]":
+        """Read a file with ``cat -n`` numbering; may return ``{"text", "image_url"}`` for an image."""
+
+    async def write_file(self, file_path: str, content: str) -> str:
+        """Create or overwrite a file and return the confirmation text."""
+
+    async def edit_file(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
+        """Replace ``old_string`` with ``new_string`` in a file and return the result text."""
+
+
 def _random_id() -> str:
     return str(uuid.uuid4())
 
@@ -1064,12 +1134,11 @@ async def execute_n2_computer_call(
 class N2ComputerAgent:
     """Drive one Navigator n2 computer-use conversation to completion.
 
-    ``computer`` is any object with the async computer-handler surface
-    (``screenshot``, ``click``, ``double_click``, ``scroll``, ``type``,
-    ``keypress``, ``drag``, ``move``, ``wait``, and optionally the shell/file
-    tools: ``run_bash_command``, ``read_file``, ``write_file``, ``edit_file``
-    — see ``examples/navigator_n2/cua_adapter.py`` for the reference
-    implementation). ``completions`` is a
+    ``computer`` is any object with the async computer-handler surface; the
+    :class:`N2Computer` protocol spells it out — the GUI base handlers plus
+    the current tool set's ``run_bash_command`` and file tools — and
+    ``examples/navigator_n2/cua_adapter.py`` is the reference
+    implementation. ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from
     ``api_key``/``base_url`` and closes it via ``aclose()`` or the async

@@ -1288,3 +1288,35 @@ async def test_completion_request_is_public_wrapup_surface() -> None:
     assert agent.trajectory == before
     if agent.last_request_id is not None:
         assert request["extra_body"]["prev_request_id"] == agent.last_request_id
+
+
+def test_n2_computer_protocol_matches_loop_surface() -> None:
+    from yutori import navigator
+    from yutori.navigator import N2Computer
+    from yutori.navigator.n2 import FILE_ACTION_HANDLERS, SHELL_ACTION_HANDLERS
+
+    assert "N2Computer" in navigator.__all__
+
+    declared = {name for name in vars(N2Computer) if not name.startswith("_")}
+    gui = {"screenshot", "click", "double_click", "move", "drag", "scroll", "type", "keypress", "wait"}
+    current_tools = {"run_bash_command", "read_file", "write_file", "edit_file"}
+    assert declared == gui | current_tools
+
+    # The shell/file members are exactly the handlers the current tool set
+    # dispatches; grep/glob (legacy file sets) and run_shell_command (hybrid
+    # sets) stay outside the protocol on purpose.
+    loop_handlers = set(SHELL_ACTION_HANDLERS.values()) | set(FILE_ACTION_HANDLERS.values())
+    assert current_tools < loop_handlers
+    assert loop_handlers - current_tools == {"run_shell_command", "grep_files", "glob_files"}
+
+
+def test_reference_adapters_provide_the_n2_computer_surface() -> None:
+    from yutori.navigator import N2Computer, ShellFileToolsMixin
+    from yutori.navigator.macos import MacOSComputer
+
+    members = {name for name in vars(N2Computer) if not name.startswith("_")}
+    missing = {name for name in members if not callable(getattr(MacOSComputer, name, None))}
+    assert not missing
+
+    file_tools = {"read_file", "write_file", "edit_file"}
+    assert all(callable(getattr(ShellFileToolsMixin, name, None)) for name in file_tools)
