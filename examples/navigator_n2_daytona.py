@@ -146,18 +146,24 @@ class DaytonaComputer:
     async def drag(self, path: list[dict[str, int]]) -> None:
         await self._cu.mouse.drag(path[0]["x"], path[0]["y"], path[-1]["x"], path[-1]["y"])
 
-    async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None:
-        # The loop hands over a pixel distance — one notch of the model's `amount`
-        # is a tenth of the screen. Daytona wants wheel notches, and scrolls
-        # vertically only (so does n2). An adapter that declares a `model_action=`
-        # keyword parameter gets the model's own direction/amount instead of
-        # reconstructing them (see api.md, "Navigator n2").
-        if scroll_y == 0:
+    async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int, model_action: dict | None = None) -> None:
+        # Daytona wants wheel notches, and scrolls vertically only (so does n2).
+        # Declaring `model_action=` makes the loop pass the model's own call, whose
+        # `direction`/`amount` are already notches (see api.md, "Navigator n2"); the
+        # pixel arithmetic — one notch of `amount` is a tenth of the screen — is the
+        # fallback for callers that don't pass it.
+        if model_action and model_action.get("direction"):
+            direction, amount = str(model_action["direction"]), int(model_action.get("amount") or 3)
+            if direction not in ("up", "down"):
+                raise NotImplementedError("horizontal scrolling is not supported")
+        elif scroll_y:
+            direction = "down" if scroll_y > 0 else "up"
+            amount = max(1, round(abs(scroll_y) / (self._height * 0.1)))
+        else:
             if scroll_x:
                 raise NotImplementedError("horizontal scrolling is not supported")
             return
-        notches = max(1, round(abs(scroll_y) / (self._height * 0.1)))
-        await self._cu.mouse.scroll(x, y, "down" if scroll_y > 0 else "up", notches)
+        await self._cu.mouse.scroll(x, y, direction, amount)
 
     # -- keyboard ----------------------------------------------------------
 

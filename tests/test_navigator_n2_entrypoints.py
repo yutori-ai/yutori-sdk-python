@@ -544,3 +544,41 @@ async def test_daytona_bash_non_timeout_errors_still_raise() -> None:
     computer = _daytona_computer_with_exec(exec_)
     with pytest.raises(RuntimeError, match="sandbox gone"):
         await computer.run_bash_command("true")
+
+
+def _daytona_computer_with_scroll(scrolls: list) -> "navigator_n2_daytona.DaytonaComputer":
+    async def scroll(x, y, direction, amount):
+        scrolls.append((x, y, direction, amount))
+
+    sandbox = SimpleNamespace(process=None, computer_use=SimpleNamespace(mouse=SimpleNamespace(scroll=scroll)))
+    computer = navigator_n2_daytona.DaytonaComputer(sandbox)
+    computer._height = 768
+    return computer
+
+
+async def test_daytona_scroll_prefers_the_models_own_units() -> None:
+    scrolls: list = []
+    computer = _daytona_computer_with_scroll(scrolls)
+
+    await computer.scroll(10, 20, 0, 154, model_action={"action": "scroll", "direction": "up", "amount": 7})
+
+    assert scrolls == [(10, 20, "up", 7)]  # not the 2 notches the 154px fallback would reconstruct
+
+
+async def test_daytona_scroll_reconstructs_notches_without_model_action() -> None:
+    scrolls: list = []
+    computer = _daytona_computer_with_scroll(scrolls)
+
+    await computer.scroll(10, 20, 0, 230)  # 230px on a 768-tall screen = 3 notches
+    await computer.scroll(10, 20, 0, -1)  # tiny distances still scroll at least one notch
+
+    assert scrolls == [(10, 20, "down", 3), (10, 20, "up", 1)]
+
+
+async def test_daytona_scroll_rejects_horizontal_in_both_forms() -> None:
+    computer = _daytona_computer_with_scroll([])
+
+    with pytest.raises(NotImplementedError):
+        await computer.scroll(10, 20, 0, 0, model_action={"action": "scroll", "direction": "left", "amount": 2})
+    with pytest.raises(NotImplementedError):
+        await computer.scroll(10, 20, 45, 0)
