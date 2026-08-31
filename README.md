@@ -232,7 +232,8 @@ See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the t
 
 </details>
 
-### Agent-loop helpers
+<details>
+<summary>Agent-loop helpers</summary>
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
 
@@ -251,6 +252,8 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 
 
 Full helper reference: [api.md](api.md).
+
+</details>
 
 ## Browsing API
 
