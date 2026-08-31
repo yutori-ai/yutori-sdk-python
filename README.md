@@ -193,7 +193,7 @@ The tool implementations live either in the `N2ComputerAgent` harness or in your
 
 | Tool | Implemented by | What you write / reuse |
 |---|---|---|
-| `computer_batch` | `N2ComputerAgent` | implementation of GUI actions (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
+| `computer_batch` | SDK's `N2ComputerAgent` | implementation of GUI actions (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
 | `bash` | your `MyComputer` | `run_bash_command` — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
 | `read`/`write`/`edit` | your `MyComputer` | inherit the SDK's [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py), which implements all three over your sandbox's shell |
 
