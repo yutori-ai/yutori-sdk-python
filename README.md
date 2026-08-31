@@ -189,7 +189,7 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. The full adapter contract — every method the tools call, and the SDK helpers for the file tools — is documented in [Navigator n2 loop](api.md#navigator-n2-loop); [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation.
 
 #### Run in local Docker (Cua cookbook)
 
