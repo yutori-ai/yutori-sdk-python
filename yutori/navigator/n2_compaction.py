@@ -392,15 +392,13 @@ class N2InlineCompactor:
         self.target_max_chars = target_max_chars
         self.max_attempts = max_attempts
         self.retry_delay_seconds = retry_delay_seconds
-        self.compaction_count = 0
-        self.last_result: Optional[N2CompactionResult] = None
-        self._awaiting_post_compaction_baseline = False
+        self.reset()
 
     def reset(self) -> None:
         """Reset state for a new ``N2ComputerAgent.run()`` conversation."""
 
         self.compaction_count = 0
-        self.last_result = None
+        self.last_result: Optional[N2CompactionResult] = None
         self._awaiting_post_compaction_baseline = False
 
     async def compact(
