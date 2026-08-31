@@ -8,6 +8,15 @@ ships that implementation for any sandbox that can run a shell command:
 :class:`ShellFileToolsMixin` provides the handler methods over two small
 hooks the adapter supplies. The shell-result helpers render ``bash`` results
 the same way (``Exit code N`` headers, truncation caps).
+
+Ownership note: the n2 loop implements ``computer_batch`` itself but only
+routes shell/file handler text (a trim and a 256K backstop aside) — these
+output contracts are the adapter's to honor. When building (or pointing a
+coding agent at) a custom adapter, the trained formats live in
+``FILE_TOOL_SCRIPT`` below (``cat -n`` numbering, the sha256 read-before-edit
+gate, truncation markers), ``format_shell_output``, and
+``render_image_result``; ``examples/navigator_n2/cua_adapter.py`` adds the
+``bash`` timeout and background-run forms and shows the full wiring.
 """
 
 from __future__ import annotations
