@@ -184,6 +184,8 @@ parsed = getattr(response, "parsed_json", None)
 
 Navigator n2 operates a full desktop. Use `model="n2"` and pin the tool set — `TOOL_SET_COMPUTER_USE_LATEST` is the set the SDK's loop implements. It answers with `computer_batch` calls (an ordered sequence of GUI actions, answered with one screenshot taken after the last one) and `bash` calls (answered with the command's output); a turn with text and no `tool_calls` is the final answer. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation: the server keeps every screenshot in the two newest image-bearing messages and strips older image parts while preserving the rest of the history.
 
+**System prompt.** The server owns the n2 system prompt: every request is served with the model's tool definitions and coordinate conventions, plus an environment block telling the model to resolve paths under the current user's `$HOME` and stating the current date and time in US Pacific time (zone named). A caller-supplied system message never replaces any of this — it is appended at the end under a `# User Instructions` header.
+
 ```python
 response = client.chat.completions.create(
     model="n2",
@@ -505,7 +507,7 @@ The keywords:
 
 | Keyword | Default | What it controls |
 |---|---|---|
-| `system_prompt` | `None` | Sent as a system message ahead of the conversation (the server appends it to its own system prompt). |
+| `system_prompt` | `None` | Sent as a system message ahead of the conversation; the server appends it under its own prompt's `# User Instructions` header (see **System prompt** in the Navigator n2 section). |
 | `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes. |
 | `max_completion_tokens` | `20480` | Output budget per model call. |
 | `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |

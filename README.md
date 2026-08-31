@@ -184,7 +184,7 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. Three conventions the model is trained around: shell work goes through the `bash` tool, not a GUI terminal, so implement `run_bash_command`; a `read` of an image file should show the model the image itself; and tool sets are all-or-nothing — custom or disabled tools are rejected, so pin a dated set (`TOOL_SET_COMPUTER_USE_LATEST`, currently `computer_use_tools-20260825`) and implement every tool in it. That last rule is why the Daytona example pins the older bash+batch set.
 
 The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
