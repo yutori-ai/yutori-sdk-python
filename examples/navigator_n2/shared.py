@@ -21,6 +21,7 @@ from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_LATEST,
     format_stop_and_summarize,
 )
+from yutori.navigator.n2_compaction import response_message
 
 CONFIRMATION_DENIED_OUTPUT = "[ERROR] Action was not confirmed by the user."
 SHELL_TOOL_NAMES = frozenset({"bash", "shell_command", "run_command"})
@@ -140,8 +141,7 @@ async def stop_and_summarize(agent: Any, completions: Any, task: str) -> "str | 
     """
     nudge = {"role": "user", "content": [{"type": "text", "text": format_stop_and_summarize(task)}]}
     response = await completions.create(**agent.completion_request([nudge]))
-    data = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-    message = ((data.get("choices") or [{}])[0]).get("message") or {}
+    _, message = response_message(response)
     text = message.get("content")
     return text if isinstance(text, str) and text.strip() else None
 
