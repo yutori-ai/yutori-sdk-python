@@ -207,7 +207,7 @@ The script prints a `Watch the desktop live:` URL at startup — open it in a br
 
 #### Run on a Daytona Linux VM
 
-[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) runs the same agent on a [Daytona](https://www.daytona.io) Linux VM — create a `DAYTONA_API_KEY` at [app.daytona.io](https://app.daytona.io); [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
+[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) runs the same agent on a [Daytona](https://www.daytona.io) Linux VM. Create an API key at [app.daytona.io](https://app.daytona.io), then:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
@@ -216,6 +216,8 @@ export DAYTONA_API_KEY=...   # https://app.daytona.io
 uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
+
+See [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) for a full walkthrough.
 
 <details>
 <summary>Drive your own local Mac</summary>
