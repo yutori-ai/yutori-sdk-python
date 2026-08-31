@@ -159,7 +159,12 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it returns text with no `tool_calls`. The complete agent loop lives in [examples/navigator_n1_5.py](examples/navigator_n1_5.py), with custom-tool variants alongside it.
 
+<details>
+<summary>References and request options</summary>
+
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
+
+</details>
 
 If you'd rather not manage browser infrastructure, use the **Browsing API** below, which runs the Navigator n1.5 on Yutori's cloud browser.
 
@@ -184,9 +189,9 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows; pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
 
-The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a [Daytona](https://www.daytona.io) Linux VM; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
+[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) instantiates this agent loop on a [Daytona](https://www.daytona.io) Linux `computer`; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
@@ -196,12 +201,18 @@ uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/exampl
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
 
-See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls.
+<details>
+<summary>References, trained conventions, and long-run behavior</summary>
+
+See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows; pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
+
+</details>
 
 <details>
 <summary>Run in local Docker instead (Cua cookbook)</summary>
 
 The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
+
 ```bash
 cd examples/navigator_n2
 uv sync --python 3.12
