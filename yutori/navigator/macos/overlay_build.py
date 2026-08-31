@@ -11,10 +11,11 @@ import stat
 import subprocess
 import tempfile
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from ..._fileutils import atomic_write_text
 
 OVERLAY_PROTOCOL_VERSION = 2
 RENDERER_PROTOCOL_VERSION = 3
@@ -214,13 +215,6 @@ def _acquire_lock(path: Path) -> None:
             time.sleep(0.25)
 
 
-def _write_atomic(path: Path, contents: str) -> None:
-    temporary = path.parent / f".{path.name}-{uuid.uuid4().hex}.tmp"
-    temporary.write_text(contents, encoding="utf-8")
-    temporary.chmod(0o600)
-    os.replace(temporary, path)
-
-
 def _remove_owned_entry(path: Path) -> None:
     if not path.exists():
         return
@@ -288,7 +282,7 @@ def prepare_macos_overlay(
             except MacOSOverlayPreparationError:
                 _remove_owned_entry(entry)
             else:
-                _write_atomic(pointer, f"{json.dumps({'key': key})}\n")
+                atomic_write_text(pointer, f"{json.dumps({'key': key})}\n")
                 return prepared
 
         temporary = Path(tempfile.mkdtemp(prefix=f".build-{key}-", dir=cache))
@@ -327,7 +321,7 @@ def prepare_macos_overlay(
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
-        _write_atomic(pointer, f"{json.dumps({'key': key})}\n")
+        atomic_write_text(pointer, f"{json.dumps({'key': key})}\n")
         return _load_entry(cache, key, verify_packaged_assets=True)
     finally:
         if lock.exists():

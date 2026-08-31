@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
+from .._fileutils import atomic_write_text
 from ..exceptions import AuthenticationError
 from .constants import CONFIG_DIR, CONFIG_FILE
 
@@ -50,26 +50,7 @@ def save_config(api_key: str) -> None:
     os.chmod(config_dir, 0o700)
 
     content = json.dumps({"api_key": api_key}, indent=2)
-
-    # Atomic write: temp file in same directory, then rename.
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=config_dir,
-        prefix=".config_",
-        suffix=".tmp",
-        delete=False,
-    )
-    tmp_path = Path(tmp.name)
-    try:
-        with tmp as f:
-            f.write(content)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, config_path)
-    finally:
-        # On success os.replace moved the temp file, so missing_ok handles
-        # both the success path and any mid-write failure (including
-        # KeyboardInterrupt).
-        tmp_path.unlink(missing_ok=True)
+    atomic_write_text(config_path, content)
 
 
 def clear_config() -> None:
@@ -151,7 +132,5 @@ def require_api_key(api_key: str | None = None) -> str:
     """
     resolved = resolve_api_key(api_key)
     if not resolved:
-        raise AuthenticationError(
-            "No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key."
-        )
+        raise AuthenticationError("No API key provided. Run 'yutori auth login', set YUTORI_API_KEY, or pass api_key.")
     return resolved
