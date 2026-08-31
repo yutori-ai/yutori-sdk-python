@@ -67,7 +67,7 @@ The example implements a `MemoToolSuite` with three custom tools:
 
 ## navigator_n2/
 
-The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 in a local Docker container. It keeps its own Python 3.12 environment (Cua's requirement), so it works independently of the Setup above — only `yutori auth login` carries over:
+The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 in a local Docker container. It keeps its own environment (`cua-sandbox` needs Python 3.11–3.13), so it works independently of the Setup above — only `yutori auth login` carries over:
 
 ```bash
 cd examples/navigator_n2

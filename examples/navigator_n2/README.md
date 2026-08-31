@@ -1,8 +1,8 @@
 # Navigator n2 with public Cua
 
-These runnable cookbooks use the public Python SDK loop, stable model id n2, and public Cua packages. They do not import an agent package or source code from another repository. Cua provides the local Docker runtime; the adapter and n2 loop in this repository are maintained by Yutori.
+These runnable cookbooks use the public Python SDK loop, stable model id n2, and the public `cua-sandbox` package. They do not import an agent package or source code from another repository. Cua provides the local Docker runtime; the adapter and n2 loop in this repository are maintained by Yutori.
 
-The cookbook environment is separate because Cua 0.1.6 requires Python 3.12 or 3.13. The tested Cua dependencies are pinned in pyproject.toml, and the SDK source is used from this checkout.
+The cookbook environment is separate because `cua-sandbox` requires Python 3.11–3.13. The tested dependency is pinned in pyproject.toml, and the SDK source is used from this checkout.
 
 On minimal Debian or Ubuntu images (including `python:3.12-slim`), install the compiler and Linux input headers that Cua's `evdev` dependency builds against:
 

@@ -33,7 +33,7 @@ from yutori.navigator.sandbox_tools import (
 
 
 class CuaSandboxComputer(ShellFileToolsMixin):
-    """N2 computer-handler adapter built only on the public cua==0.1.6 API."""
+    """N2 computer-handler adapter built only on the public cua-sandbox API."""
 
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox

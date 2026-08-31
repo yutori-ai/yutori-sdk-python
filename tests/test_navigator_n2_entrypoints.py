@@ -40,7 +40,7 @@ async def test_remote_sandbox_resolves_yutori_key_before_allocation(monkeypatch:
         def ephemeral(*_args: object, **_kwargs: object) -> object:
             pytest.fail("sandbox allocation started before Yutori authentication")
 
-    monkeypatch.setitem(sys.modules, "cua", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
+    monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
 
     def missing_api_key() -> str:
         raise RuntimeError("missing Yutori key")
@@ -68,7 +68,7 @@ async def test_remote_sandbox_rejects_tool_set_before_allocation(monkeypatch: py
         def ephemeral(*_args: object, **_kwargs: object) -> object:
             pytest.fail("sandbox allocation started before tool-set validation")
 
-    monkeypatch.setitem(sys.modules, "cua", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
+    monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
     monkeypatch.setattr(remote_sandbox, "require_api_key", lambda: "test-yutori-key")
     args = argparse.Namespace(
         max_steps=1,
@@ -121,7 +121,7 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
     async def fake_run_agent(_agent: object, task: str, *, completions: object) -> None:
         seen["task"] = task
 
-    monkeypatch.setitem(sys.modules, "cua", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
+    monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
     monkeypatch.setattr(remote_sandbox, "require_api_key", lambda: "test-yutori-key")
     monkeypatch.setattr(remote_sandbox, "CuaSandboxComputer", FakeComputer)
     monkeypatch.setattr(remote_sandbox, "N2ComputerAgent", FakeAgent)
