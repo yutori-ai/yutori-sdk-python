@@ -290,7 +290,9 @@ def test_public_cua_file_tool_script_executes_without_shell_interpolation(tmp_pa
         new_string="after",
         replace_all=False,
     )
-    assert edit_output.strip() == "1"
+    # The n2 edit contract: the success line plus a cat -n snippet of the edited region.
+    assert edit_output.startswith("The file draft.txt has been updated successfully:\n")
+    assert "     1\tafter" in edit_output
     assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "after"
 
     glob_output = run(**common, operation="glob", pattern="*.txt", path=str(tmp_path))
@@ -406,3 +408,110 @@ async def test_public_cua_adapter_preserves_bash_cwd_when_the_command_fails() ->
 
     assert computer._bash_cwd == "/next-workspace"
     assert output == "Exit code 7\ncommand output\ncommand error"
+
+
+def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:
+    """Pin the exact tool-result strings n2 expects, so the reference adapter
+    cannot drift from the documented tool contract."""
+    import struct
+
+    def run(**arguments: Any) -> str:
+        encoded = base64.b64encode(json.dumps({"cwd": str(tmp_path), **arguments}).encode()).decode()
+        result = subprocess.run(
+            [sys.executable, "-c", _FILE_TOOL_SCRIPT, encoded],
+            check=True,  # expected tool errors are printed results, exit 0
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.rstrip("\n")
+
+    read_args = {"operation": "read", "offset": 1, "limit": 2_000}
+    # Pre-checks return their messages as plain results, never raised errors.
+    assert run(**read_args, file_path="nope.txt") == "ERROR: file does not exist: nope.txt"
+    assert run(**read_args, file_path=".") == "ERROR: path is a directory, not a file: ."
+
+    # The read-before-edit gate: sha256 fingerprints, both messages.
+    target = tmp_path / "a.txt"
+    target.write_text("hello world\nline two\n", encoding="utf-8")
+    edit_args = {"operation": "edit", "file_path": "a.txt", "replace_all": False}
+    assert (
+        run(**edit_args, old_string="hello", new_string="hi")
+        == "ERROR: you must read a.txt before editing it (read it, then edit)."
+    )
+    assert run(**read_args, file_path="a.txt").startswith("     1\thello world")
+    edited = run(**edit_args, old_string="hello", new_string="hi")
+    assert edited.startswith("The file a.txt has been updated successfully:\n")
+    assert "     1\thi world" in edited  # cat -n snippet of the edited region
+    target.write_text(target.read_text(encoding="utf-8") + "more\n", encoding="utf-8")
+    assert (
+        run(**edit_args, old_string="world", new_string="globe")
+        == "ERROR: a.txt changed since you last read it - read it again before editing."
+    )
+
+    # Ambiguity and empty-file renders.
+    dup = tmp_path / "b.txt"
+    dup.write_text("x y x\n", encoding="utf-8")
+    run(**read_args, file_path="b.txt")
+    assert (
+        run(operation="edit", file_path="b.txt", old_string="x", new_string="z", replace_all=False)
+        == "ERROR: old_string is not unique (2 occurrences). Add context or pass replace_all=true."
+    )
+    (tmp_path / "empty.txt").write_text("", encoding="utf-8")
+    assert run(**read_args, file_path="empty.txt") == "[file exists but is empty]"
+
+    # Image reads hand raw bytes to the host, which renders visible image content.
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">IIBBBBB", 64, 48, 8, 6, 0, 0, 0)
+    (tmp_path / "img.png").write_bytes(png)
+    assert run(**read_args, file_path="img.png").splitlines()[0] == "__YUTORI_IMAGE__"
+
+    # Grep clamps columns at 500 and skips all six VCS directories.
+    (tmp_path / ".hg").mkdir()
+    (tmp_path / ".hg" / "hidden.txt").write_text("needle\n", encoding="utf-8")
+    (tmp_path / "wide.txt").write_text("A" * 600 + "needle\n", encoding="utf-8")
+    grep_output = run(
+        operation="grep",
+        pattern="needle",
+        path=None,
+        glob=None,
+        file_type=None,
+        output_mode="content",
+        ignore_case=False,
+        show_line_numbers=None,
+        before_context=None,
+        after_context=None,
+        context=None,
+        head_limit=250,
+        multiline=False,
+    )
+    (wide_hit,) = [line for line in grep_output.splitlines() if "wide.txt" in line]
+    assert len(wide_hit.split(":", 2)[2]) <= 500
+    assert ".hg" not in grep_output
+
+
+def test_cua_read_file_returns_visible_image_content() -> None:
+    """`read` on an image must reach the model as image content: a note with the
+    source dimensions plus a WEBP data URL bounded to the 1568-px max edge."""
+    import asyncio
+    import io as _io
+
+    from PIL import Image as _Image
+
+    from examples.navigator_n2.cua_sandbox import CuaSandboxComputer
+
+    buffer = _io.BytesIO()
+    _Image.new("RGB", (2000, 500), (200, 30, 30)).save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+
+    class _Shell:
+        async def run(self, command: str, timeout: int = 30) -> SimpleNamespace:
+            if command.strip() == "pwd":
+                return SimpleNamespace(stdout="/root\n", stderr="", returncode=0)
+            return SimpleNamespace(stdout=f"__YUTORI_IMAGE__\n{encoded}\n", stderr="", returncode=0)
+
+    computer = CuaSandboxComputer(SimpleNamespace(shell=_Shell()))
+    result = asyncio.run(computer.read_file("shot.png"))
+    assert isinstance(result, dict)
+    assert result["text"] == "Loaded image shot.png (2000x500), shown downscaled to 1568x392"
+    assert result["image_url"].startswith("data:image/webp;base64,")
+    with _Image.open(_io.BytesIO(base64.b64decode(result["image_url"].split(",", 1)[1]))) as shown:
+        assert shown.size == (1568, 392)

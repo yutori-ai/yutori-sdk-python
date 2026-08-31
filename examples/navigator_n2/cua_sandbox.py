@@ -3,53 +3,106 @@
 ``CuaSandboxComputer`` implements the full handler surface `N2ComputerAgent` calls
 (GUI primitives, ``run_bash_command`` with a persistent working directory, and the
 ``read``/``write``/``edit``/``grep``/``glob`` file tools) on the public ``cua`` sandbox
-API, rendering every result in the format n2 expects: ``Exit code N`` headers,
-``(Bash completed with no output)``, ``cat -n`` line numbering, the edit tool's exact
-error strings, and the 30k ``[... output truncated, N more chars ...]`` cap. Copy or
-adapt this module when building a handler for your own environment.
+API, rendering every result in the exact format n2 expects:
+``Exit code N`` headers, ``(Bash completed with no output)``, ``Command timed out after
+Xs`` as a normal result, ``cat -n`` line numbering with the ``[... output truncated,
+N more chars ...]`` caps, image reads returned as visible image content, the
+sha256-fingerprint read-before-edit gate, and every expected tool error as a plain
+``ERROR: ...`` result rather than a raised failure envelope. Copy or adapt this module
+when building a handler for your own environment.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from pathlib import PurePosixPath
 from typing import Any
 
+from PIL import Image
+
 BASH_RESULT_MAX_CHARS = 30_000
+
 
 _FILE_TOOL_SCRIPT = r"""
 from pathlib import Path
 import base64
 import fnmatch
 import glob
+import hashlib
 import json
 import os
 import re
+import struct
 import sys
 
 arguments = json.loads(base64.b64decode(sys.argv[1]).decode())
 cwd = Path(arguments["cwd"])
+STATE = Path("/tmp/.yutori-n2-read-fingerprints.json")
+READ_MAX = 256 * 1024
+GREP_MAX = 20000
+MAX_COLUMNS = 500
+VCS_EXCLUDES = {".git", ".svn", ".hg", ".bzr", ".jj", ".sl"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+def done(text):
+    print(text)
+    raise SystemExit(0)
+
+def truncate(text, limit):
+    if limit is None or len(text) <= limit:
+        return text
+    return text[:limit] + f"\n\n[... output truncated, {len(text) - limit} more chars ...]"
 
 def resolve(value):
     path = Path(value).expanduser()
     return path if path.is_absolute() else cwd / path
 
-def read_text(path):
-    data = path.read_bytes()
-    if data.startswith(b"\xef\xbb\xbf"):
-        return data.decode("utf-8-sig")
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16")
-    return data.decode("utf-8")
+def detect_encoding(head):
+    if not head:
+        return "utf-8"
+    if head[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return "utf-16"
+    if head[:3] == b"\xef\xbb\xbf":
+        return "utf-8-sig"
+    return "utf-8"
+
+def decode_text(data):
+    return data.decode(detect_encoding(data[:4096]), "replace").replace("\r\n", "\n")
 
 def write_text(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+def load_fingerprints():
+    try:
+        return json.loads(STATE.read_text())
+    except Exception:
+        return {}
+
+def record_fingerprint(path, data):
+    fingerprints = load_fingerprints()
+    fingerprints[str(path)] = hashlib.sha256(data).hexdigest()
+    STATE.write_text(json.dumps(fingerprints))
+
+def check_read_before_edit(path, display, data):
+    seen = load_fingerprints().get(str(path))
+    if seen is None:
+        return f"ERROR: you must read {display} before editing it (read it, then edit)."
+    if seen != hashlib.sha256(data).hexdigest():
+        return f"ERROR: {display} changed since you last read it - read it again before editing."
+    return None
+
+def edit_snippet(text, anchor, extra_lines):
+    lines = text.split("\n")
+    line_no = text[: max(anchor, 0)].count("\n") + 1
+    lo = max(1, line_no - 4)
+    hi = min(len(lines), line_no + 4 + extra_lines)
+    return "\n".join(f"{i:>6}\t{lines[i - 1]}" for i in range(lo, hi + 1))
 
 def mtime_key(path):
     return -path.stat().st_mtime, str(path)
@@ -61,45 +114,95 @@ def search_files(root):
         return []
     files = []
     for directory, child_directories, filenames in os.walk(root):
-        child_directories[:] = [name for name in child_directories if name not in {".git", ".hg", ".svn"}]
+        child_directories[:] = [name for name in child_directories if name not in VCS_EXCLUDES]
         files.extend(Path(directory, filename) for filename in filenames)
     return files
 
 operation = arguments["operation"]
 if operation == "read":
-    path = resolve(arguments["file_path"])
+    display = arguments["file_path"]
+    path = resolve(display)
+    if path.is_dir():
+        done(f"ERROR: path is a directory, not a file: {display}")
+    if not path.is_file():
+        done(f"ERROR: file does not exist: {display}")
+    data = path.read_bytes()
+    suffix = path.suffix.lower()
+    if suffix in IMAGE_SUFFIXES:
+        print("__YUTORI_IMAGE__")
+        print(base64.b64encode(data).decode())
+        raise SystemExit(0)
+    if suffix == ".pdf":
+        done(f"[pdf file: {path.name} - {len(data)} bytes; binary content not shown]")
+    if suffix == ".ipynb":
+        try:
+            nb = json.loads(data.decode("utf-8", "replace"))
+        except json.JSONDecodeError as exc:
+            done(f"ERROR: {display} is not valid JSON/.ipynb: {exc}")
+        parts = []
+        for idx, cell in enumerate(nb.get("cells", [])):
+            src = cell.get("source", "")
+            if isinstance(src, list):
+                src = "".join(src)
+            parts.append(f"# -- Cell {idx} [{cell.get('cell_type', 'code')}] --\n{src}")
+        record_fingerprint(path, data)
+        done(truncate("\n\n".join(parts) if parts else "[notebook has no cells]", READ_MAX))
+    record_fingerprint(path, data)
+    if not data:
+        done("[file exists but is empty]")
     offset, limit = arguments["offset"], arguments["limit"]
-    for number, line in enumerate(read_text(path).splitlines()[offset - 1 : offset - 1 + limit], offset):
-        print(f"{number:6}\t{line}")
+    lines = decode_text(data).split("\n")
+    start = max(0, offset - 1) if offset else 0
+    window = lines[start : start + max(0, limit)]
+    done(truncate("\n".join(f"{start + i + 1:>6}\t{line}" for i, line in enumerate(window)), READ_MAX))
 elif operation == "write":
-    path = resolve(arguments["file_path"])
+    display = arguments["file_path"]
+    path = resolve(display)
     existed = path.exists()
     write_text(path, arguments["content"])
-    print("updated" if existed else "created")
+    record_fingerprint(path, arguments["content"].encode("utf-8"))
+    if existed:
+        done(f"The file {display} has been updated successfully.")
+    done(f"File created successfully at: {display}")
 elif operation == "edit":
-    path = resolve(arguments["file_path"])
+    display = arguments["file_path"]
+    path = resolve(display)
     old, new = arguments["old_string"], arguments["new_string"]
     if old == new:
-        raise SystemExit("ERROR: old_string and new_string are identical.")
-    if not old:
+        done("ERROR: old_string and new_string are identical.")
+    if old == "":
         if path.exists():
-            raise SystemExit(
-                f"ERROR: cannot create {path}: it already exists (use a non-empty old_string to edit, "
-                "or write to overwrite)."
+            done(
+                f"ERROR: cannot create {display}: it already exists "
+                "(use a non-empty old_string to edit, or write to overwrite)."
             )
         write_text(path, new)
-        print("created")
-    else:
-        text = path.read_text(encoding="utf-8")
-        matches = text.count(old)
-        if not matches:
-            raise SystemExit("ERROR: old_string not found in file (it must match exactly, including whitespace).")
-        if matches > 1 and not arguments["replace_all"]:
-            raise SystemExit(
-                f"ERROR: old_string is not unique ({matches} occurrences). Add context or pass replace_all=true."
-            )
-        write_text(path, text.replace(old, new, -1 if arguments["replace_all"] else 1))
-        print(matches if arguments["replace_all"] else 1)
+        record_fingerprint(path, new.encode("utf-8"))
+        done(f"File created successfully at: {display}")
+    if not path.is_file():
+        done(f"ERROR: file does not exist: {display}")
+    # NOTE: the decode/match/anchor semantics below deliberately reproduce the served
+    # n2 edit tool exactly — replace-mode decoding (invalid bytes become U+FFFD on
+    # write-back), matching against the raw text (read output is CRLF-normalized for
+    # display, the edit match is not), and anchoring the snippet on the first
+    # occurrence of new_string. Reproducing them byte-for-byte is the point of this
+    # reference implementation; "improving" them here would make results diverge
+    # from what n2 sees elsewhere.
+    data = path.read_bytes()
+    stale = check_read_before_edit(path, display, data)
+    if stale is not None:
+        done(stale)
+    text = data.decode("utf-8", "replace")
+    count = text.count(old)
+    if count == 0:
+        done("ERROR: old_string not found in file (it must match exactly, including whitespace).")
+    if count > 1 and not arguments["replace_all"]:
+        done(f"ERROR: old_string is not unique ({count} occurrences). Add context or pass replace_all=true.")
+    new_text = text.replace(old, new) if arguments["replace_all"] else text.replace(old, new, 1)
+    write_text(path, new_text)
+    record_fingerprint(path, new_text.encode("utf-8"))
+    anchor = new_text.find(new) if new else text.find(old)
+    done(f"The file {display} has been updated successfully:\n{edit_snippet(new_text, anchor, new.count(chr(10)))}")
 elif operation == "grep":
     root = resolve(arguments["path"] or arguments["cwd"])
     flags = re.MULTILINE | (re.IGNORECASE if arguments["ignore_case"] else 0)
@@ -108,7 +211,7 @@ elif operation == "grep":
     try:
         regex = re.compile(arguments["pattern"], flags)
     except re.error as error:
-        raise SystemExit(f"invalid regex: {error}")
+        done(f"ERROR: invalid regex: {error}")
     files, counts, content = [], [], []
     show_numbers = (
         arguments["output_mode"] == "content"
@@ -132,23 +235,29 @@ elif operation == "grep":
             text = path.read_text(encoding="utf-8", errors="replace")
         except (OSError, UnicodeError):
             continue
-        lines = text.splitlines() or [text]
-        matches = [index for index, line in enumerate(lines) if regex.search(line)]
-        if arguments["multiline"] and regex.search(text):
-            matches = [0]
-        if not matches:
+        if arguments["multiline"]:
+            hits = [(0, text[:MAX_COLUMNS])] if regex.search(text) else []
+            lines = text.splitlines() or [text]
+        else:
+            lines = text.splitlines()
+            hits = [(index, line[:MAX_COLUMNS]) for index, line in enumerate(lines) if regex.search(line)]
+        if not hits:
             continue
         files.append(path)
-        counts.append(f"{path}:{len(matches)}")
+        counts.append(f"{path}:{len(hits)}")
         if arguments["output_mode"] != "content":
             continue
         emitted = set()
-        for index in matches:
+        for index, hit_line in hits:
+            if arguments["multiline"]:
+                prefix = f"{path}:{index + 1}:" if show_numbers else f"{path}:"
+                content.append(prefix + hit_line)
+                continue
             for line_index in range(max(0, index - before), min(len(lines), index + after + 1)):
                 if line_index not in emitted:
                     emitted.add(line_index)
                     prefix = f"{path}:{line_index + 1}:" if show_numbers else f"{path}:"
-                    content.append(prefix + lines[line_index])
+                    content.append(prefix + lines[line_index][:MAX_COLUMNS])
     if arguments["output_mode"] == "files_with_matches":
         output = sorted(map(str, files), key=lambda value: mtime_key(Path(value)))
     elif arguments["output_mode"] == "count":
@@ -156,7 +265,7 @@ elif operation == "grep":
     else:
         output = content
     limit = arguments["head_limit"]
-    print("\n".join(output if limit in (None, 0) else output[:limit]))
+    done(truncate("\n".join(output if limit in (None, 0) else output[:limit]), GREP_MAX))
 elif operation == "glob":
     root = resolve(arguments["path"] or arguments["cwd"])
     pattern = arguments["pattern"]
@@ -166,7 +275,7 @@ elif operation == "glob":
     output = [str(path) for path in matches[:100]]
     if len(matches) > 100:
         output.append(f"[... truncated to first 100 of {len(matches)} matches ...]")
-    print("\n".join(output))
+    done("\n".join(output))
 else:
     raise SystemExit(f"Unknown file operation: {operation}")
 """
@@ -205,6 +314,31 @@ def _shell_result(result: Any) -> str:
     )
 
 
+_IMAGE_VIEW_MAX_EDGE = 1568
+
+
+def _render_image_result(file_path: str, data: bytes) -> "dict[str, str] | str":
+    """Return an image read as visible image content: a note with the source
+    dimensions plus the image itself, downscaled to a 1568-px max edge and
+    WEBP-encoded — the same bounds the loop applies to screenshots."""
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        width, height = image.size
+        scale = min(1.0, _IMAGE_VIEW_MAX_EDGE / max(width, height)) if max(width, height) else 1.0
+        shown = image.resize((max(1, int(width * scale)), max(1, int(height * scale)))) if scale < 1.0 else image
+        if shown.mode not in ("RGB", "RGBA", "L"):
+            shown = shown.convert("RGB")
+        buffer = io.BytesIO()
+        shown.save(buffer, format="WEBP", quality=90)
+    except Exception as error:  # noqa: BLE001 - not a decodable image
+        return f"ERROR: {file_path} is not a readable image: {error}"
+    note = f"Loaded image {file_path} ({width}x{height})" + (
+        f", shown downscaled to {shown.size[0]}x{shown.size[1]}" if shown.size != (width, height) else ""
+    )
+    return {"text": note, "image_url": "data:image/webp;base64," + base64.b64encode(buffer.getvalue()).decode()}
+
+
 def _python_command(script: str, *arguments: str) -> str:
     return "python3 -c " + shlex.quote(script) + "".join(f" {shlex.quote(argument)}" for argument in arguments)
 
@@ -215,7 +349,6 @@ class CuaSandboxComputer:
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox
         self._bash_cwd: str | None = None
-        self._file_snapshots: set[str] = set()
         self._pointer: tuple[int, int] | None = None
         self._left_mouse_down = False
 
@@ -370,7 +503,18 @@ class CuaSandboxComputer:
 
         sentinel = f"__YUTORI_N2_BASH_CWD_{uuid.uuid4().hex}__"
         wrapped = f"{prefix}{command}\n__yutori_rc=$?\nprintf '\\n{sentinel}%s' \"$PWD\"\nexit $__yutori_rc"
-        result = await self.sandbox.shell.run(wrapped, timeout=max(1, int(timeout) if timeout else 600))
+        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
+        # NORMAL result the model can react to, never a raised failure envelope. (The
+        # sandbox API discards partial output on expiry, so the result is the bare line.)
+        timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
+        if timeout_s == 0:
+            return "Command timed out after 0s"
+        try:
+            result = await self.sandbox.shell.run(wrapped, timeout=timeout_s)
+        except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
+            if "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower():
+                return f"Command timed out after {timeout_s:g}s"
+            raise
         stdout = str(getattr(result, "stdout", "") or "")
         body, marker, new_cwd = stdout.rpartition(f"\n{sentinel}")
         if marker:
@@ -379,19 +523,17 @@ class CuaSandboxComputer:
             return _format_shell_output(body, int(getattr(result, "returncode", 0) or 0))
         return _shell_result(result)
 
-    async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> str:
+    async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> "str | dict[str, str]":
         if offset < 1:
             raise ValueError("read.offset must be a positive 1-based line number")
         output = await self._run_file_tool("read", file_path=file_path, offset=offset, limit=limit)
-        self._file_snapshots.add(await self._file_key(file_path))
-        return output.rstrip() or "[file exists but is empty]"
+        if output.startswith("__YUTORI_IMAGE__"):
+            _, _, encoded = output.partition("\n")
+            return _render_image_result(file_path, base64.b64decode(encoded.strip()))
+        return output.rstrip("\n")
 
     async def write_file(self, file_path: str, content: str) -> str:
-        state = (await self._run_file_tool("write", file_path=file_path, content=content)).strip()
-        self._file_snapshots.add(await self._file_key(file_path))
-        if state == "created":
-            return f"File created successfully at: {file_path}"
-        return f"The file {file_path} has been updated successfully."
+        return (await self._run_file_tool("write", file_path=file_path, content=content)).rstrip("\n")
 
     async def edit_file(
         self,
@@ -400,21 +542,15 @@ class CuaSandboxComputer:
         new_string: str,
         replace_all: bool = False,
     ) -> str:
-        file_key = await self._file_key(file_path)
-        if old_string and file_key not in self._file_snapshots:
-            raise RuntimeError(f"Read or write {file_path} before editing it.")
-        replacements = await self._run_file_tool(
-            "edit",
-            file_path=file_path,
-            old_string=old_string,
-            new_string=new_string,
-            replace_all=replace_all,
-        )
-        if old_string == "":
-            self._file_snapshots.add(file_key)
-            return f"File created successfully at: {file_path}"
-        del replacements
-        return f"The file {file_path} has been updated successfully."
+        return (
+            await self._run_file_tool(
+                "edit",
+                file_path=file_path,
+                old_string=old_string,
+                new_string=new_string,
+                replace_all=replace_all,
+            )
+        ).rstrip("\n")
 
     async def grep_files(
         self,
@@ -446,11 +582,11 @@ class CuaSandboxComputer:
             head_limit=head_limit,
             multiline=multiline,
         )
-        return output.rstrip() or "No matches found."
+        return output.rstrip("\n") or "No matches found."
 
     async def glob_files(self, pattern: str, path: str | None = None) -> str:
         output = await self._run_file_tool("glob", pattern=pattern, path=path)
-        return output.rstrip() or "No files found."
+        return output.rstrip("\n") or "No files found."
 
     async def _working_directory(self) -> str:
         if self._bash_cwd is None:
@@ -462,17 +598,16 @@ class CuaSandboxComputer:
             raise RuntimeError("Sandbox shell did not report a working directory.")
         return self._bash_cwd
 
-    async def _file_key(self, file_path: str) -> str:
-        path = PurePosixPath(file_path)
-        return str(path if path.is_absolute() else PurePosixPath(await self._working_directory()) / path)
-
     async def _run_file_tool(self, operation: str, **arguments: Any) -> str:
         payload = {"operation": operation, "cwd": await self._working_directory(), **arguments}
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
-        return await self._run_python(_FILE_TOOL_SCRIPT, encoded)
-
-    async def _run_python(self, script: str, *arguments: str) -> str:
-        result = await self.sandbox.shell.run(_python_command(script, *arguments), timeout=30)
+        # Search tools get longer budgets (120s grep / 60s glob); plain file I/O stays short.
+        timeout = {"grep": 120, "glob": 60}.get(operation, 30)
+        result = await self.sandbox.shell.run(_python_command(_FILE_TOOL_SCRIPT, encoded), timeout=timeout)
         if int(getattr(result, "returncode", 0) or 0) != 0:
-            raise RuntimeError(_shell_result(result))
+            # n2 expects unexpected failures as a plain ``ERROR: ...``
+            # tool result the model can react to, never a raised failure envelope.
+            detail = str(getattr(result, "stderr", "") or "").strip().splitlines()
+            reason = detail[-1] if detail else f"{operation} failed with exit code {getattr(result, 'returncode', '?')}"
+            return f"ERROR: {reason}"
         return str(getattr(result, "stdout", "") or "")
