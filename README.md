@@ -184,7 +184,7 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
+`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. A few conventions the model is trained around — `bash` over a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop).
 
 The complete runnable example is [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) — a compact agent on a disposable [Daytona](https://www.daytona.io) Linux desktop, with the adapter and sandbox lifecycle contained in that one file; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 

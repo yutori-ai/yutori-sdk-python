@@ -184,6 +184,8 @@ parsed = getattr(response, "parsed_json", None)
 
 Navigator n2 operates a full desktop. Use `model="n2"` and pin the tool set — `TOOL_SET_COMPUTER_USE_LATEST` is the set the SDK's loop implements. It answers with `computer_batch` calls (an ordered sequence of GUI actions, answered with one screenshot taken after the last one) and `bash` calls (answered with the command's output); a turn with text and no `tool_calls` is the final answer. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation: the server keeps every screenshot in the two newest image-bearing messages and strips older image parts while preserving the rest of the history.
 
+**System prompt.** The server owns the n2 system prompt: every request is served with the model's tool definitions and coordinate conventions, plus an environment block telling the model to resolve paths under the current user's `$HOME` and stating the current date and time in US Pacific time (zone named). A caller-supplied system message never replaces any of this — it is appended at the end under a `# User Instructions` header.
+
 ```python
 response = client.chat.completions.create(
     model="n2",
@@ -493,7 +495,7 @@ from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos
 
 `N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which; `resume(message)` continues the same conversation. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
-`computer` is any object with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. Set `supports_click_modifiers` or `supports_scroll_modifiers` only when the adapter can keep a modifier down for that whole gesture. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
+`computer` is any object with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. Three conventions the model is trained around: shell work goes through the `bash` tool, not a GUI terminal, so implement `run_bash_command`; a `read` of an image file should show the model the image itself (have `read_file` return `{"text": ..., "image_url": ...}`); and tool sets are all-or-nothing — custom or disabled tools are rejected, so pin a dated set (`TOOL_SET_COMPUTER_USE_LATEST`, currently `computer_use_tools-20260825`) and implement every tool in it. That last rule is why the Daytona example pins the older bash+batch set. Set `supports_click_modifiers` or `supports_scroll_modifiers` only when the adapter can keep a modifier down for that whole gesture. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
 ### Loop policies
 
@@ -505,7 +507,7 @@ The keywords:
 
 | Keyword | Default | What it controls |
 |---|---|---|
-| `system_prompt` | `None` | Sent as a system message ahead of the conversation (the server appends it to its own system prompt). |
+| `system_prompt` | `None` | Sent as a system message ahead of the conversation; the server appends it under its own prompt's `# User Instructions` header (see **System prompt** in the Navigator n2 section). |
 | `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes. |
 | `max_completion_tokens` | `20480` | Output budget per model call. |
 | `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
