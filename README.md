@@ -95,10 +95,10 @@ The installer sets these up automatically when Node.js is available. To do it ma
 
 ```bash
 npx add-mcp -n yutori "uvx yutori-mcp"
-npx skills add yutori-ai/yutori-mcp -g
+npx -y skills add yutori-ai/yutori-mcp -g -y -a claude-code
 ```
 
-The first command registers the Yutori MCP server with your editor. The second installs workflow skills for Claude Code and compatible agents.
+The first command registers the Yutori MCP server with your editor. The second installs workflow skills scoped to your client — swap `-a claude-code` for another slug if needed (the skills CLI needs `git` on PATH).
 
 </details>
 
@@ -375,7 +375,7 @@ except APIError as e:
 ```bash
 # Authentication
 yutori auth login      # Log in via browser
-yutori auth status     # Show current auth status
+yutori auth status     # Show whether an API key is configured locally
 yutori auth logout     # Remove saved credentials
 
 # Scouts

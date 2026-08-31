@@ -70,6 +70,13 @@ VERIFICATION_MAX_STEPS = 3
 # it add-mcp infers the server name from the first word of the target and
 # registers the server as "uvx".
 MCP_SERVER_INSTALL_COMMAND = ("npx", "-y", "add-mcp", "-n", "yutori", "uvx yutori-mcp")
+# The leading `-y` belongs to npx (it answers npx's own package-install
+# prompt). The skills CLI's `-y` is deliberately NOT part of the base command:
+# on a TTY the user should get the CLI's agent picker, while non-interactive
+# installs append `-y` plus explicit `-a <slug>` scoping in
+# maybe_install_mcp_skills -- a bare `-y` auto-confirms the picker for every
+# supported agent and sprays skill directories for ~70 agents the user never
+# installed.
 MCP_SKILLS_INSTALL_COMMAND = ("npx", "-y", "skills", "add", "yutori-ai/yutori-mcp", "-g")
 # Default set of clients to register MCP for when YUTORI_INSTALL_CLIENT is
 # unset in non-TTY installs. Covers the most-used coding agents without
@@ -799,6 +806,23 @@ def _run_npx_step(
     return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
 
 
+def _resolve_noninteractive_clients() -> tuple[str, ...]:
+    """Clients to scope a non-interactive install to.
+
+    Honors ``YUTORI_INSTALL_CLIENT`` (single target) when set, otherwise
+    falls back to the small :data:`DEFAULT_NONINTERACTIVE_MCP_CLIENTS` set.
+    Shared by the MCP-server and MCP-skills steps so a change to one client
+    list can't drift from the other.
+    """
+    client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+    return (client,) if client else DEFAULT_NONINTERACTIVE_MCP_CLIENTS
+
+
+def _client_agent_flags(clients: Sequence[str]) -> tuple[str, ...]:
+    """Flatten ``("claude-code", "codex")`` into ``("-a", "claude-code", "-a", "codex")``."""
+    return tuple(flag for slug in clients for flag in ("-a", slug))
+
+
 def maybe_install_mcp_server(
     console: Console,
     *,
@@ -823,17 +847,10 @@ def maybe_install_mcp_server(
 
     if not interactive:
         client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+        clients = _resolve_noninteractive_clients()
         base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
-        if client:
-            noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
-        else:
-            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
-            agent_flags = tuple(
-                flag
-                for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
-                for flag in ("-a", slug)
-            )
-            noninteractive_command = (*base, *agent_flags, "uvx yutori-mcp")
+        noninteractive_command = (*base, *_client_agent_flags(clients), "uvx yutori-mcp")
+        if not client:
             default_list = ", ".join(DEFAULT_NONINTERACTIVE_MCP_CLIENTS)
             success_detail = (
                 f"Registered Yutori MCP for the default client set ({default_list}). "
@@ -862,18 +879,44 @@ def maybe_install_mcp_skills(
     interactive: bool,
     env: Mapping[str, str] | None = None,
 ) -> StepResult:
+    # In non-TTY mode the skills CLI's agent picker is answered with `-y`,
+    # which alone would install for every supported agent (~70 directories of
+    # symlink scaffolding under $HOME). Scope it with the same client
+    # selection the MCP-server step uses: YUTORI_INSTALL_CLIENT when set,
+    # otherwise the small default client set.
+    noninteractive_command: Sequence[str] | None = None
+    success_detail = "Installed Yutori workflow skills at user scope."
+    if not interactive:
+        clients = _resolve_noninteractive_clients()
+        noninteractive_command = (*MCP_SKILLS_INSTALL_COMMAND, "-y", *_client_agent_flags(clients))
+        success_detail = (
+            f"Installed Yutori workflow skills at user scope for: {', '.join(clients)}. "
+            "Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client."
+        )
+
+    # The skills CLI clones its skill repository with git. Without git the
+    # step would die inside npx with a bare `spawn git ENOENT`, so surface an
+    # actionable skip here instead. The retry hint must show the command this
+    # mode would actually run: hinting the bare base command at a no-TTY user
+    # would reproduce the unanswered-picker no-op it exists to prevent.
+    if _which("git", _resolve_env(env)) is None:
+        retry_command = MCP_SKILLS_INSTALL_COMMAND if interactive else noninteractive_command
+        return StepResult(
+            "MCP skills",
+            "skipped",
+            "git is not on PATH and the skills CLI clones its skill repository with git. "
+            f"Install git, then retry. {_manual_retry_hint(retry_command)}",
+        )
+
     return _run_npx_step(
         console,
         name="MCP skills",
         title="Yutori workflow skills",
         description="Installs slash-command workflow skills globally via the skills CLI.",
         command=MCP_SKILLS_INSTALL_COMMAND,
-        # `npx skills add ... -g` doesn't prompt, so the same argv works in
-        # both modes -- only the wrapper's confirm prompt and stdio-handling
-        # differ between interactive and non-interactive paths.
-        noninteractive_command=MCP_SKILLS_INSTALL_COMMAND,
+        noninteractive_command=noninteractive_command,
         confirm_question="Install Yutori workflow skills globally?",
-        success_detail="Installed Yutori workflow skills at user scope.",
+        success_detail=success_detail,
         interactive=interactive,
         env=env,
     )
@@ -893,7 +936,11 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
             print_prompt_block(console, "Authentication", "No interactive terminal detected.")
             console.print(_slate_line("Skipping auth. To finish setting up:"))
             console.print(_slate_line("  - Run `yutori auth login` on a machine with a browser"))
-            console.print(_slate_line("  - Or set YUTORI_API_KEY (get one at https://platform.yutori.com/settings)"))
+            console.print(
+                _slate_line(
+                    "  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com (-> API Keys))"
+                )
+            )
             return (
                 StepResult(
                     "Auth",

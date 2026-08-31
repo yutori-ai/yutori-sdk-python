@@ -11,6 +11,8 @@ Only the Playwright ``key`` name is needed here (not ``code`` / ``keyCode``).
 
 from __future__ import annotations
 
+from ._key_symbols import PUNCTUATION_KEY_NAMES
+
 _KEY_MAP: dict[str, str] = {
     # Modifier keys
     "ctrl": "Control",
@@ -50,18 +52,7 @@ _KEY_MAP: dict[str, str] = {
     # Function keys
     **{f"f{i}": f"F{i}" for i in range(1, 13)},
     # Word-form punctuation
-    "plus": "+",
-    "minus": "-",
-    "equal": "=",
-    "comma": ",",
-    "period": ".",
-    "slash": "/",
-    "backslash": "\\",
-    "semicolon": ";",
-    "quote": "'",
-    "backquote": "`",
-    "bracketleft": "[",
-    "bracketright": "]",
+    **PUNCTUATION_KEY_NAMES,
     # Lock keys
     "capslock": "CapsLock",
     "numlock": "NumLock",

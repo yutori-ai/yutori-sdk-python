@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_TEMPLATE = REPO_ROOT / "install.sh.template"
 UNINSTALL_SH = REPO_ROOT / "uninstall.sh"
+LLMS_TXT = REPO_ROOT / "llms.txt"
 
 
 # Scripts that must always be present (hand-authored or committed artifact).
@@ -67,6 +68,13 @@ def test_generated_install_sh_syntax() -> None:
     script = _resolve_install_sh()
     result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
     assert result.returncode == 0, f"bash -n failed:\n{result.stderr}"
+
+
+def test_llms_install_client_variable_is_scoped_to_the_installer() -> None:
+    content = LLMS_TXT.read_text(encoding="utf-8")
+
+    assert "curl -fsSL https://yutori.com/install.sh | YUTORI_INSTALL_CLIENT=<client> bash" in content
+    assert "YUTORI_INSTALL_CLIENT=<client> curl" not in content
 
 
 @pytest.mark.parametrize("script", AUTHORED_SCRIPTS, ids=lambda p: p.name)

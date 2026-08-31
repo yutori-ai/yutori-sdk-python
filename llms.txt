@@ -18,12 +18,12 @@ Drive setup yourself. The user's only action is clicking **Allow** in a browser 
 1. Install the CLI, MCP server, and skills in one shot (you run this):
 
     ```bash
-    YUTORI_INSTALL_CLIENT=<client> curl -fsSL https://yutori.com/install.sh | bash
+    curl -fsSL https://yutori.com/install.sh | YUTORI_INSTALL_CLIENT=<client> bash
     ```
 
     Substitute `<client>` with your agent's slug — common values: `claude-code`, `codex`, `cursor`, `vscode`, `claude-desktop`, `gemini-cli`, `zed`, `opencode` (run `npx add-mcp list-agents` for the full list). If `YUTORI_INSTALL_CLIENT` is unset the installer registers MCP for the default set (`claude-code`, `codex`, `cursor`, `gemini-cli`).
 
-    In non-TTY mode the installer does the CLI install via `uv tool install yutori`, registers the Yutori MCP server for the chosen client(s), and installs the six workflow skills (`yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-competitor-watch`, `yutori-api-monitor`, `yutori-login`) at user scope. Auth and verification are skipped — they need a browser and an API key (step 2 below).
+    In non-TTY mode the installer does the CLI install via `uv tool install yutori`, registers the Yutori MCP server for the chosen client(s), and installs the seven workflow skills (`yutori-scout`, `yutori-research`, `yutori-browse`, `yutori-computer-use`, `yutori-competitor-watch`, `yutori-api-monitor`, `yutori-login`) at user scope for the chosen client(s). Auth and verification are skipped — they need a browser and an API key (step 2 below).
 
     If `~/.local/bin` isn't on your PATH yet, invoke `yutori` via `$(uv tool dir --bin)/yutori` or run `export PATH="$(uv tool dir --bin):$PATH"` for the rest of this session.
 
@@ -50,7 +50,7 @@ The installer's status table will say `MCP server: SKIP` or `MCP skills: SKIP` i
 npx add-mcp -y -g -n yutori -a <client> "uvx yutori-mcp"
 
 # Workflow skills
-npx skills add yutori-ai/yutori-mcp -g
+npx -y skills add yutori-ai/yutori-mcp -g -y -a <client>
 ```
 
 If `npx` isn't available, native CLIs work for some clients:
@@ -64,8 +64,8 @@ If `npx` isn't available, native CLIs work for some clients:
 **You run these yourself** once the user confirms `yutori auth login` completed:
 
 ```bash
-yutori auth status     # confirms the API key is saved and valid
-yutori usage           # shows the user their daily quota and active scouts
+yutori auth status     # confirms an API key is configured
+yutori usage           # validates the key and shows daily quota / active scouts
 ```
 
 If both succeed, proceed to **Demonstrate** below. If MCP tools have already loaded in your session (i.e. the coding agent was restarted), `list_api_usage` is an equivalent MCP check.
