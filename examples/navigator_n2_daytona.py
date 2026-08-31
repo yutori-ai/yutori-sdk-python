@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "daytona==0.207.0",
+#   "yutori>=0.9.4",
+# ]
+# ///
 """
 A computer-use agent: Navigator n2 driving a disposable Daytona Linux desktop.
 
@@ -8,32 +15,33 @@ SDK's n2 agent loop, executes each call through a small adapter, sends the
 result back (a fresh screenshot for the batch, the output for bash), and asks
 again until the model answers with text.
 
-Everything Daytona-specific lives in `DaytonaComputer`. Swap it for your own
-adapter to drive a different desktop. `N2InlineCompactor` demonstrates how a
-harness can compact long trajectories without putting conversation policy in
-the computer adapter.
+Daytona is third-party infrastructure; this Yutori-maintained example contains
+the whole integration — the `DaytonaComputer` adapter plus the sandbox
+lifecycle in `main`. Swap those pieces for your own environment to drive a
+different desktop.
 
 Usage:
-    pip install yutori daytona                # Python 3.10+
     yutori auth login                         # or export YUTORI_API_KEY=...
     export DAYTONA_API_KEY=...                # https://app.daytona.io
 
-    python examples/navigator_n2_daytona.py \\
-        "Write 'hello from n2' to /tmp/demo.txt, then open a terminal and cat the file"
+    uv run examples/navigator_n2_daytona.py \\
+        "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
-Watch the run: `await sandbox.get_preview_link(6080)` returns a noVNC URL.
+Add --record to save a screen recording of the run to n2-daytona-run.mp4.
+
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import shlex
-import sys
 import uuid
 
 from yutori import AsyncYutoriClient
-from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent, N2InlineCompactor
+from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -42,9 +50,36 @@ SNAPSHOT = "daytonaio/sandbox:0.6.0"
 # One `keyboard.type` call longer than this is silently cut off by the sandbox.
 TYPE_CHUNK_MAX_CHARS = 500
 
+# Where --record saves the screen recording after the run.
+RECORDING_PATH = "n2-daytona-run.mp4"
+
 # The n2 `bash` tool caps one result at this many characters.
 BASH_RESULT_MAX_CHARS = 30_000
 MAX_STEPS = 30
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run stable Navigator n2 on third-party Daytona infrastructure.")
+    parser.add_argument("task", help="Task for stable Navigator n2")
+    parser.add_argument(
+        "--max-steps",
+        type=_positive_int,
+        default=MAX_STEPS,
+        help=f"Maximum model turns (default: {MAX_STEPS})",
+    )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help=f"Record the sandbox screen and save the video to {RECORDING_PATH} when the run ends.",
+    )
+    return parser.parse_args(argv)
 
 
 def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
@@ -168,49 +203,59 @@ class DaytonaComputer:
         return output or "(Bash completed with no output)"
 
 
-async def main(task: str) -> None:
-    from daytona import AsyncDaytona, CreateSandboxFromSnapshotParams
+async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> None:
+    # Validate the Yutori credential before entering or allocating third-party infrastructure.
+    async with AsyncYutoriClient() as client:
+        await client.get_usage()
 
-    # These defaults match Yutori's Praxis harness. Implement N2Compactor
-    # yourself when your harness needs a different trigger or rewrite policy.
-    # If no complete recent turn fits, the compactor restores the latest frame
-    # after its checkpoint so the next actor request still sees the desktop.
-    compactor = N2InlineCompactor(
-        trigger_input_tokens=53_760,
-        keep_last_n_turns=5,
-        tail_token_budget=16_384,
-    )
-    # The client resolves credentials up front: a missing key must not cost a desktop.
-    async with AsyncYutoriClient() as client, AsyncDaytona() as daytona:
-        sandbox = await daytona.create(CreateSandboxFromSnapshotParams(snapshot=SNAPSHOT))
-        try:
-            computer = DaytonaComputer(sandbox)
-            await computer.start()
-            agent = N2ComputerAgent(
-                computer=computer,
-                completions=client.chat.completions,
-                model="n2",
-                # Daytona does not expose current n2 file tools, so this example
-                # explicitly replays the compatible 20260812 batch-plus-bash set.
-                tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
-                compactor=compactor,
-                max_steps=MAX_STEPS,
-            )
+        from daytona import AsyncDaytona, CreateSandboxFromSnapshotParams
 
-            async for step in agent.run(task):
-                for item in step.get("output") or []:
-                    if item.get("type") == "message":
-                        for part in item.get("content") or []:
-                            if isinstance(part, dict) and part.get("text"):
-                                print(part["text"])
-                    elif item.get("type") == "function_call":
-                        print(f"ACTION {item.get('name')}: {item.get('arguments')}")
-        finally:
-            await sandbox.delete()
+        async with AsyncDaytona() as daytona:
+            sandbox = await daytona.create(CreateSandboxFromSnapshotParams(snapshot=SNAPSHOT, ephemeral=True))
+            recording = None
+            try:
+                computer = DaytonaComputer(sandbox)
+                await computer.start()
+                if record:
+                    recording = await sandbox.computer_use.recording.start(label="yutori-n2")
+                agent = N2ComputerAgent(
+                    computer=computer,
+                    completions=client.chat.completions,
+                    model="n2",
+                    # This compact Yutori-maintained adapter intentionally implements GUI and
+                    # bash only, so it pins the compatible immutable batch-plus-bash contract.
+                    tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+                    max_steps=max_steps,
+                )
+
+                async for step in agent.run(task):
+                    for item in step.get("output") or []:
+                        if item.get("type") == "message":
+                            for part in item.get("content") or []:
+                                if isinstance(part, dict) and part.get("text"):
+                                    print(part["text"])
+                        elif item.get("type") == "function_call":
+                            print(f"ACTION {item.get('name')}: {item.get('arguments')}")
+                        elif item.get("type") == "function_call_output":
+                            output = item.get("output")
+                            if isinstance(output, str):
+                                print(output)
+                            elif isinstance(output, dict) and output.get("result") is not None:
+                                print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
+            finally:
+                try:
+                    if recording is not None:
+                        stopped = await sandbox.computer_use.recording.stop(recording.id)
+                        await sandbox.computer_use.recording.download(recording.id, RECORDING_PATH)
+                        seconds = stopped.duration_seconds or 0
+                        print(f"Saved screen recording ({seconds:.0f}s) to {RECORDING_PATH}")
+                finally:
+                    await sandbox.delete(wait=True)
 
     if agent.stopped_by == "max_steps":
-        raise RuntimeError(f"Stopped after {MAX_STEPS} steps")
+        raise RuntimeError(f"Stopped after {max_steps} steps")
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1]))
+    cli_args = parse_args()
+    asyncio.run(main(cli_args.task, max_steps=cli_args.max_steps, record=cli_args.record))

@@ -108,10 +108,12 @@ from yutori.navigator import (
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
 | `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
-| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260825"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. It supports all 15 batch primitives, including held mouse/key actions and screenshot. |
+| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260825"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
+
+**Replay note.** The SDK also accepts the immutable `computer_use_tools-20260818` browser set for replaying recorded trajectories. It is not a desktop set: its extra `goto_url` call requires a computer handler that implements `async goto_url(url: str)`. The bundled desktop and public Cua sandbox adapters deliberately return a recoverable unsupported-environment result for that browser-only call.
 
 For pinned versions (e.g. `n1.5-20260428`) see [docs.yutori.com/reference/n1-5](https://docs.yutori.com/reference/n1-5) and [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
@@ -190,7 +192,7 @@ response = client.chat.completions.create(
 )
 ```
 
-`N2ComputerAgent` (0.9.3+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a complete agent on a Daytona sandbox desktop built on it; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
+`N2ComputerAgent` (0.9.3+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact agent using third-party Daytona infrastructure; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ### `client.browsing` — Browsing API
 
@@ -459,7 +461,7 @@ from yutori.navigator import (
     NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
     # Navigator n2 loop helpers
-    N2ComputerAgent, N2CompactionContext, N2CompactionResult, N2Compactor, N2InlineCompactor,
+    N2ComputerAgent, N2Compactor,
     parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
@@ -480,16 +482,18 @@ from yutori.navigator import (
 
 ### Navigator n2 loop
 
+`N2ComputerAgent` and the basic `run()` loop were added in SDK 0.9.3. The `resume()`, `stopped_by`, tool-owned result, and loop-policy APIs documented below require SDK 0.9.4+.
+
 Imports:
 
 ```python
-from yutori.navigator import N2ComputerAgent, N2InlineCompactor, TOOL_SET_COMPUTER_USE_LATEST
+from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
 `N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which; `resume(message)` continues the same conversation. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
 
-`computer` is any object with the async handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, `wait`, and optionally `run_bash_command`. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
+`computer` is any object with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. Set `supports_click_modifiers` or `supports_scroll_modifiers` only when the adapter can keep a modifier down for that whole gesture. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
 ### Loop policies
 
@@ -512,9 +516,11 @@ The keywords:
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
 | `compactor` | `None` | An `N2Compactor`, called before each model request and the context-limit guard. Return a replacement trajectory to compact the context. |
 
-Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_sandbox.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_adapter.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
 
 ### N2 context compaction
+
+`N2InlineCompactor`, `N2CompactionContext`, and `N2CompactionResult` are available on the current main branch but are not included in the published 0.9.4 package. Use a source checkout until a later SDK release includes them.
 
 `N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
 harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,

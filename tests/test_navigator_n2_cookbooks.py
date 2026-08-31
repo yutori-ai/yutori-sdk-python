@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 from PIL import Image
 
-from examples.navigator_n2.cua_sandbox import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
+from examples.navigator_n2.cua_adapter import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from examples.navigator_n2_daytona import CWD_SENTINEL, DaytonaComputer
 from yutori.navigator import (
@@ -25,7 +25,6 @@ from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_BASH_BATCH,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
-    N2InlineCompactor,
 )
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
@@ -119,7 +118,7 @@ def test_every_ported_example_is_importable_without_its_optional_runtime() -> No
         assert importlib.import_module(name)
 
 
-async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
+async def test_daytona_adapter_runs_with_public_agent_loop_end_to_end() -> None:
     screenshot = f"data:image/png;base64,{_screenshot_base64()}"
     sandbox = SimpleNamespace(
         computer_use=SimpleNamespace(
@@ -166,65 +165,49 @@ async def test_daytona_example_runs_through_compaction_end_to_end() -> None:
                 "request_id": "actor-1",
             },
             {
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                "<conversation_compaction_summary>\n"
-                                "## Goal\nList the files\n"
-                                "</conversation_compaction_summary>"
-                            ),
-                            "tool_calls": [],
-                        }
-                    }
-                ],
-                "usage": {"prompt_tokens": 2},
-                "request_id": "compact-1",
-            },
-            {
                 "choices": [{"message": {"content": "done", "tool_calls": []}}],
                 "usage": {"prompt_tokens": 1},
                 "request_id": "actor-2",
             },
         ]
     )
-    compactor = N2InlineCompactor(
-        trigger_input_tokens=1,
-        keep_last_n_turns=0,
-        retry_delay_seconds=0,
-    )
     agent = N2ComputerAgent(
         computer=computer,
         completions=completions,
         tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
-        compactor=compactor,
     )
 
     steps = [step async for step in agent.run("list files")]
 
     assert steps[-1]["message"]["content"] == "done"
-    assert compactor.compaction_count == 1
     sandbox.process.exec.assert_not_awaited()
     assert sandbox.computer_use.screenshot.take_full_screen.await_count == 2
     assert completions.requests[1]["extra_body"]["prev_request_id"] == "actor-1"
-    assert completions.requests[2]["extra_body"]["prev_request_id"] == "compact-1"
-    assert (
-        "<working_checkpoint>\n## Goal\nList the files" in completions.requests[2]["messages"][1]["content"][0]["text"]
-    )
-    restored = completions.requests[2]["messages"][2]
-    assert restored["role"] == "user"
-    assert [part["type"] for part in restored["content"]] == ["image_url"]
+    tool_result = completions.requests[1]["messages"][-1]
+    assert tool_result["role"] == "tool"
+    assert [part["type"] for part in tool_result["content"]] == ["text", "image_url"]
 
 
-def test_cookbook_uses_a_public_pinned_cua_dependency() -> None:
+def test_cookbook_uses_pinned_public_runtime_dependencies() -> None:
+    root_project = (ROOT / "pyproject.toml").read_text()
     project = (ROOT / "examples" / "navigator_n2" / "pyproject.toml").read_text()
     readme = (ROOT / "examples" / "navigator_n2" / "README.md").read_text()
+    version_match = re.search(r'^version = "([^"]+)"$', root_project, re.MULTILINE)
 
+    assert version_match is not None
+    sdk_version = version_match.group(1)
     assert '"cua==0.1.6"' in project
+    assert '"cua-sandbox==0.1.17"' in project
+    assert f'"yutori=={sdk_version}"' in project
+    assert f'"yutori[macos]=={sdk_version}"' in project
     assert "cua-agent" not in project
     assert "git =" not in project
     assert "private" not in readme.lower()
     assert "n2-preview" not in readme
+
+
+def test_cookbook_adapter_does_not_shadow_cua_sandbox_package() -> None:
+    assert not (ROOT / "examples" / "navigator_n2" / "cua_sandbox.py").exists()
 
 
 def test_cookbook_aliases_include_current_and_historical_n2_tool_sets() -> None:
@@ -463,6 +446,16 @@ def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:
     png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">IIBBBBB", 64, 48, 8, 6, 0, 0, 0)
     (tmp_path / "img.png").write_bytes(png)
     assert run(**read_args, file_path="img.png").splitlines()[0] == "__YUTORI_IMAGE__"
+    # Image and PDF reads must record fingerprints too, or a later edit of the
+    # same path loops forever on the read-before-edit gate (Bugbot, PR #281).
+    assert not run(
+        operation="edit", file_path="img.png", old_string="nope", new_string="x", replace_all=False
+    ).startswith("ERROR: you must read")
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4 stub")
+    assert run(**read_args, file_path="doc.pdf").startswith("[pdf file: doc.pdf - ")
+    assert not run(
+        operation="edit", file_path="doc.pdf", old_string="nope", new_string="x", replace_all=False
+    ).startswith("ERROR: you must read")
 
     # Grep clamps columns at 500 and skips all six VCS directories.
     (tmp_path / ".hg").mkdir()
@@ -496,7 +489,7 @@ def test_cua_read_file_returns_visible_image_content() -> None:
 
     from PIL import Image as _Image
 
-    from examples.navigator_n2.cua_sandbox import CuaSandboxComputer
+    from examples.navigator_n2.cua_adapter import CuaSandboxComputer
 
     buffer = _io.BytesIO()
     _Image.new("RGB", (2000, 500), (200, 30, 30)).save(buffer, format="PNG")

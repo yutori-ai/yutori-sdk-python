@@ -153,11 +153,14 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
         shutil.copytree(
             ROOT / "examples",
             src_dir / "examples",
-            ignore=shutil.ignore_patterns("__pycache__", "uv.lock"),
+            ignore=shutil.ignore_patterns("__pycache__", "uv.lock", ".venv"),
         )
         (src_dir / "examples" / "navigator_n2" / "uv.lock").write_text(
             "developer-local lockfile\n", encoding="utf-8"
         )
+        cookbook_venv = src_dir / "examples" / "navigator_n2" / ".venv"
+        cookbook_venv.mkdir()
+        (cookbook_venv / "sentinel.txt").write_text("must not be packaged\n", encoding="utf-8")
         for fname in ("pyproject.toml", "README.md", "LICENSE", "MANIFEST.in"):
             shutil.copy2(ROOT / fname, src_dir / fname)
 
@@ -187,10 +190,16 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
     ):
         assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
     for source_path in (ROOT / "examples" / "navigator_n2").rglob("*"):
-        if source_path.is_file() and "__pycache__" not in source_path.parts and source_path.name != "uv.lock":
+        if (
+            source_path.is_file()
+            and ".venv" not in source_path.parts
+            and "__pycache__" not in source_path.parts
+            and source_path.name != "uv.lock"
+        ):
             required = source_path.relative_to(ROOT).as_posix()
             assert f"{sdist_root}/{required}" in sdist_names, f"sdist missing {required}"
     assert f"{sdist_root}/examples/navigator_n2/uv.lock" not in sdist_names
+    assert not any("/examples/navigator_n2/.venv/" in name for name in sdist_names)
 
     wheels = sorted(dist_dir.glob("yutori-*.whl"))
     assert wheels, "expected build to produce a wheel"
