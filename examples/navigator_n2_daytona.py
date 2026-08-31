@@ -26,7 +26,9 @@ and gets the file tools (`read`/`write`/`edit`/`grep`/`glob`) from the SDK's
 `ShellFileToolsMixin` reference implementation. Daytona's
 REST API exposes no held-button or held-key primitives, so the rare held
 actions (`mouse_down`/`mouse_up`, `hold_key`) degrade to the loop's built-in
-recoverable "not supported" results, and click modifiers stay undeclared. When
+recoverable "not supported" results, and click modifiers stay undeclared. The loop owns the
+`computer_batch` mechanics (coordinates, sequencing, screenshots); the adapter
+owns everything the shell and file tools print. When
 adapting it, see api.md's "Navigator n2" section for the contract and
 `examples/navigator_n2/cua_adapter.py` for a second wiring of the same mixin.
 

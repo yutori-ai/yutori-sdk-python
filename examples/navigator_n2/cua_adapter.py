@@ -9,7 +9,9 @@ Xs`` as a normal result, ``cat -n`` line numbering with the ``[... output trunca
 N more chars ...]`` caps, image reads returned as visible image content, the
 sha256-fingerprint read-before-edit gate, and every expected tool error as a plain
 ``ERROR: ...`` result rather than a raised failure envelope. Copy or adapt this module
-when building a handler for your own environment.
+when building a handler for your own environment. The ``computer_batch`` tool itself
+lives in the SDK loop — this module implements what the loop delegates: the GUI
+primitives it calls, and the full ``bash``/file-tool output contracts.
 """
 
 from __future__ import annotations
