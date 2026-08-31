@@ -463,8 +463,10 @@ from yutori.navigator import (
     NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
     # Navigator n2 loop helpers
-    N2Computer, N2ComputerAgent, N2Compactor,
+    N2Computer, N2ComputerAgent, N2Compactor, N2InlineCompactor,
     parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
+    # Navigator n2 bash/file-tool reference implementations
+    ShellFileToolsMixin, format_shell_output, render_image_result, FILE_TOOL_SCRIPT,
     # Screenshots
     aplaywright_screenshot_to_data_url, playwright_screenshot_to_data_url, screenshot_to_data_url,
     # Coordinates
@@ -557,7 +559,7 @@ Optional extensions the loop probes for:
 | `release_held_mouse_button()` | Cleanup after a batch or a cancellation | No cleanup call is made. |
 | `get_dimensions() -> (width, height)` | The coordinate space for a turn with no frame in history | The loop measures one unsent screenshot. |
 | `modifier=` keyword on click/scroll handlers | Modified gestures, with `supports_click_modifiers`/`supports_scroll_modifiers` declared | Modified actions are rejected. |
-| `model_action=` keyword on any GUI handler | Receives the model's untranslated call (`{"action": name, **arguments}`) alongside the translated arguments | The handler sees only the loop's pixel translation. |
+| `model_action=` keyword on any GUI handler | Receives the model's untranslated call (`{"action": name, **arguments}` — a click's `coordinates` still normalized 0–1000, a scroll's `direction`/`amount` in notches) alongside the translated arguments | The handler sees only the loop's pixel translation. |
 
 Failure conventions: a GUI handler reports failure by returning `{"success": False, "error": ...}` or by raising — either halts the batch at that member, and the model sees the completed `[i:name]` lines, the halt line, and a fresh frame; the run continues. An exception from a `bash`/file handler becomes a recoverable `[ERROR] <tool> failed: ...` result. *Expected* tool outcomes — file not found, `old_string` not unique, a command timeout — must be **returned** as result text (`ERROR: ...`, `Command timed out after Ns`), never raised: those exact strings are the contract the model was trained on.
 
@@ -566,7 +568,7 @@ Failure conventions: a GUI handler reports failure by returning `{"success": Fal
 | Tool | Implemented by | Notes |
 |---|---|---|
 | `computer_batch` (and the older sets' standalone GUI actions and `screenshot`) | The loop | Validates the batch, maps coordinates, normalizes key names, runs members in order, stops at the first error, captures the one post-batch frame, and formats the `[i:name]` result. The adapter only executes the GUI primitives above. |
-| `bash` | Adapter: `run_bash_command` | The loop validates arguments and passes the handler's text through (a whitespace trim and a 256K runaway backstop aside). `format_shell_output(output, exit_code)` renders the trained shape: `Exit code N` headers, `(Bash completed with no output)`, the 30K truncation cap. |
+| `bash` | Adapter: `run_bash_command` | The loop validates arguments and passes the handler's text through (a whitespace trim and a 256K runaway backstop aside). `format_shell_output(output, exit_code)` renders the trained shape: an `Exit code N` header on nonzero exit, `(Bash completed with no output)`, the 30K truncation cap. A `run_in_background=True` call returns immediately with a confirmation naming the log file the output streams to (for the model to `read`) and the process id — `examples/navigator_n2/cua_adapter.py` has the trained wording. |
 | `read` / `write` / `edit` | Adapter: `read_file` / `write_file` / `edit_file` | Same pass-through; `ShellFileToolsMixin` (next section) is the reference implementation. |
 | Older sets: `shell_command`, `grep`/`glob`, and the browser set's `goto_url` | Adapter: `run_shell_command`, `grep_files`/`glob_files`, `goto_url` | Duck-typed; a missing handler fails that call recoverably. |
 
@@ -574,7 +576,7 @@ Two conventions the model is trained around, beyond the exact result strings: sh
 
 #### File tools over a shell (`ShellFileToolsMixin`)
 
-For any sandbox whose shell has `python3` (stdlib only) on PATH, mix `yutori.navigator.ShellFileToolsMixin` into the adapter and implement two hooks; the mixin then provides all five file-tool handlers with the exact trained result strings — `cat -n` numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps, image reads rendered visible via `render_image_result`:
+For any sandbox whose shell has `python3` (stdlib only) on PATH, mix `yutori.navigator.ShellFileToolsMixin` into the adapter and implement two hooks (both `async def`); the mixin then provides all five file-tool handlers with the exact trained result strings — `cat -n` numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps, image reads rendered visible via `render_image_result`:
 
 | Hook | Contract |
 |---|---|
