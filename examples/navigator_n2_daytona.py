@@ -50,6 +50,7 @@ import uuid
 
 from yutori import AsyncYutoriClient
 from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent, format_stop_and_summarize
+from yutori.navigator.n2_compaction import response_message
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -297,8 +298,8 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
             # The sandbox is already deleted; only the Yutori client is needed.
             nudge = {"role": "user", "content": [{"type": "text", "text": format_stop_and_summarize(task)}]}
             response = await client.chat.completions.create(**agent.completion_request([nudge]))
-            data = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-            summary = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content")
+            _, message = response_message(response)
+            summary = message.get("content")
             if isinstance(summary, str) and summary.strip():
                 print(f"Step cap reached; the model's summary of progress so far:\n{summary}")
             raise RuntimeError(f"Stopped after {max_steps} steps (summary above)")
