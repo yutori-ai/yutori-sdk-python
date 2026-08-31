@@ -240,7 +240,7 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 | `map_key_to_playwright(key)` / `map_keys_individual(keys)`  | Convert Navigator n1.5 lowercase key names to Playwright format.                                                                         |
 | `yutori.navigator.tools`                                    | Packaged JS reference implementations for Navigator n1.5 browser tool sets (`extract_elements`, `find`, `set_element_value`, `execute_js`). |
 | `N2ComputerAgent` / `TOOL_SET_COMPUTER_USE_LATEST`          | The stable Navigator n2 agent loop and current computer-use tool set (SDK 0.9.3+).                                                       |
-| `N2InlineCompactor` / `N2Compactor`                         | Opt-in context compaction for long n2 trajectories, and the protocol for a custom history rewrite policy.                          |
+| `N2InlineCompactor` / `N2Compactor`                         | Default-on context compaction for long n2 trajectories (pass `compactor=None` to disable), and the protocol for a custom history rewrite policy. |
 
 
 Full helper reference: [api.md](api.md).
