@@ -546,6 +546,16 @@ async def test_daytona_bash_non_timeout_errors_still_raise() -> None:
         await computer.run_bash_command("true")
 
 
+async def test_daytona_bash_timeout_detected_from_the_message_alone() -> None:
+    async def exec_(*_args, **_kwargs):
+        # A generically-named error carrying Daytona's live expiry message,
+        # which says "timeout" rather than "timed out".
+        raise RuntimeError("Failed to execute command: command execution timeout")
+
+    computer = _daytona_computer_with_exec(exec_)
+    assert await computer.run_bash_command("sleep 900", timeout=5) == "Command timed out after 5s"
+
+
 def _daytona_computer_with_scroll(scrolls: list) -> "navigator_n2_daytona.DaytonaComputer":
     async def scroll(x, y, direction, amount):
         scrolls.append((x, y, direction, amount))

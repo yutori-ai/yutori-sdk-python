@@ -222,7 +222,11 @@ class DaytonaComputer:
         try:
             result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=max(1, int(timeout_s)))
         except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
-            if "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower():
+            # Match the class name (DaytonaProcessExecutionTimeoutError) and the
+            # message ("command execution timeout" — which says "timeout", not
+            # "timed out"), so a generically-named error is still classified.
+            error_text = f"{type(error).__name__}: {error}".lower()
+            if "timeout" in error_text or "timed out" in error_text:
                 return f"Command timed out after {timeout_s:g}s"
             raise
         output, marker, cwd = result.result.rpartition(f"\n{CWD_SENTINEL}")
