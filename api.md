@@ -487,46 +487,139 @@ from yutori.navigator import (
 Imports:
 
 ```python
-from yutori.navigator import N2ComputerAgent, N2InlineCompactor, TOOL_SET_COMPUTER_USE_LATEST
+from yutori.navigator import N2Computer, N2ComputerAgent, N2InlineCompactor, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation. `run(task)` is an async generator yielding `{"output": [...], "usage": {...}}` per model turn and per executed call; it ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, or a budget is spent — `agent.stopped_by` says which; `resume(message)` continues the same conversation. Pass `completions=client.chat.completions` or an `api_key` (the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager). The default model is stable `n2`; no preview SDK alias is exported.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation against any computer adapter. The loop is async: pass `completions=AsyncYutoriClient().chat.completions` (the sync client's completions will not work), or an `api_key` — the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager. The defaults are already pinned: stable model `n2` and the current dated tool set.
 
-`computer` is any object with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. The always-required core of this surface — the base handlers plus `bash` and `read`/`write`/`edit` — is exported as the `N2Computer` protocol; annotate your adapter with it to have a type checker verify that core. Held-key and held-mouse handlers stay outside the protocol as documented extensions (a missing one fails that action recoverably), and the loop itself stays duck-typed, so an adapter for an older tool set may implement less. Three conventions the model is trained around: shell work goes through the `bash` tool, not a GUI terminal, so implement `run_bash_command`; a `read` of an image file should show the model the image itself (have `read_file` return `{"text": ..., "image_url": ...}`); and tool sets are all-or-nothing — custom or disabled tools are rejected, so pin a dated set (`TOOL_SET_COMPUTER_USE_LATEST`, currently `computer_use_tools-20260825`) and implement every tool in it. Set `supports_click_modifiers` or `supports_scroll_modifiers` only when the adapter can keep a modifier down for that whole gesture. `MacOSComputer` is the native macOS implementation — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
+Constructor parameters (the `**loop_policies` keywords have [their own table](#loop-policies)):
 
-Who implements each tool: the served tools split into two kinds. `computer_batch` is implemented by the loop — it validates the batch, maps the model's normalized coordinates to native pixels, normalizes key names, runs members in order, stops at the first error, captures the one post-batch frame, and formats the `[i:name]` result; the adapter only executes the GUI primitives the loop calls. `bash` and the file tools are implemented by the adapter — the loop validates arguments, calls one handler method, and passes its text through (a whitespace trim and a 256K runaway backstop aside), so the trained output contract (`Exit code N` headers, `cat -n` numbering, the read-before-edit gate, truncation markers, expected errors as plain `ERROR: ...` text) is entirely the handler's to honor. The same split holds for the other sets' tools: standalone GUI actions and `screenshot` are the loop's; `shell_command`, `grep`/`glob`, and the browser set's `goto_url` are the adapter's. Integrating your own infrastructure therefore means implementing the GUI primitives against your input/capture APIs, `run_bash_command` against its shell (`format_shell_output` renders the trained result shape; `examples/navigator_n2/cua_adapter.py` adds the timeout and background-run forms), and the file tools — either supply a shell-with-`python3` hook (`run_sandbox_shell`) so `ShellFileToolsMixin` provides them, or reimplement their contracts against `FILE_TOOL_SCRIPT` and the adapter-hooks paragraph below.
+| Parameter | What it does |
+|---|---|
+| `computer` | Your adapter — see [the adapter contract](#the-adapter-contract-n2computer). |
+| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. Tool sets are all-or-nothing — custom or disabled tools are rejected, and the adapter must serve every tool in the set. |
+| `instructions` | Optional text inserted as the first user message of the run's history. |
+| `callbacks` | List of duck-typed observer objects — see [Callbacks and confirmation](#callbacks-and-confirmation). |
+| `action_confirmation_callback` | Opt-in approval gate for model actions — same section. |
+| `presentation` | Optional `N2Presentation` event sink for a live UI (what Yutori MCP's overlay uses); its failures never break the run. |
+| `screenshot_delay` | Seconds to let the desktop settle before the post-action frame (default `0.5`; skipped when `screenshot` returns native `N2Observation` frames). |
+| `execution_deadline` | Optional `time.monotonic()` timestamp; batch members stop executing once it passes. |
+| `temperature` | Sampling passthrough; `None` uses the server's pinned defaults. |
+| `supports_click_modifiers` / `supports_scroll_modifiers` | Declare only when the adapter can hold a modifier for that whole gesture (the scroll setting defaults to the click one). An undeclared modified action is rejected with a model-visible error, never silently executed unmodified. |
 
-### Loop policies
+`MacOSComputer` is the native macOS adapter — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
-`run(task)` starts a conversation and drives it until the model answers with text and no tool calls (`stopped_by == "final_answer"`), a callback stops it, or a budget is spent. The text is passed through untouched; `agent.resume(message)` appends a user message to the same trajectory (`agent.trajectory`) and continues, so the caller decides what a text-only turn means — answer a question, steer, or stop. Each request echoes the previous response's `request_id` as `prev_request_id` (`run()` starts a new chain, `resume()` continues it), so the platform reports the whole conversation as one session. A caller who wants an explicit completion convention (say, a `[DONE]` marker) asks for it in their own `system_prompt` and checks the final text in their outer loop, resuming until it appears.
+#### Running and resuming
 
-What a result carries is the tool's own contract, not a loop policy: a `computer_batch` (or a single GUI action, or `screenshot`) returns one `[i:name]` line per member plus a fresh frame captured after its actions execute; `bash` and the file tools return the handler's text exactly as returned (`read` may return `{"text", "image_url"}` so an image file is shown as an image); the run starts without a screenshot and the model requests one with a `screenshot` batch member. Frames are sent at the computer handler's own capture size — the handler defines the viewport (with DPR scaling removed) — re-encoded to `image_format`; older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. A turn whose text carries literal `<tool_call>` markup but parsed no tool calls gets one retry with a format reminder (`TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`); neither the malformed attempt nor the reminder enters the kept trajectory. Key names in `key_press`/`hold_key` normalize to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the computer handler to accept or reject.
+`run(task)` (a task string or a message list) is an async generator yielding `{"output": [items], "usage": {...}, "message": {...}}` per model turn (`message` is the raw assistant message) and `{"output": [result items], "usage": {}}` per executed tool call. The items are responses-style dicts, the same shapes kept in `agent.trajectory`:
 
-The keywords:
+| Item `type` | Shape |
+|---|---|
+| `message` | Assistant text: `content` is `[{"type": "output_text", "text": ...}]`; the model's thinking rides on `"reasoning"`. |
+| `function_call` | One tool call: `call_id`, `name`, `arguments` (a JSON string). |
+| `function_call_output` | Its result: `output` is a string, or `{"type": "input_image", "image_url": ..., "result": <text>}` when a frame or image rides along. |
+
+The run ends when the model answers with text and no tool calls, a callback's `on_run_continue` returns `False`, a `max_steps`/`agent_timeout_seconds` budget is spent, or the next request would exceed `context_window_tokens`; `agent.stopped_by` records which (`"final_answer"`, `"callback"`, `"max_steps"`, `"timeout"`, `"context_limit"`). Final text passes through untouched. `resume(message)` appends a user message to `agent.trajectory` and continues the same conversation, so the caller decides what a text-only turn means — answer a question, steer, or stop; a caller who wants an explicit completion convention (say, a `[DONE]` marker) asks for it in `system_prompt` and resumes until it appears. Each request echoes the previous response's `request_id` as `prev_request_id` (`run()` starts a new chain, `resume()` continues it), so the platform reports the whole conversation as one session.
+
+Request rendering: the run starts without a screenshot — the model asks for one with a `screenshot` batch member. Frames are sent at the handler's own capture size, re-encoded to `image_format` (never resized); older frames are replaced by `[older image omitted]`; prior-turn reasoning is re-sent as the assistant message's `reasoning`/`reasoning_content` fields. Two responses are re-requested once instead of kept: a turn whose text carries literal `<tool_call>` markup but parsed no tool calls (retried with a format reminder, `TOOL_CALL_FORMAT_NUDGE`; the check is `needs_tool_call_format_nudge`), and a turn cut off at the output cap (`finish_reason == "length"`) with no tool calls. Neither attempt enters the kept trajectory.
+
+#### The adapter contract (`N2Computer`)
+
+`computer` is any object with the async handler surface below. The always-required core for the current tool set is exported as the `N2Computer` protocol — structural, so annotate your adapter (`computer: N2Computer = MyComputer(...)`) to have a type checker verify it. The loop itself stays duck-typed; an adapter for an older tool set may implement less. GUI coordinates arrive as **native pixels** — the loop maps the model's normalized 0–1000 space onto the dimensions of the frame it sent.
+
+Required (all `async def`):
+
+| Method | Contract |
+|---|---|
+| `screenshot() -> str` | The current frame as a data URL or bare base64 (any Pillow-decodable format). Capture at the size the model should see: the handler defines the viewport, with DPR scaling removed — the SDK re-encodes but never resizes. May instead return a native `N2Observation`, as `MacOSComputer` does, which unlocks the optional `wait_for_change`/`poll_after_action` hooks and skips the settle delay. |
+| `click(x, y, button="left")` | `button` is `"left"`, `"right"`, or `"middle"`. |
+| `double_click(x, y)` | — |
+| `move(x, y)` | Move the pointer without clicking. |
+| `drag(path)` | `path` is exactly two `{"x", "y"}` dicts: start and end. |
+| `scroll(x, y, scroll_x, scroll_y)` | Pixel deltas at (x, y); positive `scroll_y` is down. The loop converts the model's notches at one notch = 10% of screen height; a backend that wants the model's own units should take `model_action=` (below) and read its `direction`/`amount`. |
+| `type(text)` | Type into the focused element. |
+| `keypress(keys)` | One chord per call, as a list: `"ctrl+c"` arrives as `["ctrl", "c"]`, and a space-separated sequence (`"down down enter"`) becomes one call per combo. Names are pre-normalized to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the handler to accept or reject. |
+| `wait(ms)` | Idle for `ms` milliseconds. |
+| `run_bash_command(command, timeout=120.0, run_in_background=False) -> str` | Run in a persistent bash session — the working directory persists across calls — and return the rendered output (see [Tool ownership](#tool-ownership)). |
+| `read_file(file_path, offset=1, limit=2000) -> str \| dict` | `cat -n`-numbered text; return `{"text", "image_url"}` for an image file so the model sees the image itself. |
+| `write_file(file_path, content) -> str` | Create or overwrite; return the confirmation text. |
+| `edit_file(file_path, old_string, new_string, replace_all=False) -> str` | Exact-string replacement; return the result text. |
+
+Optional extensions the loop probes for:
+
+| Extension | Serves | Without it |
+|---|---|---|
+| `triple_click(x, y)` | Native multi-click timing | Falls back to `double_click` then `click`. |
+| `hold_key(key, ms)` | `hold_key` with a duration | The action fails with a model-visible error; the run continues. |
+| `key_down(key)` / `key_up(key)` | Durationless `hold_key` (held until the next action) | Same. |
+| `left_mouse_down(x=None, y=None)` / `left_mouse_up(x=None, y=None)` | `mouse_down`/`mouse_up` batch members | Same. |
+| `release_held_mouse_button()` | Cleanup after a batch or a cancellation | No cleanup call is made. |
+| `get_dimensions() -> (width, height)` | The coordinate space for a turn with no frame in history | The loop measures one unsent screenshot. |
+| `modifier=` keyword on click/scroll handlers | Modified gestures, with `supports_click_modifiers`/`supports_scroll_modifiers` declared | Modified actions are rejected. |
+| `model_action=` keyword on any GUI handler | Receives the model's untranslated call (`{"action": name, **arguments}`) alongside the translated arguments | The handler sees only the loop's pixel translation. |
+
+Failure conventions: a GUI handler reports failure by returning `{"success": False, "error": ...}` or by raising — either halts the batch at that member, and the model sees the completed `[i:name]` lines, the halt line, and a fresh frame; the run continues. An exception from a `bash`/file handler becomes a recoverable `[ERROR] <tool> failed: ...` result. *Expected* tool outcomes — file not found, `old_string` not unique, a command timeout — must be **returned** as result text (`ERROR: ...`, `Command timed out after Ns`), never raised: those exact strings are the contract the model was trained on.
+
+#### Tool ownership
+
+| Tool | Implemented by | Notes |
+|---|---|---|
+| `computer_batch` (and the older sets' standalone GUI actions and `screenshot`) | The loop | Validates the batch, maps coordinates, normalizes key names, runs members in order, stops at the first error, captures the one post-batch frame, and formats the `[i:name]` result. The adapter only executes the GUI primitives above. |
+| `bash` | Adapter: `run_bash_command` | The loop validates arguments and passes the handler's text through (a whitespace trim and a 256K runaway backstop aside). `format_shell_output(output, exit_code)` renders the trained shape: `Exit code N` headers, `(Bash completed with no output)`, the 30K truncation cap. |
+| `read` / `write` / `edit` | Adapter: `read_file` / `write_file` / `edit_file` | Same pass-through; `ShellFileToolsMixin` (next section) is the reference implementation. |
+| Older sets: `shell_command`, `grep`/`glob`, and the browser set's `goto_url` | Adapter: `run_shell_command`, `grep_files`/`glob_files`, `goto_url` | Duck-typed; a missing handler fails that call recoverably. |
+
+Two conventions the model is trained around, beyond the exact result strings: shell work goes through the `bash` tool, not a GUI terminal, and a `read` of an image file shows the model the image itself. Integrating your own infrastructure is therefore three pieces — the GUI primitives over your capture/input APIs, `run_bash_command` over its shell, and the file tools. [`examples/navigator_n2/cua_adapter.py`](examples/navigator_n2/cua_adapter.py) is the full-surface reference (including `bash`'s timeout and background-run forms); [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact adapter over REST primitives.
+
+#### File tools over a shell (`ShellFileToolsMixin`)
+
+For any sandbox whose shell has `python3` (stdlib only) on PATH, mix `yutori.navigator.ShellFileToolsMixin` into the adapter and implement two hooks; the mixin then provides all five file-tool handlers with the exact trained result strings — `cat -n` numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps, image reads rendered visible via `render_image_result`:
+
+| Hook | Contract |
+|---|---|
+| `run_sandbox_shell(command, *, timeout_seconds)` | Run one shell command in the sandbox; return any object with `stdout`, `stderr`, and `returncode` attributes. |
+| `file_tool_cwd() -> str` | The directory relative paths resolve against (usually the bash tool's tracked cwd). |
+
+To implement the file tools without a shell, reproduce the contracts of the sandbox-side `FILE_TOOL_SCRIPT` (`yutori/navigator/sandbox_tools.py`).
+
+#### Callbacks and confirmation
+
+`callbacks` is a list of duck-typed objects; every hook is optional and `async`:
+
+| Hook | Fires |
+|---|---|
+| `on_run_start(kwargs, items)` / `on_run_end(kwargs, old_items, new_items)` | Around each `run()`/`resume()`; `on_run_end` always fires. |
+| `on_run_continue(kwargs, old_items, new_items) -> bool` | Before each model turn; return `False` to stop the run (`stopped_by == "callback"`). |
+| `on_api_start(api_kwargs)` / `on_api_end(api_kwargs, response)` | Around each chat-completions request. |
+| `on_usage(usage)` | After each response, with its raw usage dict. |
+| `on_screenshot(raw_base64, "screenshot_after")` | For each captured post-action frame. |
+| `on_computer_call_start(item)` / `on_computer_call_end(item, result_items)` | Around each executed tool call. |
+| `on_text(item)` | For each assistant `message` item. |
+| `on_compaction({"items_before": int, "items_after": int})` | After each applied compaction. |
+
+`action_confirmation_callback` (sync or async) is an opt-in approval gate. When set, every action except `screenshot`, `wait`, `mouse_move`, and `scroll` requires confirmation; the callback receives `{"call_id", "tool_name", "arguments", "actions"}` — `actions` is one `{"action": name, **arguments}` entry per batch member (or the single call) — and a falsy return refuses the call with a model-visible `[ERROR] Action was not confirmed by the user.` result; the run continues.
+
+#### Loop policies
+
+The `**loop_policies` keywords:
 
 | Keyword | Default | What it controls |
 |---|---|---|
 | `system_prompt` | `None` | Sent as a system message ahead of the conversation; the server appends it under its own prompt's `# User Instructions` header (see **System prompt** in the Navigator n2 section). |
 | `image_format` | `"webp"` | The encoding request images are converted to (pass-through when the source already matches). The SDK never resizes. |
 | `max_completion_tokens` | `20480` | Output budget per model call. |
-| `reasoning_effort` | `None` | Passed through when set (`none`/`low`/`medium`/`xhigh`). |
+| `reasoning_effort` | `None` | Passed through when set: `none`/`low`/`medium`/`xhigh`. The server also accepts OpenAI's `high` (→ `xhigh`) and `minimal` (→ `low`); unknown values fall back to the server default, `medium`. |
 | `api_timeout_seconds` | `600` | Per-request timeout sent with each model call. `None` uses the client's default. |
 | `context_window_tokens` | `128000` | The run ends with `stopped_by == "context_limit"` once the last `prompt_tokens` + `max_completion_tokens` + a 4096-token margin would exceed it. `None` disables the check. |
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
 | `completion_kwargs` | `None` | Extra fields merged into every chat-completions request (e.g. `top_p`), for callers who want explicit sampling settings. |
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
-| `compactor` | `"auto"` | `"auto"` attaches a fresh `N2InlineCompactor`, so long runs are checkpointed instead of ending at the context limit. Pass `None` to disable, or an `N2Compactor` for a custom policy; it is called before each model request and the context-limit guard. Each applied compaction fires the `on_compaction` callback with `{"items_before", "items_after"}`. |
-
-Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments — prefer it where the model's units are what the backend wants (a scroll's `direction`/`amount`) over reconstructing them from the loop's pixel translation. Shell and file handlers own their result text end to end. The SDK ships the reference file-tool implementation: mix `yutori.navigator.ShellFileToolsMixin` into an adapter and implement two hooks — `run_sandbox_shell(command, *, timeout_seconds)` (any object with `stdout`/`stderr`/`returncode`) and `file_tool_cwd()` — and the sandbox-side `FILE_TOOL_SCRIPT` (python3 stdlib only) produces the exact formats n2 expects (`cat -n` line numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps). `format_shell_output(output, exit_code)` renders `bash` results the same way (`Exit code N` headers, `Command timed out after Ns` on expiry). `render_image_result` turns an image `read` into visible image content. `examples/navigator_n2/cua_adapter.py` is the full-surface reference wiring; `examples/navigator_n2_daytona.py` shows the mixin wired over Daytona's shell.
+| `compactor` | `"auto"` | `"auto"` attaches a fresh `N2InlineCompactor`, so long runs are checkpointed instead of ending at the context limit. Pass `None` to disable, or an `N2Compactor` for a custom policy; it is called before each model request and the context-limit guard. |
 
 ### N2 context compaction
 
-The inline compactor is the loop's default (`compactor="auto"`).
-
-`N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
-harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,
-and keeps recent complete turns verbatim. It is attached by default (`compactor="auto"`); to customize the policy, construct it explicitly:
+`N2InlineCompactor` — the loop's default (`compactor="auto"`) — implements a usage-triggered, tail-retaining policy: it preserves the initial user request, replaces older turns with a model-written working checkpoint, and keeps recent complete turns verbatim. To customize the policy, construct it explicitly:
 
 ```python
 from yutori.navigator import N2ComputerAgent, N2InlineCompactor
