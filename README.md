@@ -189,7 +189,7 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents. The full adapter contract — every method the tools call, and the SDK helpers for the file tools — is documented in [Navigator n2 loop](api.md#navigator-n2-loop); [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation. The SDK exports the always-required core of this contract as the `N2Computer` protocol, so a type checker can verify your adapter. Division of labor: the loop itself implements the `computer_batch` tool (coordinate mapping, sequencing, screenshots) and only calls your adapter's GUI primitives, while the full output contract of `bash` and the file tools is your adapter's to produce — reuse the SDK's `ShellFileToolsMixin` for the file tools on any sandbox with a shell.
+`computer` is your adapter for interfacing with the computer: the loop itself implements `computer_batch` (coordinate mapping, sequencing, screenshots) and calls only your adapter's GUI primitives, while the full output contract of `bash` and the file tools is yours to produce — reuse the SDK's `ShellFileToolsMixin` on any sandbox with a shell. The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop) — its always-required core is exported as the `N2Computer` protocol for type checking — and [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation.
 
 #### Run in local Docker (Cua cookbook)
 
