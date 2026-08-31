@@ -159,7 +159,12 @@ async with AsyncYutoriClient() as client, async_playwright() as p:
 
 This snippet shows a single model call. In practice, you'll run an agent loop: execute the returned actions on the page, capture a fresh screenshot, and call the model again until it returns text with no `tool_calls`. The complete agent loop lives in [examples/navigator_n1_5.py](examples/navigator_n1_5.py), with custom-tool variants alongside it.
 
+<details>
+<summary>References and request options</summary>
+
 The SDK defaults to Navigator n1.5 (`n1.5-latest`). Navigator n1.5 requests support selectable tool sets, `disable_tools`, and structured JSON output via `json_schema` (returned as `response.parsed_json`). See the [Navigator reference](https://docs.yutori.com/reference/navigator) for model IDs, parameters, and the full action space.
+
+</details>
 
 If you'd rather not manage browser infrastructure, use the **Browsing API** below, which runs the Navigator n1.5 on Yutori's cloud browser.
 
