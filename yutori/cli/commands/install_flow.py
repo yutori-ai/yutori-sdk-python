@@ -806,6 +806,23 @@ def _run_npx_step(
     return StepResult(name, "failed", f"{reason} {_manual_retry_hint(display_command)}")
 
 
+def _resolve_noninteractive_clients() -> tuple[str, ...]:
+    """Clients to scope a non-interactive install to.
+
+    Honors ``YUTORI_INSTALL_CLIENT`` (single target) when set, otherwise
+    falls back to the small :data:`DEFAULT_NONINTERACTIVE_MCP_CLIENTS` set.
+    Shared by the MCP-server and MCP-skills steps so a change to one client
+    list can't drift from the other.
+    """
+    client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+    return (client,) if client else DEFAULT_NONINTERACTIVE_MCP_CLIENTS
+
+
+def _client_agent_flags(clients: Sequence[str]) -> tuple[str, ...]:
+    """Flatten ``("claude-code", "codex")`` into ``("-a", "claude-code", "-a", "codex")``."""
+    return tuple(flag for slug in clients for flag in ("-a", slug))
+
+
 def maybe_install_mcp_server(
     console: Console,
     *,
@@ -830,17 +847,10 @@ def maybe_install_mcp_server(
 
     if not interactive:
         client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
+        clients = _resolve_noninteractive_clients()
         base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
-        if client:
-            noninteractive_command = (*base, "-a", client, "uvx yutori-mcp")
-        else:
-            # Flatten ("claude-code", "codex", ...) -> ("-a", "claude-code", "-a", "codex", ...)
-            agent_flags = tuple(
-                flag
-                for slug in DEFAULT_NONINTERACTIVE_MCP_CLIENTS
-                for flag in ("-a", slug)
-            )
-            noninteractive_command = (*base, *agent_flags, "uvx yutori-mcp")
+        noninteractive_command = (*base, *_client_agent_flags(clients), "uvx yutori-mcp")
+        if not client:
             default_list = ", ".join(DEFAULT_NONINTERACTIVE_MCP_CLIENTS)
             success_detail = (
                 f"Registered Yutori MCP for the default client set ({default_list}). "
@@ -877,10 +887,8 @@ def maybe_install_mcp_skills(
     noninteractive_command: Sequence[str] | None = None
     success_detail = "Installed Yutori workflow skills at user scope."
     if not interactive:
-        client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
-        clients = (client,) if client else DEFAULT_NONINTERACTIVE_MCP_CLIENTS
-        agent_flags = tuple(flag for slug in clients for flag in ("-a", slug))
-        noninteractive_command = (*MCP_SKILLS_INSTALL_COMMAND, "-y", *agent_flags)
+        clients = _resolve_noninteractive_clients()
+        noninteractive_command = (*MCP_SKILLS_INSTALL_COMMAND, "-y", *_client_agent_flags(clients))
         success_detail = (
             f"Installed Yutori workflow skills at user scope for: {', '.join(clients)}. "
             "Set YUTORI_INSTALL_CLIENT=<slug> to scope to one client."
