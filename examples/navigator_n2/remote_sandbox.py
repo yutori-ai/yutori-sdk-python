@@ -32,7 +32,7 @@ def _watch_url(sandbox) -> "str | None":
 
 
 async def main(args: argparse.Namespace) -> None:
-    from cua import Image, Sandbox
+    from cua_sandbox import Image, Sandbox
 
     # Resolve every Yutori-owned input before third-party infrastructure can be allocated.
     api_key = require_api_key()

@@ -198,7 +198,6 @@ def test_cookbook_uses_pinned_public_runtime_dependencies() -> None:
 
     assert version_match is not None
     sdk_version = version_match.group(1)
-    assert '"cua==0.1.6"' in project
     assert '"cua-sandbox==0.1.17"' in project
     assert f'"yutori=={sdk_version}"' in project
     assert f'"yutori[macos]=={sdk_version}"' in project
