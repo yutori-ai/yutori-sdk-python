@@ -201,7 +201,7 @@ uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/exampl
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
 
-<details>
+<details open>
 <summary>Run in local Docker instead (Cua cookbook)</summary>
 
 The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
