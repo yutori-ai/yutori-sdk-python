@@ -686,3 +686,15 @@ async def test_daytona_bash_background_start_failure_is_a_normal_result() -> Non
     result = await computer.run_bash_command("sleep 999", run_in_background=True)
 
     assert result.startswith("ERROR: failed to start background command: ")
+
+
+async def test_daytona_bash_background_launch_failure_is_an_error_result() -> None:
+    async def exec_(*_args, **_kwargs):
+        return SimpleNamespace(result="sh: 1: cannot fork\n", exit_code=2)
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    assert result.startswith("ERROR: failed to start background command: exit code 2")
+    assert "cannot fork" in result
+    assert "Started background task" not in result

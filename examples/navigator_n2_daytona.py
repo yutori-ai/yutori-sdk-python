@@ -239,6 +239,13 @@ class DaytonaComputer(ShellFileToolsMixin):
                 )
             except Exception as exc:  # noqa: BLE001 - a failed start is a normal tool result
                 return f"ERROR: failed to start background command: {exc}"
+            if launched.exit_code:
+                # The launch line itself failed — nothing started; don't claim it did.
+                # (The reference reports the same ERROR shape via its exception path.)
+                detail = (launched.result or "").strip()
+                return f"ERROR: failed to start background command: exit code {launched.exit_code}" + (
+                    f"\n{detail}" if detail else ""
+                )
             # The pid lines are conditional, like the reference: better three good
             # lines than a `kill ` with nothing to kill.
             pid = (launched.result or "").strip()
@@ -247,7 +254,7 @@ class DaytonaComputer(ShellFileToolsMixin):
                 f"stdout+stderr is streaming to: {log_path}",
                 "Use the read tool on that file to retrieve output.",
             ]
-            if pid and not launched.exit_code:
+            if pid:
                 lines.append(f"Process id: {pid}")
                 lines.append(f"To cancel: run bash with `kill {pid}`")
             return "\n".join(lines)
