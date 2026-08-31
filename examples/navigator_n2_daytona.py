@@ -231,19 +231,26 @@ class DaytonaComputer(ShellFileToolsMixin):
     async def run_bash_command(self, command: str, timeout: float = 120.0, run_in_background: bool = False) -> str:
         if run_in_background:
             log_path = f"/tmp/yutori-n2-{uuid.uuid4().hex[:8]}.log"
-            launched = await self._sandbox.process.exec(
-                f"nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 & echo $!",
-                cwd=self._cwd,
-                timeout=30,
-            )
-            pid = launched.result.strip()
-            return (
-                f"Started background task `bash_{log_path[-12:-4]}`.\n"
-                f"stdout+stderr is streaming to: {log_path}\n"
-                "Use the read tool on that file to retrieve output.\n"
-                f"Process id: {pid}\n"
-                f"To cancel: run bash with `kill {pid}`"
-            )
+            try:
+                launched = await self._sandbox.process.exec(
+                    f"nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 & echo $!",
+                    cwd=self._cwd,
+                    timeout=30,
+                )
+            except Exception as exc:  # noqa: BLE001 - a failed start is a normal tool result
+                return f"ERROR: failed to start background command: {exc}"
+            # The pid lines are conditional, like the reference: better three good
+            # lines than a `kill ` with nothing to kill.
+            pid = (launched.result or "").strip()
+            lines = [
+                f"Started background task `bash_{log_path[-12:-4]}`.",
+                f"stdout+stderr is streaming to: {log_path}",
+                "Use the read tool on that file to retrieve output.",
+            ]
+            if pid and not launched.exit_code:
+                lines.append(f"Process id: {pid}")
+                lines.append(f"To cancel: run bash with `kill {pid}`")
+            return "\n".join(lines)
 
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
         # a normal result the model can react to, never a raised failure envelope.

@@ -664,3 +664,25 @@ async def test_daytona_bash_background_result_matches_the_trained_format() -> No
 def test_daytona_default_turn_budget_is_500() -> None:
     assert navigator_n2_daytona.MAX_STEPS == 500
     assert navigator_n2_daytona.parse_args(["task"]).max_steps == 500
+
+
+async def test_daytona_bash_background_pid_lines_are_conditional() -> None:
+    async def exec_(*_args, **_kwargs):
+        return SimpleNamespace(result="", exit_code=0)
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    lines = result.split("\n")
+    assert len(lines) == 3  # no `Process id: ` / `kill ` lines with nothing to kill
+    assert lines[2] == "Use the read tool on that file to retrieve output."
+
+
+async def test_daytona_bash_background_start_failure_is_a_normal_result() -> None:
+    async def exec_(*_args, **_kwargs):
+        raise RuntimeError("sandbox gone")
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    assert result.startswith("ERROR: failed to start background command: ")
