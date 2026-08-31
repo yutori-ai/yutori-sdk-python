@@ -489,7 +489,7 @@ from yutori.navigator import (
 Imports:
 
 ```python
-from yutori.navigator import N2ComputerAgent, TOOL_SET_COMPUTER_USE_LATEST
+from yutori.navigator import N2ComputerAgent, N2InlineCompactor, TOOL_SET_COMPUTER_USE_LATEST
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
@@ -516,13 +516,13 @@ The keywords:
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
 | `completion_kwargs` | `None` | Extra fields merged into every chat-completions request (e.g. `top_p`), for callers who want explicit sampling settings. |
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
-| `compactor` | `None` | An `N2Compactor`, called before each model request and the context-limit guard. Return a replacement trajectory to compact the context. |
+| `compactor` | `"auto"` | `"auto"` attaches a fresh `N2InlineCompactor` (SDK 0.9.5+), so long runs are checkpointed instead of ending at the context limit. Pass `None` to disable, or an `N2Compactor` for a custom policy; it is called before each model request and the context-limit guard. Each applied compaction fires the `on_compaction` callback with `{"items_before", "items_after"}`. |
 
 Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments. Shell and file handlers own their result text end to end — see the reference implementations in `examples/navigator_n2/cua_adapter.py` and `examples/navigator_n2_daytona.py` for the formats n2 expects (`Exit code N` headers, `cat -n` line numbering, `[... output truncated, N more chars ...]` caps).
 
 ### N2 context compaction
 
-`N2InlineCompactor`, `N2CompactionContext`, and `N2CompactionResult` are available on the current main branch but are not included in the published 0.9.4 package. Use a source checkout until a later SDK release includes them.
+`N2InlineCompactor`, `N2CompactionContext`, and `N2CompactionResult` require SDK 0.9.5+. Since 0.9.5 the inline compactor is also the loop's default (`compactor="auto"`).
 
 `N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
 harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,
