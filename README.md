@@ -189,15 +189,15 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer. Who implements each tool:
+The tool implementations live either in the `N2ComputerAgent` harness or in your `MyComputer` environment:
 
 | Tool | Implemented by | What you write / reuse |
 |---|---|---|
-| `computer_batch` | `N2ComputerAgent` — coordinates, sequencing, screenshots | the GUI primitives it calls (`click`, `type`, …), typed by the `N2Computer` protocol |
-| `bash` | your `MyComputer` | `run_bash_command`; `format_shell_output` renders the trained result shape |
-| `read`/`write`/`edit` | your `MyComputer` | reuse `ShellFileToolsMixin` — needs only a shell + `python3` in the sandbox |
+| `computer_batch` | `N2ComputerAgent` | implementation of GUI actions (`click`, `type`, etc) — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
+| `bash` | your `MyComputer` | `run_bash_command` — reference: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) |
+| `read`/`write`/`edit` | your `MyComputer` | inherit the SDK's [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py), which implements all three over your sandbox's shell |
 
-The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop); [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation.
+The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop).
 
 #### Run in local Docker (Cua cookbook)
 
