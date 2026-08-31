@@ -59,6 +59,7 @@ from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
     ShellFileToolsMixin,
+    format_shell_output,
     format_stop_and_summarize,
 )
 from yutori.navigator.n2_compaction import response_message
@@ -73,8 +74,6 @@ TYPE_CHUNK_MAX_CHARS = 500
 # Where --record saves the screen recording after the run.
 RECORDING_PATH = "n2-daytona-run.mp4"
 
-# The n2 `bash` tool caps one result at this many characters.
-BASH_RESULT_MAX_CHARS = 30_000
 MAX_STEPS = 50
 
 
@@ -100,12 +99,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Record the sandbox screen and save the video to {RECORDING_PATH} when the run ends.",
     )
     return parser.parse_args(argv)
-
-
-def _truncate(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
-    if len(text) <= max_chars:
-        return text
-    return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
 
 
 # `bash` promises a working directory that persists across calls, but every
@@ -267,11 +260,9 @@ class DaytonaComputer(ShellFileToolsMixin):
             self._cwd = cwd or self._cwd
         else:
             output = result.result  # killed before the sentinel could print (e.g. by a signal)
-        # The tool owns its result text; this is the format n2 expects.
-        output = _truncate(output)
-        if result.exit_code:
-            return f"Exit code {result.exit_code}\n{output}" if output else f"Exit code {result.exit_code}"
-        return output or "(Bash completed with no output)"
+        # The SDK's shared shell-result formatter owns the n2-expected shape
+        # (truncation cap, exit-code header, empty-output text).
+        return format_shell_output(output, result.exit_code)
 
 
 async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> None:
