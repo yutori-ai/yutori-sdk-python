@@ -19,6 +19,7 @@ from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_HYBRID,
     TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
     TOOL_SET_COMPUTER_USE_LATEST,
+    format_stop_and_summarize,
 )
 
 CONFIRMATION_DENIED_OUTPUT = "[ERROR] Action was not confirmed by the user."
@@ -129,8 +130,28 @@ def _text_items(response: dict[str, Any]) -> list[str]:
     return texts
 
 
-async def run_agent(agent: Any, task: str, guard: RunGuard) -> None:
-    """Run the public SDK loop and print text plus non-image tool results."""
+async def stop_and_summarize(agent: Any, completions: Any, task: str) -> "str | None":
+    """One summarize-only completion after the step cap — no tool execution.
+
+    Mirrors the served harness's step-cap wrap-up: the stop-and-summarize nudge
+    is appended to the actor's exact next request (`agent.completion_request`),
+    and the call is made by the caller, so a tool-call reply is never executed.
+    Returns the model's visible text, or None if it answered with none.
+    """
+    nudge = {"role": "user", "content": [{"type": "text", "text": format_stop_and_summarize(task)}]}
+    response = await completions.create(**agent.completion_request([nudge]))
+    data = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+    message = ((data.get("choices") or [{}])[0]).get("message") or {}
+    text = message.get("content")
+    return text if isinstance(text, str) and text.strip() else None
+
+
+async def run_agent(agent: Any, task: str, *, completions: Any) -> None:
+    """Run the public SDK loop and print text plus non-image tool results.
+
+    At the loop's own step cap (``stopped_by == "max_steps"``) one final
+    summarize-only turn is taken and printed before raising.
+    """
     async for response in agent.run(task):
         for text in _text_items(response):
             print(text)
@@ -143,5 +164,8 @@ async def run_agent(agent: Any, task: str, guard: RunGuard) -> None:
                     print(output)
                 elif isinstance(output, dict) and output.get("result") is not None:
                     print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
-    if guard.limit_reached:
-        raise RuntimeError(f"Stopped after the configured {guard.max_steps} model steps")
+    if agent.stopped_by == "max_steps":
+        summary = await stop_and_summarize(agent, completions, task)
+        if summary:
+            print(f"Step cap reached; the model's summary of progress so far:\n{summary}")
+        raise RuntimeError(f"Stopped after {agent.max_steps} model steps (summary above)")

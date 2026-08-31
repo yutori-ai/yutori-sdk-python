@@ -118,7 +118,7 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
         async def __aexit__(self, *_args: object) -> None:
             pass
 
-    async def fake_run_agent(_agent: object, task: str, _guard: object) -> None:
+    async def fake_run_agent(_agent: object, task: str, *, completions: object) -> None:
         seen["task"] = task
 
     monkeypatch.setitem(sys.modules, "cua", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
@@ -383,6 +383,104 @@ async def test_daytona_example_compacts_long_runs_by_default(
     printed = capsys.readouterr().out
     assert "Compacted context:" in printed
     assert "done" in printed
+
+
+async def test_shared_stop_and_summarize_returns_visible_text_only() -> None:
+    from examples.navigator_n2 import shared
+
+    class FakeAgent:
+        def completion_request(self, extra_messages=None):
+            assert extra_messages and "Stop here." in extra_messages[0]["content"][0]["text"]
+            return {"model": "n2", "messages": [{"role": "user", "content": "history"}, *extra_messages]}
+
+    class FakeCompletions:
+        def __init__(self, message: dict) -> None:
+            self._message = message
+
+        async def create(self, **kwargs: object) -> dict:
+            assert kwargs["model"] == "n2"
+            return {"choices": [{"message": self._message}]}
+
+    summary = await shared.stop_and_summarize(FakeAgent(), FakeCompletions({"content": "did X, found Y"}), "task")
+    assert summary == "did X, found Y"
+    # A tool-call reply with no visible text yields None (keeps the pre-cap answer).
+    empty = await shared.stop_and_summarize(FakeAgent(), FakeCompletions({"content": "", "tool_calls": [{}]}), "task")
+    assert empty is None
+
+
+async def test_daytona_step_cap_takes_one_summarize_only_turn(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wrapup_requests: list[dict] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs: object) -> object:
+            wrapup_requests.append(kwargs)
+            return {"choices": [{"message": {"content": "summary: reached step 2 of 5"}}]}
+
+    class FakeYutoriClient:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        async def __aenter__(self) -> "FakeYutoriClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def get_usage(self) -> dict:
+            return {}
+
+    class FakeSandbox:
+        async def delete(self, wait: bool = False) -> None:
+            pass
+
+    class FakeDaytona:
+        async def __aenter__(self) -> "FakeDaytona":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def create(self, _params: object) -> FakeSandbox:
+            return FakeSandbox()
+
+    class FakeComputer:
+        def __init__(self, _sandbox: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            pass
+
+    class FakeAgent:
+        stopped_by = "max_steps"
+
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def run(self, _task: str):
+            if False:  # pragma: no cover - empty async generator
+                yield {}
+
+        def completion_request(self, extra_messages=None):
+            assert "Stop here." in extra_messages[0]["content"][0]["text"]
+            return {"messages": [*extra_messages]}
+
+    monkeypatch.setattr(navigator_n2_daytona, "AsyncYutoriClient", FakeYutoriClient)
+    monkeypatch.setattr(navigator_n2_daytona, "DaytonaComputer", FakeComputer)
+    monkeypatch.setattr(navigator_n2_daytona, "N2ComputerAgent", FakeAgent)
+    monkeypatch.setitem(
+        sys.modules,
+        "daytona",
+        SimpleNamespace(AsyncDaytona=FakeDaytona, CreateSandboxFromSnapshotParams=lambda **kwargs: kwargs),
+    )
+
+    with pytest.raises(RuntimeError, match="summary above"):
+        await navigator_n2_daytona.main("long task", max_steps=2)
+
+    assert len(wrapup_requests) == 1
+    printed = capsys.readouterr().out
+    assert "summary: reached step 2 of 5" in printed
 
 
 async def test_daytona_rejected_yutori_key_never_enters_daytona(monkeypatch: pytest.MonkeyPatch) -> None:

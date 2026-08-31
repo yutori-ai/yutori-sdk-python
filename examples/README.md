@@ -78,7 +78,7 @@ uv run python remote_sandbox.py --auto-approve \
 
 A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It intentionally uses the immutable batch-plus-bash tool set. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
 
-The script declares Python 3.10+, Yutori SDK 0.9.4 or newer, and the tested Daytona version as inline metadata. `uv` installs them into an isolated environment automatically:
+The script declares Python 3.10+, the Yutori SDK, and the tested Daytona version as inline metadata; `uv` installs them into an isolated environment automatically. If the run hits the step cap, the example takes one summarize-only turn (no tool execution) and prints the model's summary of progress before exiting:
 
 ```bash
 export DAYTONA_API_KEY=...   # https://app.daytona.io
