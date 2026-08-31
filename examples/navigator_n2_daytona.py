@@ -14,7 +14,7 @@ Navigator n2 looks at a full-screen screenshot and answers with tool calls — a
 (`read`/`write`/`edit`/`grep`/`glob`). `N2ComputerAgent`, the SDK's n2 agent
 loop, executes each call through a small adapter, sends the result back (a
 fresh screenshot for the batch, the tool's output otherwise), and asks again
-until the model answers with text.
+until the model answers with just text, which indicates stop.
 
 Daytona is third-party infrastructure; this Yutori-maintained example contains
 the whole integration — the `DaytonaComputer` adapter plus the sandbox
