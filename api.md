@@ -8,7 +8,7 @@ A dense reference to everything the Yutori Python SDK and CLI expose. The [READM
 |--------|---------|
 | `yutori` | Clients (`YutoriClient`, `AsyncYutoriClient`) and exceptions (`APIError`, `APIConnectionError`, `AuthenticationError`, `YutoriSDKError`) |
 | `yutori.navigator` | Agent-loop helpers for the Navigator API (Navigator n1.5 / Navigator n2 chat completions) |
-| `yutori.navigator.macos` | Native macOS driver (`MacOSComputer`) for Navigator n2 loops — what Yutori MCP runs (SDK 0.9.3+) |
+| `yutori.navigator.macos` | Native macOS driver (`MacOSComputer`) for Navigator n2 loops — what Yutori MCP runs |
 | `yutori.navigator.tools` | Packaged JavaScript reference implementations for the Navigator n1.5 expanded browser tools |
 
 All SDK calls go through `YutoriClient` / `AsyncYutoriClient`. The Navigator helpers are optional and do not change the shape of `client.chat.completions.create(...)`.
@@ -194,7 +194,7 @@ response = client.chat.completions.create(
 )
 ```
 
-`N2ComputerAgent` (0.9.3+) runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact agent using third-party Daytona infrastructure; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
+`N2ComputerAgent` runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact agent using third-party Daytona infrastructure; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
 ### `client.browsing` — Browsing API
 
@@ -484,8 +484,6 @@ from yutori.navigator import (
 
 ### Navigator n2 loop
 
-`N2ComputerAgent` and the basic `run()` loop were added in SDK 0.9.3. The `resume()`, `stopped_by`, tool-owned result, and loop-policy APIs documented below require SDK 0.9.4+.
-
 Imports:
 
 ```python
@@ -516,13 +514,13 @@ The keywords:
 | `tool_call_timeout_seconds` | `900` | Budget for executing one tool call (a whole batch); on expiry the model sees `ERROR_TIMEOUT: <call_id> timed out after N seconds`. `None` disables it. |
 | `completion_kwargs` | `None` | Extra fields merged into every chat-completions request (e.g. `top_p`), for callers who want explicit sampling settings. |
 | `max_steps` / `agent_timeout_seconds` | `None` | Turn and wall-clock budgets per `run()`/`resume()` call (`stopped_by == "max_steps"` / `"timeout"`). |
-| `compactor` | `"auto"` | `"auto"` attaches a fresh `N2InlineCompactor` (SDK 0.9.5+), so long runs are checkpointed instead of ending at the context limit. Pass `None` to disable, or an `N2Compactor` for a custom policy; it is called before each model request and the context-limit guard. Each applied compaction fires the `on_compaction` callback with `{"items_before", "items_after"}`. |
+| `compactor` | `"auto"` | `"auto"` attaches a fresh `N2InlineCompactor`, so long runs are checkpointed instead of ending at the context limit. Pass `None` to disable, or an `N2Compactor` for a custom policy; it is called before each model request and the context-limit guard. Each applied compaction fires the `on_compaction` callback with `{"items_before", "items_after"}`. |
 
-Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments — prefer it where the model's units are what the backend wants (a scroll's `direction`/`amount`) over reconstructing them from the loop's pixel translation. Shell and file handlers own their result text end to end. The SDK ships the reference file-tool implementation: mix `yutori.navigator.ShellFileToolsMixin` into an adapter and implement two hooks — `run_sandbox_shell(command, *, timeout_seconds)` (any object with `stdout`/`stderr`/`returncode`) and `file_tool_cwd()` — and the sandbox-side `FILE_TOOL_SCRIPT` (python3 stdlib only) produces the exact formats n2 expects (`cat -n` line numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps). `format_shell_output(output, exit_code)` renders `bash` results the same way (`Exit code N` headers, `Command timed out after Ns` on expiry). `render_image_result` turns an image `read` into visible image content. SDK 0.9.6+; `examples/navigator_n2/cua_adapter.py` is the full-surface reference wiring; `examples/navigator_n2_daytona.py` shows the mixin wired over Daytona's shell.
+Adapter hooks: a file handler (`read_file` and friends) may return `{"text": ..., "image_url": "data:..."}` so a `read` of an image file shows the model the image as well as the text; any computer handler that declares a `model_action=` keyword parameter receives the model's own call (`{"action": name, **arguments}`) alongside the translated arguments — prefer it where the model's units are what the backend wants (a scroll's `direction`/`amount`) over reconstructing them from the loop's pixel translation. Shell and file handlers own their result text end to end. The SDK ships the reference file-tool implementation: mix `yutori.navigator.ShellFileToolsMixin` into an adapter and implement two hooks — `run_sandbox_shell(command, *, timeout_seconds)` (any object with `stdout`/`stderr`/`returncode`) and `file_tool_cwd()` — and the sandbox-side `FILE_TOOL_SCRIPT` (python3 stdlib only) produces the exact formats n2 expects (`cat -n` line numbering, the sha256 read-before-edit gate, `[... output truncated, N more chars ...]` caps). `format_shell_output(output, exit_code)` renders `bash` results the same way (`Exit code N` headers, `Command timed out after Ns` on expiry). `render_image_result` turns an image `read` into visible image content. `examples/navigator_n2/cua_adapter.py` is the full-surface reference wiring; `examples/navigator_n2_daytona.py` shows the mixin wired over Daytona's shell.
 
 ### N2 context compaction
 
-`N2InlineCompactor`, `N2CompactionContext`, and `N2CompactionResult` require SDK 0.9.5+. Since 0.9.5 the inline compactor is also the loop's default (`compactor="auto"`).
+The inline compactor is the loop's default (`compactor="auto"`).
 
 `N2InlineCompactor` implements the usage-triggered, tail-retaining compaction policy used by Yutori's Praxis
 harness. It preserves the initial user request, replaces older turns with a model-written working checkpoint,
@@ -560,7 +558,7 @@ For another policy, implement `N2Compactor.compact(...)`. Existing compactors ma
 
 ### Harness-owned completion requests
 
-`agent.completion_request(extra_messages=None, *, items=None)` returns the actor's exact next Chat Completions request as a `dict` — system prompt, windowed messages, sampling fields, tool set, and request chaining — without advancing the loop or mutating the trajectory. Pass `extra_messages` (a list of chat-format dicts) to append harness-owned messages after the trajectory, for example a step-cap "stop and summarize" probe: `await client.chat.completions.create(**agent.completion_request([nudge]))`. The call and its response stay the caller's own; the trajectory is not changed. `items` overrides the rendered trajectory (the loop's own steps pass their in-flight working set). Requires SDK 0.9.4+.
+`agent.completion_request(extra_messages=None, *, items=None)` returns the actor's exact next Chat Completions request as a `dict` — system prompt, windowed messages, sampling fields, tool set, and request chaining — without advancing the loop or mutating the trajectory. Pass `extra_messages` (a list of chat-format dicts) to append harness-owned messages after the trajectory, for example a step-cap "stop and summarize" probe: `await client.chat.completions.create(**agent.completion_request([nudge]))`. The call and its response stay the caller's own; the trajectory is not changed. `items` overrides the rendered trajectory (the loop's own steps pass their in-flight working set).
 
 ### Screenshot helpers
 
@@ -736,7 +734,7 @@ Optional extras:
 |-------|----------|---------|
 | `dev` | `pytest`, `pytest-asyncio`, `ruff`, `build` | Development tooling. |
 | `examples` | `loguru`, `playwright`, `pydantic`, `tenacity` | Running the `examples/` scripts. Pydantic is also the library to install if you want to pass Pydantic models to `output_schema=`. |
-| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops in published SDK 0.9.3+. |
+| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops. |
 
 ## Error handling example
 

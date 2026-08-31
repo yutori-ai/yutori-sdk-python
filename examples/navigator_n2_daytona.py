@@ -10,10 +10,11 @@
 A computer-use agent: Navigator n2 driving a disposable Daytona Linux desktop.
 
 Navigator n2 looks at a full-screen screenshot and answers with tool calls — a
-`computer_batch` of GUI actions, or a `bash` command. `N2ComputerAgent`, the
-SDK's n2 agent loop, executes each call through a small adapter, sends the
-result back (a fresh screenshot for the batch, the output for bash), and asks
-again until the model answers with text.
+`computer_batch` of GUI actions, a `bash` command, or a file tool
+(`read`/`write`/`edit`/`grep`/`glob`). `N2ComputerAgent`, the SDK's n2 agent
+loop, executes each call through a small adapter, sends the result back (a
+fresh screenshot for the batch, the tool's output otherwise), and asks again
+until the model answers with text.
 
 Daytona is third-party infrastructure; this Yutori-maintained example contains
 the whole integration — the `DaytonaComputer` adapter plus the sandbox
@@ -21,9 +22,8 @@ lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
 The adapter implements GUI and `bash` natively over Daytona's REST primitives
-and gains the file tools (`read`/`write`/`edit`/`grep`/`glob`) from the SDK's
-`ShellFileToolsMixin` — the reference implementation with the exact result
-formats n2 is trained on — so it serves the full current tool set. Daytona's
+and gets the file tools (`read`/`write`/`edit`/`grep`/`glob`) from the SDK's
+`ShellFileToolsMixin` reference implementation. Daytona's
 REST API exposes no held-button or held-key primitives, so the rare held
 actions (`mouse_down`/`mouse_up`, `hold_key`) degrade to the loop's built-in
 recoverable "not supported" results, and click modifiers stay undeclared. When
