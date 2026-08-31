@@ -170,7 +170,7 @@ If you'd rather not manage browser infrastructure, use the **Browsing API** belo
 
 ### Navigator n2 (computer use)
 
-Navigator n2 operates a full desktop. It produces `computer_batch` calls — an ordered sequence of GUI actions — and `bash` calls. You implement the computer environment, and pass the output of the actions to the SDK's agent loop:
+Navigator n2 operates a full desktop. It produces `computer_batch` calls — an ordered sequence of GUI actions — plus `bash` and file-tool (`read`/`write`/`edit`) calls. You implement the computer environment, and pass the output of the actions to the SDK's agent loop:
 
 ```python
 from yutori import AsyncYutoriClient
@@ -189,7 +189,15 @@ async with AsyncYutoriClient() as client:
         ...  # each step yields the model's messages, tool calls, and tool results
 ```
 
-`computer` is your adapter for interfacing with the computer: the loop itself implements `computer_batch` (coordinate mapping, sequencing, screenshots) and calls only your adapter's GUI primitives, while the full output contract of `bash` and the file tools is yours to produce — reuse the SDK's `ShellFileToolsMixin` on any sandbox with a shell and `python3`. The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop) — its always-required core is exported as the `N2Computer` protocol for type checking — and [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation.
+`computer` is your adapter for interfacing with the computer. Who implements each tool:
+
+| Tool | Implemented by | What you write / reuse |
+|---|---|---|
+| `computer_batch` | `N2ComputerAgent` — coordinates, sequencing, screenshots | the GUI primitives it calls (`click`, `type`, …), typed by the `N2Computer` protocol |
+| `bash` | your `MyComputer` | `run_bash_command`; `format_shell_output` renders the trained result shape |
+| `read`/`write`/`edit` | your `MyComputer` | reuse `ShellFileToolsMixin` — needs only a shell + `python3` in the sandbox |
+
+The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop); [cua_adapter.py](examples/navigator_n2/cua_adapter.py) is the reference implementation.
 
 #### Run in local Docker (Cua cookbook)
 
