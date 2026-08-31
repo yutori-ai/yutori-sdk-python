@@ -644,3 +644,57 @@ async def test_daytona_scroll_rejects_horizontal_in_both_forms() -> None:
         await computer.scroll(10, 20, 0, 0, model_action={"action": "scroll", "direction": "left", "amount": 2})
     with pytest.raises(NotImplementedError):
         await computer.scroll(10, 20, 45, 0)
+
+
+async def test_daytona_bash_background_result_matches_the_trained_format() -> None:
+    async def exec_(*_args, **_kwargs):
+        return SimpleNamespace(result="4242\n", exit_code=0)
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    lines = result.split("\n")
+    assert lines[0].startswith("Started background task `bash_")
+    assert lines[1].startswith("stdout+stderr is streaming to: /tmp/yutori-n2-")
+    assert lines[2] == "Use the read tool on that file to retrieve output."
+    assert lines[3] == "Process id: 4242"
+    assert lines[4] == "To cancel: run bash with `kill 4242`"
+
+
+def test_daytona_default_turn_budget_is_500() -> None:
+    assert navigator_n2_daytona.MAX_STEPS == 500
+    assert navigator_n2_daytona.parse_args(["task"]).max_steps == 500
+
+
+async def test_daytona_bash_background_pid_lines_are_conditional() -> None:
+    async def exec_(*_args, **_kwargs):
+        return SimpleNamespace(result="", exit_code=0)
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    lines = result.split("\n")
+    assert len(lines) == 3  # no `Process id: ` / `kill ` lines with nothing to kill
+    assert lines[2] == "Use the read tool on that file to retrieve output."
+
+
+async def test_daytona_bash_background_start_failure_is_a_normal_result() -> None:
+    async def exec_(*_args, **_kwargs):
+        raise RuntimeError("sandbox gone")
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    assert result.startswith("ERROR: failed to start background command: ")
+
+
+async def test_daytona_bash_background_launch_failure_is_an_error_result() -> None:
+    async def exec_(*_args, **_kwargs):
+        return SimpleNamespace(result="sh: 1: cannot fork\n", exit_code=2)
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    assert result.startswith("ERROR: failed to start background command: exit code 2")
+    assert "cannot fork" in result
+    assert "Started background task" not in result

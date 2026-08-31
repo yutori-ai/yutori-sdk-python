@@ -38,8 +38,10 @@ Usage:
         "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
-Add --max-steps N to raise the turn budget (default: 50); at the cap the run
-prints the model's summary of progress and exits non-zero.
+Add --max-steps N to change the turn budget. The default (500) gives harder
+tasks room to finish; pass a smaller budget (e.g. 100) for simpler tasks, or
+to truncate a trajectory for time or cost. At the cap the run prints the
+model's summary of progress and exits non-zero.
 Long runs compact automatically (the SDK default); each compaction prints a notice.
 
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
@@ -74,7 +76,7 @@ TYPE_CHUNK_MAX_CHARS = 500
 # Where --record saves the screen recording after the run.
 RECORDING_PATH = "n2-daytona-run.mp4"
 
-MAX_STEPS = 50
+MAX_STEPS = 500
 
 
 def _positive_int(value: str) -> int:
@@ -91,7 +93,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--max-steps",
         type=_positive_int,
         default=MAX_STEPS,
-        help=f"Maximum model turns (default: {MAX_STEPS})",
+        help=(
+            f"Maximum model turns (default: {MAX_STEPS}, sized for harder tasks; "
+            "pass a smaller budget for simpler tasks or to cap time/cost)"
+        ),
     )
     parser.add_argument(
         "--record",
@@ -226,18 +231,33 @@ class DaytonaComputer(ShellFileToolsMixin):
     async def run_bash_command(self, command: str, timeout: float = 120.0, run_in_background: bool = False) -> str:
         if run_in_background:
             log_path = f"/tmp/yutori-n2-{uuid.uuid4().hex[:8]}.log"
-            launched = await self._sandbox.process.exec(
-                f"nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 & echo $!",
-                cwd=self._cwd,
-                timeout=30,
-            )
-            pid = launched.result.strip()
-            return (
-                f"Started background task `bash_{log_path[-12:-4]}`.\n"
-                f"stdout+stderr is streaming to: {log_path}\n"
-                f"Process id: {pid}\n"
-                f"To cancel: run bash with `kill {pid}`"
-            )
+            try:
+                launched = await self._sandbox.process.exec(
+                    f"nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 & echo $!",
+                    cwd=self._cwd,
+                    timeout=30,
+                )
+            except Exception as exc:  # noqa: BLE001 - a failed start is a normal tool result
+                return f"ERROR: failed to start background command: {exc}"
+            if launched.exit_code:
+                # The launch line itself failed — nothing started; don't claim it did.
+                # (The reference reports the same ERROR shape via its exception path.)
+                detail = (launched.result or "").strip()
+                return f"ERROR: failed to start background command: exit code {launched.exit_code}" + (
+                    f"\n{detail}" if detail else ""
+                )
+            # The pid lines are conditional, like the reference: better three good
+            # lines than a `kill ` with nothing to kill.
+            pid = (launched.result or "").strip()
+            lines = [
+                f"Started background task `bash_{log_path[-12:-4]}`.",
+                f"stdout+stderr is streaming to: {log_path}",
+                "Use the read tool on that file to retrieve output.",
+            ]
+            if pid:
+                lines.append(f"Process id: {pid}")
+                lines.append(f"To cancel: run bash with `kill {pid}`")
+            return "\n".join(lines)
 
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
         # a normal result the model can react to, never a raised failure envelope.
