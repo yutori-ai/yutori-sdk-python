@@ -522,6 +522,22 @@ def _daytona_computer_with_exec(exec_) -> "navigator_n2_daytona.DaytonaComputer"
     return navigator_n2_daytona.DaytonaComputer(sandbox)
 
 
+async def test_daytona_triple_click_is_three_rapid_clicks() -> None:
+    clicks: list[tuple[int, int, str]] = []
+
+    class FakeMouse:
+        async def click(self, x: int, y: int, button: str = "left", double: bool = False) -> None:
+            clicks.append((x, y, button))
+
+    computer = navigator_n2_daytona.DaytonaComputer(
+        SimpleNamespace(process=SimpleNamespace(), computer_use=SimpleNamespace(mouse=FakeMouse()))
+    )
+
+    await computer.triple_click(5, 9)
+
+    assert clicks == [(5, 9, "left")] * 3
+
+
 async def test_daytona_file_tools_ride_the_shared_mixin() -> None:
     calls: list[tuple[str, str | None, int]] = []
 

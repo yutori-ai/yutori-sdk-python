@@ -23,7 +23,10 @@ different desktop.
 The adapter implements GUI and `bash` natively over Daytona's REST primitives
 and gains the file tools (`read`/`write`/`edit`/`grep`/`glob`) from the SDK's
 `ShellFileToolsMixin` — the reference implementation with the exact result
-formats n2 is trained on — so it serves the full current tool set. When
+formats n2 is trained on — so it serves the full current tool set. Daytona's
+REST API exposes no held-button or held-key primitives, so the rare held
+actions (`mouse_down`/`mouse_up`, `hold_key`) degrade to the loop's built-in
+recoverable "not supported" results, and click modifiers stay undeclared. When
 adapting it, see api.md's "Navigator n2" section for the contract and
 `examples/navigator_n2/cua_adapter.py` for a second wiring of the same mixin.
 
@@ -148,6 +151,12 @@ class DaytonaComputer(ShellFileToolsMixin):
 
     async def double_click(self, x: int, y: int) -> None:
         await self._cu.mouse.click(x, y, "left", double=True)
+
+    async def triple_click(self, x: int, y: int) -> None:
+        # Daytona's REST API has no native triple click; three rapid clicks match
+        # the toolkit convention (select paragraph/line).
+        for _ in range(3):
+            await self._cu.mouse.click(x, y, "left")
 
     async def move(self, x: int, y: int) -> None:
         await self._cu.mouse.move(x, y)
