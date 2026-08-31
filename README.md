@@ -202,13 +202,6 @@ uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/exampl
 ```
 
 <details>
-<summary>References, trained conventions, and long-run behavior</summary>
-
-See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows; pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
-
-</details>
-
-<details>
 <summary>Run in local Docker instead (Cua cookbook)</summary>
 
 The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
@@ -232,6 +225,13 @@ The script prints a `Watch the desktop live:` URL at startup — open it in a br
 uvx yutori-mcp computer-use setup
 uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the result." --app Calculator
 ```
+
+</details>
+
+<details>
+<summary>References, trained conventions, and long-run behavior</summary>
+
+See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, all-or-nothing tool sets — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows; pass `compactor=None` to disable, and the run instead stops cleanly at the model's 128k context limit.
 
 </details>
 
