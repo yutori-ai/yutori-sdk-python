@@ -20,6 +20,13 @@ the whole integration — the `DaytonaComputer` adapter plus the sandbox
 lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
+The adapter deliberately implements the smallest contract-valid surface — GUI
+plus `bash` over Daytona's REST primitives — so its choices are not the tool
+contract. When adapting it, take the full surface (file tools, modifiers, held
+actions) and the result formats n2 is trained on from api.md's "Navigator n2"
+section, with `examples/navigator_n2/cua_adapter.py` as the full reference
+implementation.
+
 Usage:
     yutori auth login                         # or export YUTORI_API_KEY=...
     export DAYTONA_API_KEY=...                # https://app.daytona.io
@@ -142,7 +149,9 @@ class DaytonaComputer:
     async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None:
         # The loop hands over a pixel distance — one notch of the model's `amount`
         # is a tenth of the screen. Daytona wants wheel notches, and scrolls
-        # vertically only (so does n2).
+        # vertically only (so does n2). An adapter that declares a `model_action=`
+        # keyword parameter gets the model's own direction/amount instead of
+        # reconstructing them (see api.md, "Navigator n2").
         if scroll_y == 0:
             if scroll_x:
                 raise NotImplementedError("horizontal scrolling is not supported")
