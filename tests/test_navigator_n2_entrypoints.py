@@ -350,9 +350,7 @@ async def test_daytona_example_compacts_long_runs_by_default(
             display=SimpleNamespace(
                 get_info=AsyncMock(return_value=SimpleNamespace(displays=[SimpleNamespace(height=100)]))
             ),
-            screenshot=SimpleNamespace(
-                take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))
-            ),
+            screenshot=SimpleNamespace(take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))),
             mouse=SimpleNamespace(click=AsyncMock()),
         ),
         delete=AsyncMock(),
@@ -510,3 +508,87 @@ async def test_daytona_rejected_yutori_key_never_enters_daytona(monkeypatch: pyt
 
     with pytest.raises(RuntimeError, match="invalid Yutori key"):
         await navigator_n2_daytona.main("test")
+
+
+class _SandboxTimeout(Exception):
+    """Stands in for Daytona's process-execution timeout error (name carries 'timeout')."""
+
+
+def _daytona_computer_with_exec(exec_) -> "navigator_n2_daytona.DaytonaComputer":
+    sandbox = SimpleNamespace(process=SimpleNamespace(exec=exec_), computer_use=None)
+    return navigator_n2_daytona.DaytonaComputer(sandbox)
+
+
+async def test_daytona_bash_timeout_is_the_trained_result_and_clamped() -> None:
+    async def exec_(*_args, **kwargs):
+        assert kwargs["timeout"] == 600  # the n2 contract clamps the model's request to [0, 600]
+        raise _SandboxTimeout("deadline exceeded")
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 900", timeout=1200.0)
+    assert result == "Command timed out after 600s"
+
+
+async def test_daytona_bash_zero_timeout_expires_without_running() -> None:
+    async def exec_(*_args, **_kwargs):
+        pytest.fail("a 0s timeout must expire before the sandbox is reached")
+
+    computer = _daytona_computer_with_exec(exec_)
+    assert await computer.run_bash_command("true", timeout=0) == "Command timed out after 0s"
+
+
+async def test_daytona_bash_non_timeout_errors_still_raise() -> None:
+    async def exec_(*_args, **_kwargs):
+        raise RuntimeError("sandbox gone")
+
+    computer = _daytona_computer_with_exec(exec_)
+    with pytest.raises(RuntimeError, match="sandbox gone"):
+        await computer.run_bash_command("true")
+
+
+async def test_daytona_bash_timeout_detected_from_the_message_alone() -> None:
+    async def exec_(*_args, **_kwargs):
+        # A generically-named error carrying Daytona's live expiry message,
+        # which says "timeout" rather than "timed out".
+        raise RuntimeError("Failed to execute command: command execution timeout")
+
+    computer = _daytona_computer_with_exec(exec_)
+    assert await computer.run_bash_command("sleep 900", timeout=5) == "Command timed out after 5s"
+
+
+def _daytona_computer_with_scroll(scrolls: list) -> "navigator_n2_daytona.DaytonaComputer":
+    async def scroll(x, y, direction, amount):
+        scrolls.append((x, y, direction, amount))
+
+    sandbox = SimpleNamespace(process=None, computer_use=SimpleNamespace(mouse=SimpleNamespace(scroll=scroll)))
+    computer = navigator_n2_daytona.DaytonaComputer(sandbox)
+    computer._height = 768
+    return computer
+
+
+async def test_daytona_scroll_prefers_the_models_own_units() -> None:
+    scrolls: list = []
+    computer = _daytona_computer_with_scroll(scrolls)
+
+    await computer.scroll(10, 20, 0, 154, model_action={"action": "scroll", "direction": "up", "amount": 7})
+
+    assert scrolls == [(10, 20, "up", 7)]  # not the 2 notches the 154px fallback would reconstruct
+
+
+async def test_daytona_scroll_reconstructs_notches_without_model_action() -> None:
+    scrolls: list = []
+    computer = _daytona_computer_with_scroll(scrolls)
+
+    await computer.scroll(10, 20, 0, 230)  # 230px on a 768-tall screen = 3 notches
+    await computer.scroll(10, 20, 0, -1)  # tiny distances still scroll at least one notch
+
+    assert scrolls == [(10, 20, "down", 3), (10, 20, "up", 1)]
+
+
+async def test_daytona_scroll_rejects_horizontal_in_both_forms() -> None:
+    computer = _daytona_computer_with_scroll([])
+
+    with pytest.raises(NotImplementedError):
+        await computer.scroll(10, 20, 0, 0, model_action={"action": "scroll", "direction": "left", "amount": 2})
+    with pytest.raises(NotImplementedError):
+        await computer.scroll(10, 20, 45, 0)
