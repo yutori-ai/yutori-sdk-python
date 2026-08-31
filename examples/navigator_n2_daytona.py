@@ -20,6 +20,13 @@ the whole integration — the `DaytonaComputer` adapter plus the sandbox
 lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
+The adapter deliberately implements the smallest contract-valid surface — GUI
+plus `bash` over Daytona's REST primitives — so its choices are not the tool
+contract. When adapting it, take the full surface (file tools, modifiers, held
+actions) and the result formats n2 is trained on from api.md's "Navigator n2"
+section, with `examples/navigator_n2/cua_adapter.py` as the full reference
+implementation.
+
 Usage:
     yutori auth login                         # or export YUTORI_API_KEY=...
     export DAYTONA_API_KEY=...                # https://app.daytona.io
@@ -43,6 +50,7 @@ import uuid
 
 from yutori import AsyncYutoriClient
 from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent, format_stop_and_summarize
+from yutori.navigator.n2_compaction import response_message
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -139,16 +147,24 @@ class DaytonaComputer:
     async def drag(self, path: list[dict[str, int]]) -> None:
         await self._cu.mouse.drag(path[0]["x"], path[0]["y"], path[-1]["x"], path[-1]["y"])
 
-    async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None:
-        # The loop hands over a pixel distance — one notch of the model's `amount`
-        # is a tenth of the screen. Daytona wants wheel notches, and scrolls
-        # vertically only (so does n2).
-        if scroll_y == 0:
+    async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int, model_action: dict | None = None) -> None:
+        # Daytona wants wheel notches, and scrolls vertically only (so does n2).
+        # Declaring `model_action=` makes the loop pass the model's own call, whose
+        # `direction`/`amount` are already notches (see api.md, "Navigator n2"); the
+        # pixel arithmetic — one notch of `amount` is a tenth of the screen — is the
+        # fallback for callers that don't pass it.
+        if model_action and model_action.get("direction"):
+            direction, amount = str(model_action["direction"]), int(model_action.get("amount") or 3)
+            if direction not in ("up", "down"):
+                raise NotImplementedError("horizontal scrolling is not supported")
+        elif scroll_y:
+            direction = "down" if scroll_y > 0 else "up"
+            amount = max(1, round(abs(scroll_y) / (self._height * 0.1)))
+        else:
             if scroll_x:
                 raise NotImplementedError("horizontal scrolling is not supported")
             return
-        notches = max(1, round(abs(scroll_y) / (self._height * 0.1)))
-        await self._cu.mouse.scroll(x, y, "down" if scroll_y > 0 else "up", notches)
+        await self._cu.mouse.scroll(x, y, direction, amount)
 
     # -- keyboard ----------------------------------------------------------
 
@@ -195,15 +211,30 @@ class DaytonaComputer:
                 f"To cancel: run bash with `kill {pid}`"
             )
 
+        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
+        # a normal result the model can react to, never a raised failure envelope.
+        # (Daytona raises on expiry and discards the partial output.)
+        timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
+        if timeout_s == 0:
+            return "Command timed out after 0s"
         # Run the command, then report the directory it finished in, keeping
         # the command's own exit code.
         wrapped = f'{command}\n__rc=$?\nprintf "\\n{CWD_SENTINEL}%s" "$PWD"\nexit $__rc'
-        result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=int(timeout))
+        try:
+            result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=max(1, int(timeout_s)))
+        except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
+            # Match the class name (DaytonaProcessExecutionTimeoutError) and the
+            # message ("command execution timeout" — which says "timeout", not
+            # "timed out"), so a generically-named error is still classified.
+            error_text = f"{type(error).__name__}: {error}".lower()
+            if "timeout" in error_text or "timed out" in error_text:
+                return f"Command timed out after {timeout_s:g}s"
+            raise
         output, marker, cwd = result.result.rpartition(f"\n{CWD_SENTINEL}")
         if marker:
             self._cwd = cwd or self._cwd
         else:
-            output = result.result  # killed by the timeout before it could report
+            output = result.result  # killed before the sentinel could print (e.g. by a signal)
         # The tool owns its result text; this is the format n2 expects.
         output = _truncate(output)
         if result.exit_code:
@@ -267,8 +298,8 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
             # The sandbox is already deleted; only the Yutori client is needed.
             nudge = {"role": "user", "content": [{"type": "text", "text": format_stop_and_summarize(task)}]}
             response = await client.chat.completions.create(**agent.completion_request([nudge]))
-            data = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-            summary = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content")
+            _, message = response_message(response)
+            summary = message.get("content")
             if isinstance(summary, str) and summary.strip():
                 print(f"Step cap reached; the model's summary of progress so far:\n{summary}")
             raise RuntimeError(f"Stopped after {max_steps} steps (summary above)")
