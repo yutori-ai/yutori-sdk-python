@@ -558,6 +558,10 @@ For another policy, implement `N2Compactor.compact(...)`. Existing compactors ma
 `N2CompactionResult` to advance the request chain. A new `run()` resets usage and optional compactor state;
 `resume()` continues both.
 
+### Harness-owned completion requests
+
+`agent.completion_request(extra_messages=None, *, items=None)` returns the actor's exact next Chat Completions request as a `dict` — system prompt, windowed messages, sampling fields, tool set, and request chaining — without advancing the loop or mutating the trajectory. Pass `extra_messages` (a list of chat-format dicts) to append harness-owned messages after the trajectory, for example a step-cap "stop and summarize" probe: `await client.chat.completions.create(**agent.completion_request([nudge]))`. The call and its response stay the caller's own; the trajectory is not changed. `items` overrides the rendered trajectory (the loop's own steps pass their in-flight working set). Requires SDK 0.9.4+.
+
 ### Screenshot helpers
 
 | Helper | Signature | Description |
