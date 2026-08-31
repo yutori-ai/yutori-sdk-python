@@ -191,6 +191,8 @@ async with AsyncYutoriClient() as client:
 
 `computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
 
+#### Run on a Daytona Linux VM
+
 [examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) instantiates this agent loop on a [Daytona](https://www.daytona.io) Linux `computer`; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
