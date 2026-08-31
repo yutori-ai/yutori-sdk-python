@@ -350,9 +350,7 @@ async def test_daytona_example_compacts_long_runs_by_default(
             display=SimpleNamespace(
                 get_info=AsyncMock(return_value=SimpleNamespace(displays=[SimpleNamespace(height=100)]))
             ),
-            screenshot=SimpleNamespace(
-                take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))
-            ),
+            screenshot=SimpleNamespace(take_full_screen=AsyncMock(return_value=SimpleNamespace(screenshot=screenshot))),
             mouse=SimpleNamespace(click=AsyncMock()),
         ),
         delete=AsyncMock(),
@@ -510,3 +508,39 @@ async def test_daytona_rejected_yutori_key_never_enters_daytona(monkeypatch: pyt
 
     with pytest.raises(RuntimeError, match="invalid Yutori key"):
         await navigator_n2_daytona.main("test")
+
+
+class _SandboxTimeout(Exception):
+    """Stands in for Daytona's process-execution timeout error (name carries 'timeout')."""
+
+
+def _daytona_computer_with_exec(exec_) -> "navigator_n2_daytona.DaytonaComputer":
+    sandbox = SimpleNamespace(process=SimpleNamespace(exec=exec_), computer_use=None)
+    return navigator_n2_daytona.DaytonaComputer(sandbox)
+
+
+async def test_daytona_bash_timeout_is_the_trained_result_and_clamped() -> None:
+    async def exec_(*_args, **kwargs):
+        assert kwargs["timeout"] == 600  # the n2 contract clamps the model's request to [0, 600]
+        raise _SandboxTimeout("deadline exceeded")
+
+    computer = _daytona_computer_with_exec(exec_)
+    result = await computer.run_bash_command("sleep 900", timeout=1200.0)
+    assert result == "Command timed out after 600s"
+
+
+async def test_daytona_bash_zero_timeout_expires_without_running() -> None:
+    async def exec_(*_args, **_kwargs):
+        pytest.fail("a 0s timeout must expire before the sandbox is reached")
+
+    computer = _daytona_computer_with_exec(exec_)
+    assert await computer.run_bash_command("true", timeout=0) == "Command timed out after 0s"
+
+
+async def test_daytona_bash_non_timeout_errors_still_raise() -> None:
+    async def exec_(*_args, **_kwargs):
+        raise RuntimeError("sandbox gone")
+
+    computer = _daytona_computer_with_exec(exec_)
+    with pytest.raises(RuntimeError, match="sandbox gone"):
+        await computer.run_bash_command("true")

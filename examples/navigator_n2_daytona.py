@@ -204,15 +204,26 @@ class DaytonaComputer:
                 f"To cancel: run bash with `kill {pid}`"
             )
 
+        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
+        # a normal result the model can react to, never a raised failure envelope.
+        # (Daytona raises on expiry and discards the partial output.)
+        timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
+        if timeout_s == 0:
+            return "Command timed out after 0s"
         # Run the command, then report the directory it finished in, keeping
         # the command's own exit code.
         wrapped = f'{command}\n__rc=$?\nprintf "\\n{CWD_SENTINEL}%s" "$PWD"\nexit $__rc'
-        result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=int(timeout))
+        try:
+            result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=max(1, int(timeout_s)))
+        except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
+            if "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower():
+                return f"Command timed out after {timeout_s:g}s"
+            raise
         output, marker, cwd = result.result.rpartition(f"\n{CWD_SENTINEL}")
         if marker:
             self._cwd = cwd or self._cwd
         else:
-            output = result.result  # killed by the timeout before it could report
+            output = result.result  # killed before the sentinel could print (e.g. by a signal)
         # The tool owns its result text; this is the format n2 expects.
         output = _truncate(output)
         if result.exit_code:
