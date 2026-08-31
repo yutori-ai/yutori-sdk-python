@@ -38,7 +38,7 @@ Usage:
         "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
-Add --max-steps N to raise the turn budget (default: 50); at the cap the run
+Add --max-steps N to change the turn budget (default: 500); at the cap the run
 prints the model's summary of progress and exits non-zero.
 Long runs compact automatically (the SDK default); each compaction prints a notice.
 
@@ -74,7 +74,7 @@ TYPE_CHUNK_MAX_CHARS = 500
 # Where --record saves the screen recording after the run.
 RECORDING_PATH = "n2-daytona-run.mp4"
 
-MAX_STEPS = 50
+MAX_STEPS = 500
 
 
 def _positive_int(value: str) -> int:
@@ -235,6 +235,7 @@ class DaytonaComputer(ShellFileToolsMixin):
             return (
                 f"Started background task `bash_{log_path[-12:-4]}`.\n"
                 f"stdout+stderr is streaming to: {log_path}\n"
+                "Use the read tool on that file to retrieve output.\n"
                 f"Process id: {pid}\n"
                 f"To cancel: run bash with `kill {pid}`"
             )
