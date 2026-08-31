@@ -78,7 +78,7 @@ uv run python remote_sandbox.py --auto-approve \
 
 ## navigator_n2_daytona.py
 
-A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It serves the full current tool set: GUI and `bash` natively, and the file tools (`read`/`write`/`edit`/`grep`/`glob`) via the SDK's `ShellFileToolsMixin` — [cua_adapter.py](navigator_n2/cua_adapter.py) shows a second wiring of the same mixin, and [api.md](../api.md)'s "Navigator n2" section documents the contract. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
+A computer-use agent using third-party [Daytona](https://www.daytona.io) infrastructure. `N2ComputerAgent` runs the loop, while this Yutori-maintained example provides a compact `DaytonaComputer` adapter plus sandbox lifecycle wiring. It serves the full current tool set: GUI and `bash` natively, and the file tools (`read`/`write`/`edit`) via the SDK's `ShellFileToolsMixin` — [cua_adapter.py](navigator_n2/cua_adapter.py) shows a second wiring of the same mixin, and [api.md](../api.md)'s "Navigator n2" section documents the contract. The ephemeral sandbox is deleted, with deletion confirmation requested, when the run ends.
 
 The script declares Python 3.10+, the Yutori SDK, and the tested Daytona version as inline metadata; `uv` installs them into an isolated environment automatically. If the run hits the step cap, the example takes one summarize-only turn (no tool execution) and prints the model's summary of progress before exiting:
 

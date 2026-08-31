@@ -52,6 +52,7 @@ from .models import (
 )
 from .n2 import (
     TOOL_CALL_FORMAT_NUDGE,
+    N2Computer,
     N2ComputerAgent,
     convert_n2_items_to_completion_messages,
     execute_n2_computer_call,
@@ -107,6 +108,7 @@ __all__ = [
     "N2ActionValidationError",
     "N2CompactionContext",
     "N2CompactionResult",
+    "N2Computer",
     "N2ComputerAgent",
     "N2Compactor",
     "N2InlineCompactor",

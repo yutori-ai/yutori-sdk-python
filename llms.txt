@@ -178,7 +178,7 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 
 `uvx yutori-mcp` then exposes the `run_computer_use_task` MCP tool on macOS. It controls the visible foreground desktop and sends what is on screen to Yutori, so run it while the user is not touching the Mac.
 
-`N2ComputerAgent` drives any adapter with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. `yutori.navigator.macos.MacOSComputer` is the native Mac adapter Yutori MCP uses (`pip install 'yutori[macos]'`). It encodes full-screen observations as compressed WebP and enforces the 10 MB request budget. Model reference: <https://docs.yutori.com/reference/n2>.
+`N2ComputerAgent` drives any adapter with the async base-handler surface `screenshot`, `click`, `double_click`, `scroll`, `type`, `keypress`, `drag`, `move`, and `wait`. Current tools additionally call `run_bash_command`, `read_file`, `write_file`, and `edit_file`; durationless held keys require `key_down` and `key_up`. The always-required core of this surface (the base handlers plus `bash` and `read`/`write`/`edit`) is exported as the `yutori.navigator.N2Computer` protocol for type-checking adapters. `yutori.navigator.macos.MacOSComputer` is the native Mac adapter Yutori MCP uses (`pip install 'yutori[macos]'`). It encodes full-screen observations as compressed WebP and enforces the 10 MB request budget. Model reference: <https://docs.yutori.com/reference/n2>.
 
 For SDK/API integration details, use:
 

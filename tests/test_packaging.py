@@ -215,6 +215,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
             NAVIGATOR_N2_MODEL,
             N2CompactionContext,
             N2CompactionResult,
+            N2Computer,
             N2ComputerAgent,
             N2Compactor,
             N2InlineCompactor,
@@ -230,7 +231,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
         assert resources.files("yutori").joinpath("py.typed").is_file()
         assert NAVIGATOR_N2_MODEL == "n2"
         assert TOOL_SET_COMPUTER_USE_LATEST == "computer_use_tools-20260825"
-        assert N2ComputerAgent and MacOSComputer
+        assert N2Computer and N2ComputerAgent and MacOSComputer
         assert N2CompactionContext and N2CompactionResult and N2Compactor and N2InlineCompactor
         assert translate_n2_read({"file_path": "notes.txt"})
         assert translate_n2_write({"file_path": "notes.txt", "content": "hello"})
