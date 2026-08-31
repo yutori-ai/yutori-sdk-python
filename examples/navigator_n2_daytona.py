@@ -38,8 +38,10 @@ Usage:
         "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
-Add --max-steps N to change the turn budget (default: 500); at the cap the run
-prints the model's summary of progress and exits non-zero.
+Add --max-steps N to change the turn budget. The default (500) gives harder
+tasks room to finish; pass a smaller budget (e.g. 100) for simpler tasks, or
+to truncate a trajectory for time or cost. At the cap the run prints the
+model's summary of progress and exits non-zero.
 Long runs compact automatically (the SDK default); each compaction prints a notice.
 
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
@@ -91,7 +93,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--max-steps",
         type=_positive_int,
         default=MAX_STEPS,
-        help=f"Maximum model turns (default: {MAX_STEPS})",
+        help=(
+            f"Maximum model turns (default: {MAX_STEPS}, sized for harder tasks; "
+            "pass a smaller budget for simpler tasks or to cap time/cost)"
+        ),
     )
     parser.add_argument(
         "--record",
