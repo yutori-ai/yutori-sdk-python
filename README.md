@@ -201,8 +201,7 @@ uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/exampl
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
 
-<details open>
-<summary>Run in local Docker instead (Cua cookbook)</summary>
+#### Run in local Docker instead (Cua cookbook)
 
 The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
 
@@ -213,8 +212,6 @@ uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 *
 ```
 
 The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
-
-</details>
 
 <details>
 <summary>Drive your own local Mac</summary>
@@ -235,7 +232,8 @@ See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the t
 
 </details>
 
-### Agent-loop helpers
+<details>
+<summary>Agent-loop helpers</summary>
 
 The `yutori.navigator` subpackage exposes optional helpers for typical agent loops:
 
@@ -254,6 +252,8 @@ The `yutori.navigator` subpackage exposes optional helpers for typical agent loo
 
 
 Full helper reference: [api.md](api.md).
+
+</details>
 
 ## Browsing API
 
