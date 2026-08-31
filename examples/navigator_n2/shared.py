@@ -117,7 +117,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Approve environment actions without prompting. Host shell commands may still require confirmation.",
     )
-    parser.add_argument("--max-steps", type=int, default=30, help="Maximum model turns (default: 30)")
+    parser.add_argument("--max-steps", type=int, default=50, help="Maximum model turns (default: 50)")
 
 
 def _text_items(response: dict[str, Any]) -> list[str]:

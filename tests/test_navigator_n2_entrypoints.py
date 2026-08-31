@@ -18,7 +18,7 @@ def test_daytona_script_declares_its_uv_environment_inline() -> None:
 
     assert '# requires-python = ">=3.10"' in script
     assert '#   "daytona==0.207.0",' in script
-    assert '#   "yutori>=0.9.5",' in script
+    assert '#   "yutori>=0.9.6",' in script
 
 
 def test_remote_sandbox_cli_accepts_documented_docker_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -256,6 +256,9 @@ async def test_daytona_validates_yutori_before_ephemeral_sandbox_and_waits_for_d
     assert events.index("yutori-validated") < events.index("sandbox-create")
     assert seen["sandbox-params"] == {"snapshot": navigator_n2_daytona.SNAPSHOT, "ephemeral": True}
     assert seen["agent-kwargs"]["max_steps"] == 2
+    from yutori.navigator import TOOL_SET_COMPUTER_USE_LATEST
+
+    assert seen["agent-kwargs"]["tool_set"] == TOOL_SET_COMPUTER_USE_LATEST
     assert seen["delete-wait"] is True
     assert events[-3:] == ["sandbox-delete", "daytona-exit", "yutori-exit"]
     printed = capsys.readouterr().out
@@ -517,6 +520,53 @@ class _SandboxTimeout(Exception):
 def _daytona_computer_with_exec(exec_) -> "navigator_n2_daytona.DaytonaComputer":
     sandbox = SimpleNamespace(process=SimpleNamespace(exec=exec_), computer_use=None)
     return navigator_n2_daytona.DaytonaComputer(sandbox)
+
+
+async def test_daytona_triple_click_is_three_rapid_clicks() -> None:
+    clicks: list[tuple[int, int, str]] = []
+
+    class FakeMouse:
+        async def click(self, x: int, y: int, button: str = "left", double: bool = False) -> None:
+            clicks.append((x, y, button))
+
+    computer = navigator_n2_daytona.DaytonaComputer(
+        SimpleNamespace(process=SimpleNamespace(), computer_use=SimpleNamespace(mouse=FakeMouse()))
+    )
+
+    await computer.triple_click(5, 9)
+
+    assert clicks == [(5, 9, "left")] * 3
+
+
+async def test_daytona_file_tools_ride_the_shared_mixin() -> None:
+    calls: list[tuple[str, str | None, int]] = []
+
+    class FakeProcess:
+        async def exec(self, command: str, cwd: str | None = None, timeout: int = 30) -> SimpleNamespace:
+            calls.append((command, cwd, timeout))
+            if command == "pwd":
+                return SimpleNamespace(result="/root\n", exit_code=0)
+            return SimpleNamespace(result="     1\thello\n", exit_code=0)
+
+    fake_sandbox = SimpleNamespace(process=FakeProcess(), computer_use=SimpleNamespace())
+    computer = navigator_n2_daytona.DaytonaComputer(fake_sandbox)
+
+    assert await computer.read_file("notes.txt") == "     1\thello"
+    assert calls[0][0] == "pwd"  # cwd resolved once for relative paths
+    assert calls[1][0].startswith("python3 -c ") and calls[1][2] == 30
+
+
+async def test_daytona_file_tool_failures_become_plain_error_results() -> None:
+    class FakeProcess:
+        async def exec(self, command: str, cwd: str | None = None, timeout: int = 30) -> SimpleNamespace:
+            if command == "pwd":
+                return SimpleNamespace(result="/root\n", exit_code=0)
+            return SimpleNamespace(result="Traceback ...\nValueError: boom\n", exit_code=2)
+
+    fake_sandbox = SimpleNamespace(process=FakeProcess(), computer_use=SimpleNamespace())
+    computer = navigator_n2_daytona.DaytonaComputer(fake_sandbox)
+
+    assert await computer.write_file("a.txt", "x") == "ERROR: ValueError: boom"
 
 
 async def test_daytona_bash_timeout_is_the_trained_result_and_clamped() -> None:

@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "daytona==0.207.0",
-#   "yutori>=0.9.5",
+#   "yutori>=0.9.6",
 # ]
 # ///
 """
@@ -20,12 +20,15 @@ the whole integration — the `DaytonaComputer` adapter plus the sandbox
 lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
-The adapter deliberately implements the smallest contract-valid surface — GUI
-plus `bash` over Daytona's REST primitives — so its choices are not the tool
-contract. When adapting it, take the full surface (file tools, modifiers, held
-actions) and the result formats n2 is trained on from api.md's "Navigator n2"
-section, with `examples/navigator_n2/cua_adapter.py` as the full reference
-implementation.
+The adapter implements GUI and `bash` natively over Daytona's REST primitives
+and gains the file tools (`read`/`write`/`edit`/`grep`/`glob`) from the SDK's
+`ShellFileToolsMixin` — the reference implementation with the exact result
+formats n2 is trained on — so it serves the full current tool set. Daytona's
+REST API exposes no held-button or held-key primitives, so the rare held
+actions (`mouse_down`/`mouse_up`, `hold_key`) degrade to the loop's built-in
+recoverable "not supported" results, and click modifiers stay undeclared. When
+adapting it, see api.md's "Navigator n2" section for the contract and
+`examples/navigator_n2/cua_adapter.py` for a second wiring of the same mixin.
 
 Usage:
     yutori auth login                         # or export YUTORI_API_KEY=...
@@ -35,6 +38,8 @@ Usage:
         "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 
 Add --record to save a screen recording of the run to n2-daytona-run.mp4.
+Add --max-steps N to raise the turn budget (default: 50); at the cap the run
+prints the model's summary of progress and exits non-zero.
 Long runs compact automatically (the SDK default); each compaction prints a notice.
 
 Walkthrough: https://docs.yutori.com/reference/n2-daytona
@@ -47,9 +52,15 @@ import asyncio
 import json
 import shlex
 import uuid
+from types import SimpleNamespace
 
 from yutori import AsyncYutoriClient
-from yutori.navigator import TOOL_SET_COMPUTER_USE_BASH_BATCH, N2ComputerAgent, format_stop_and_summarize
+from yutori.navigator import (
+    TOOL_SET_COMPUTER_USE_LATEST,
+    N2ComputerAgent,
+    ShellFileToolsMixin,
+    format_stop_and_summarize,
+)
 from yutori.navigator.n2_compaction import response_message
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
@@ -64,7 +75,7 @@ RECORDING_PATH = "n2-daytona-run.mp4"
 
 # The n2 `bash` tool caps one result at this many characters.
 BASH_RESULT_MAX_CHARS = 30_000
-MAX_STEPS = 30
+MAX_STEPS = 50
 
 
 def _positive_int(value: str) -> int:
@@ -110,7 +121,7 @@ class CompactionNotice:
         print(f"Compacted context: {info['items_before']} -> {info['items_after']} items")
 
 
-class DaytonaComputer:
+class DaytonaComputer(ShellFileToolsMixin):
     """Adapts a Daytona sandbox to the handler protocol `N2ComputerAgent` calls.
 
     Coordinates arrive already scaled to the screen: the loop maps n2's
@@ -140,6 +151,12 @@ class DaytonaComputer:
 
     async def double_click(self, x: int, y: int) -> None:
         await self._cu.mouse.click(x, y, "left", double=True)
+
+    async def triple_click(self, x: int, y: int) -> None:
+        # Daytona's REST API has no native triple click; three rapid clicks match
+        # the toolkit convention (select paragraph/line).
+        for _ in range(3):
+            await self._cu.mouse.click(x, y, "left")
 
     async def move(self, x: int, y: int) -> None:
         await self._cu.mouse.move(x, y)
@@ -189,6 +206,21 @@ class DaytonaComputer:
         # One call per chord: `ctrl+c` arrives as ["ctrl", "c"], `enter` as ["enter"].
         # Modifiers go in their own argument so a key that is itself "+" survives.
         await self._cu.keyboard.press(keys[-1], modifiers=keys[:-1] or None)
+
+    # -- file tools (SDK mixin hooks) --------------------------------------
+
+    async def run_sandbox_shell(self, command: str, *, timeout_seconds: int) -> SimpleNamespace:
+        # Daytona merges stdout+stderr into `result`; surface it as stderr too on
+        # failure so the mixin's plain-`ERROR:` envelope carries the real reason.
+        result = await self._sandbox.process.exec(command, cwd=self._cwd, timeout=timeout_seconds)
+        merged = result.result or ""
+        return SimpleNamespace(stdout=merged, stderr=merged if result.exit_code else "", returncode=result.exit_code)
+
+    async def file_tool_cwd(self) -> str:
+        if self._cwd is None:
+            result = await self._sandbox.process.exec("pwd", timeout=30)
+            self._cwd = (result.result or "").strip() or "/"
+        return self._cwd
 
     async def wait(self, ms: int = 1000) -> None:
         await asyncio.sleep(ms / 1000)
@@ -261,9 +293,9 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
                     computer=computer,
                     completions=client.chat.completions,
                     model="n2",
-                    # This compact Yutori-maintained adapter intentionally implements GUI and
-                    # bash only, so it pins the compatible immutable batch-plus-bash contract.
-                    tool_set=TOOL_SET_COMPUTER_USE_BASH_BATCH,
+                    # GUI and bash are native; the file tools ride the SDK's
+                    # ShellFileToolsMixin, so the full current set is served.
+                    tool_set=TOOL_SET_COMPUTER_USE_LATEST,
                     max_steps=max_steps,
                     callbacks=[CompactionNotice()],
                 )
