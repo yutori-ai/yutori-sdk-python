@@ -191,9 +191,23 @@ async with AsyncYutoriClient() as client:
 
 `computer` is your adapter for interfacing with the computer: the loop calls it to execute the model's actions and capture the results — screenshots, command output, file contents.
 
+#### Run in local Docker (Cua cookbook)
+
+The [Cua cookbook](examples/navigator_n2/README.md) instantiates this agent loop in a local Docker container — no cloud account needed beyond your Yutori login:
+
+```bash
+yutori auth login            # or export YUTORI_API_KEY=...
+
+cd examples/navigator_n2
+uv sync --python 3.12
+uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 * 23"
+```
+
+The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
+
 #### Run on a Daytona Linux VM
 
-[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) instantiates this agent loop on a [Daytona](https://www.daytona.io) Linux `computer`; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
+[examples/navigator_n2_daytona.py](examples/navigator_n2_daytona.py) runs the same agent on a [Daytona](https://www.daytona.io) Linux VM — a `DAYTONA_API_KEY` is the one extra credential; [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona) walks through it. To run it:
 
 ```bash
 yutori auth login            # or export YUTORI_API_KEY=...
@@ -202,18 +216,6 @@ export DAYTONA_API_KEY=...   # https://app.daytona.io
 uv run https://raw.githubusercontent.com/yutori-ai/yutori-sdk-python/main/examples/navigator_n2_daytona.py \
     "Find the OS version and free disk space of this machine, and save a summary to a file on the desktop"
 ```
-
-#### Run in local Docker instead (Cua cookbook)
-
-The [Cua cookbook](examples/navigator_n2/README.md) runs the same agent in a local Docker container instead of a cloud VM — no cloud credential needed:
-
-```bash
-cd examples/navigator_n2
-uv sync --python 3.12
-uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 * 23"
-```
-
-The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
 
 <details>
 <summary>Drive your own local Mac</summary>
