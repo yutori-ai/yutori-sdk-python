@@ -17,15 +17,17 @@ from unittest.mock import AsyncMock
 import pytest
 from PIL import Image
 
-from examples.navigator_n2.cua_adapter import _FILE_TOOL_SCRIPT, CuaSandboxComputer, _format_shell_output
+from examples.navigator_n2.cua_adapter import CuaSandboxComputer
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from examples.navigator_n2_daytona import CWD_SENTINEL, DaytonaComputer
+from yutori.navigator import FILE_TOOL_SCRIPT as _FILE_TOOL_SCRIPT
 from yutori.navigator import (
     NAVIGATOR_N2_MODEL,
     TOOL_SET_COMPUTER_USE_BASH_BATCH,
     TOOL_SET_COMPUTER_USE_LATEST,
     N2ComputerAgent,
 )
+from yutori.navigator import format_shell_output as _format_shell_output
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 from .conftest import FakeCompletions

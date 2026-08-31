@@ -87,6 +87,13 @@ from .payload import (
     trim_images_to_fit,
     trimmed_messages_to_fit,
 )
+from .sandbox_tools import (
+    FILE_TOOL_SCRIPT,
+    ShellFileToolsMixin,
+    format_shell_output,
+    python_file_tool_command,
+    render_image_result,
+)
 from .stop import format_stop_and_summarize
 
 __all__ = [
@@ -131,6 +138,11 @@ __all__ = [
     "execute_n2_computer_call",
     "extract_text_content",
     "flatten_batch_member",
+    "FILE_TOOL_SCRIPT",
+    "ShellFileToolsMixin",
+    "format_shell_output",
+    "python_file_tool_command",
+    "render_image_result",
     "format_stop_and_summarize",
     "format_task_with_context",
     "format_user_context",
