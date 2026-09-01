@@ -98,6 +98,8 @@ from yutori.navigator import (
     TOOL_SET_CORE,
     TOOL_SET_EXPANDED,
     TOOL_SET_COMPUTER_USE_LATEST,
+    TOOL_SET_COMPUTER_USE_20260825,
+    TOOL_SET_COMPUTER_USE_20260830,
 )
 ```
 
@@ -108,7 +110,9 @@ from yutori.navigator import (
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
 | `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
-| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260830"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
+| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260830"` | Current n2 tool set (alias of `TOOL_SET_COMPUTER_USE_20260830`): `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
+| `TOOL_SET_COMPUTER_USE_20260830` | `"computer_use_tools-20260830"` | The dated id `LATEST` currently resolves to. |
+| `TOOL_SET_COMPUTER_USE_20260825` | `"computer_use_tools-20260825"` | The previous set: the same five tools and batch actions; differs only in tool descriptions and in `computer_batch` marking every argument required, where 20260830 leaves optional arguments optional. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
@@ -516,6 +520,7 @@ from yutori.navigator import (
     # Models / tool sets
     NAVIGATOR_N1_5_MODEL,
     TOOL_SET_CORE, TOOL_SET_EXPANDED, TOOL_SET_COMPUTER_USE_LATEST, NAVIGATOR_COORDINATE_SCALE,
+    TOOL_SET_COMPUTER_USE_20260825, TOOL_SET_COMPUTER_USE_20260830,
     # Navigator n2 loop helpers
     N2Computer, N2ComputerAgent, N2Compactor, N2InlineCompactor,
     parse_n2_tool_calls, execute_n2_computer_call, retain_n2_image_window,
@@ -554,7 +559,7 @@ Constructor parameters (the `**loop_policies` keywords have [their own table](#l
 | Parameter | What it does |
 |---|---|
 | `computer` | Your adapter — see [the adapter contract](#the-adapter-contract-n2computer). |
-| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. Tool sets are all-or-nothing — custom or disabled tools are rejected, and the adapter must serve every tool in the set. |
+| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. The loop serves exactly the set's tools — it has no `disable_tools`/`tools` passthrough, a custom tool call gets a recoverable does-not-expose error, and the adapter must serve every tool in the set (see [Changing the n2 tool set](#changing-the-n2-tool-set)). |
 | `instructions` | Optional text inserted as the first user message of the run's history. |
 | `callbacks` | List of duck-typed observer objects — see [Callbacks and confirmation](#callbacks-and-confirmation). |
 | `action_confirmation_callback` | Opt-in approval gate for model actions — same section. |
