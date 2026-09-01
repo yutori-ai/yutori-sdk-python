@@ -40,7 +40,7 @@ The sandbox entrypoint adapts public Cua mouse, keyboard, screenshot, shell, and
 
 ~~~bash
 docker info
-uv run python remote_sandbox.py "Open Calculator and compute 17 * 23"
+uv run python local_docker.py "Open Calculator and compute 17 * 23"
 ~~~
 
 The script prints a `Watch the desktop live: http://localhost:<port>/vnc.html` link at startup — open it in a browser to follow the agent's actions on the sandbox's noVNC viewer. If a run hits `--max-steps`, the entrypoints take one summarize-only turn (no tool execution) and print the model's summary of progress before exiting.
@@ -71,7 +71,7 @@ Both examples always send an explicit immutable tool-set id. The default alias i
 | gui | computer_use_tools-20260708 |
 
 ~~~bash
-uv run python remote_sandbox.py --tool-set gui "Open Calculator and compute 17 * 23"
+uv run python local_docker.py --tool-set gui "Open Calculator and compute 17 * 23"
 ~~~
 
 The public n2 reference documents the current five tools, all 15 batch action types, the 20-action batch limit, screenshot compression, and the single-result-per-tool-call rule: https://docs.yutori.com/reference/n2
