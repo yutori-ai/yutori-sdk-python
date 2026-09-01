@@ -208,7 +208,7 @@ yutori auth login            # or export YUTORI_API_KEY=...
 
 cd examples/navigator_n2
 uv sync --python 3.12
-uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 * 23"
+uv run python local_docker.py --auto-approve "Open Calculator and compute 17 * 23"
 ```
 
 The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.

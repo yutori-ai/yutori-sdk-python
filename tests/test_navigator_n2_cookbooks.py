@@ -114,7 +114,7 @@ def test_every_ported_example_is_importable_without_its_optional_runtime() -> No
         "examples.navigator_n2",
         "examples.navigator_n2.local_driver",
         "examples.navigator_n2.local_macos",
-        "examples.navigator_n2.remote_sandbox",
+        "examples.navigator_n2.local_docker",
         "examples.navigator_n2.shared",
         "examples.navigator_n2_daytona",
     ):

@@ -72,7 +72,7 @@ The [public Cua cookbook](navigator_n2/README.md) runs Navigator n2 in a local D
 ```bash
 cd examples/navigator_n2
 uv sync --python 3.12
-uv run python remote_sandbox.py --auto-approve \
+uv run python local_docker.py --auto-approve \
     "Open Calculator and compute 17 * 23"
 ```
 

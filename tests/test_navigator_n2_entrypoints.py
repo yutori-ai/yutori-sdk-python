@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from examples import navigator_n2_daytona
-from examples.navigator_n2 import remote_sandbox
+from examples.navigator_n2 import local_docker
 
 
 def test_daytona_script_declares_its_uv_environment_inline() -> None:
@@ -21,15 +21,15 @@ def test_daytona_script_declares_its_uv_environment_inline() -> None:
     assert '#   "yutori>=0.9.6",' in script
 
 
-def test_remote_sandbox_cli_accepts_documented_docker_command(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["remote_sandbox.py", "Open Calculator"])
+def test_local_docker_cli_accepts_documented_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["local_docker.py", "Open Calculator"])
 
-    args = remote_sandbox.parse_args()
+    args = local_docker.parse_args()
 
     assert args.task == "Open Calculator"
 
 
-async def test_remote_sandbox_resolves_yutori_key_before_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_local_docker_resolves_yutori_key_before_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeImage:
         @staticmethod
         def linux(**_kwargs: object) -> object:
@@ -45,7 +45,7 @@ async def test_remote_sandbox_resolves_yutori_key_before_allocation(monkeypatch:
     def missing_api_key() -> str:
         raise RuntimeError("missing Yutori key")
 
-    monkeypatch.setattr(remote_sandbox, "require_api_key", missing_api_key)
+    monkeypatch.setattr(local_docker, "require_api_key", missing_api_key)
     args = argparse.Namespace(
         max_steps=1,
         task="test",
@@ -54,10 +54,10 @@ async def test_remote_sandbox_resolves_yutori_key_before_allocation(monkeypatch:
     )
 
     with pytest.raises(RuntimeError, match="missing Yutori key"):
-        await remote_sandbox.main(args)
+        await local_docker.main(args)
 
 
-async def test_remote_sandbox_rejects_tool_set_before_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_local_docker_rejects_tool_set_before_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeImage:
         @staticmethod
         def linux(**_kwargs: object) -> object:
@@ -69,7 +69,7 @@ async def test_remote_sandbox_rejects_tool_set_before_allocation(monkeypatch: py
             pytest.fail("sandbox allocation started before tool-set validation")
 
     monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
-    monkeypatch.setattr(remote_sandbox, "require_api_key", lambda: "test-yutori-key")
+    monkeypatch.setattr(local_docker, "require_api_key", lambda: "test-yutori-key")
     args = argparse.Namespace(
         max_steps=1,
         task="test",
@@ -78,10 +78,10 @@ async def test_remote_sandbox_rejects_tool_set_before_allocation(monkeypatch: py
     )
 
     with pytest.raises(ValueError, match="unknown tool set"):
-        await remote_sandbox.main(args)
+        await local_docker.main(args)
 
 
-async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_local_docker_wires_local_container_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, object] = {}
     fake_sandbox = object()
 
@@ -122,10 +122,10 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
         seen["task"] = task
 
     monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
-    monkeypatch.setattr(remote_sandbox, "require_api_key", lambda: "test-yutori-key")
-    monkeypatch.setattr(remote_sandbox, "CuaSandboxComputer", FakeComputer)
-    monkeypatch.setattr(remote_sandbox, "N2ComputerAgent", FakeAgent)
-    monkeypatch.setattr(remote_sandbox, "run_agent", fake_run_agent)
+    monkeypatch.setattr(local_docker, "require_api_key", lambda: "test-yutori-key")
+    monkeypatch.setattr(local_docker, "CuaSandboxComputer", FakeComputer)
+    monkeypatch.setattr(local_docker, "N2ComputerAgent", FakeAgent)
+    monkeypatch.setattr(local_docker, "run_agent", fake_run_agent)
     args = argparse.Namespace(
         max_steps=2,
         task="test",
@@ -133,7 +133,7 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
         auto_approve=True,
     )
 
-    await remote_sandbox.main(args)
+    await local_docker.main(args)
 
     assert seen["image"] == {"kind": "container"}
     assert seen["ephemeral"] == ("linux-image", {"local": True})
@@ -142,11 +142,11 @@ async def test_remote_sandbox_wires_local_container_runtime(monkeypatch: pytest.
     assert seen["sandbox-closed"] is True
 
 
-def test_remote_sandbox_watch_url_comes_from_the_runtime_info() -> None:
+def test_local_docker_watch_url_comes_from_the_runtime_info() -> None:
     info = SimpleNamespace(host="localhost", vnc_port=54423)
-    assert remote_sandbox._watch_url(SimpleNamespace(_runtime_info=info)) == "http://localhost:54423/vnc.html"
-    assert remote_sandbox._watch_url(SimpleNamespace(_runtime_info=None)) is None
-    assert remote_sandbox._watch_url(SimpleNamespace()) is None
+    assert local_docker._watch_url(SimpleNamespace(_runtime_info=info)) == "http://localhost:54423/vnc.html"
+    assert local_docker._watch_url(SimpleNamespace(_runtime_info=None)) is None
+    assert local_docker._watch_url(SimpleNamespace()) is None
 
 
 def test_daytona_cli_record_flag_is_optional_and_order_safe() -> None:

@@ -1,4 +1,4 @@
-"""Run stable Navigator n2 in a disposable local Docker Linux sandbox."""
+"""Run stable Navigator n2 in a disposable local Docker container."""
 
 from __future__ import annotations
 
