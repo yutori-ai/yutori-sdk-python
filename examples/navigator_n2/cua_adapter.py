@@ -27,6 +27,9 @@ from yutori.navigator.sandbox_tools import (
     append_stream as _append_stream,
 )
 from yutori.navigator.sandbox_tools import (
+    clamp_bash_timeout as _clamp_bash_timeout,
+)
+from yutori.navigator.sandbox_tools import (
     format_shell_output as _format_shell_output,
 )
 from yutori.navigator.sandbox_tools import (
@@ -196,7 +199,7 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
         # NORMAL result the model can react to, never a raised failure envelope. (The
         # sandbox API discards partial output on expiry, so the result is the bare line.)
-        timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
+        timeout_s = _clamp_bash_timeout(timeout)
         if timeout_s == 0:
             return "Command timed out after 0s"
         try:
