@@ -1320,3 +1320,54 @@ def test_reference_adapters_provide_the_n2_computer_surface() -> None:
 
     file_tools = {"read_file", "write_file", "edit_file"}
     assert all(callable(getattr(ShellFileToolsMixin, name, None)) for name in file_tools)
+
+
+def test_latest_tool_set_is_pinned() -> None:
+    """Bumping `latest` should be a deliberate edit, so the date is pinned once, here.
+
+    Everywhere else follows the constant. This is the one place that names the value, which
+    keeps a bump from silently changing what a caller who pinned nothing is served.
+    """
+    from yutori.navigator.models import (
+        TOOL_SET_COMPUTER_USE_20260825,
+        TOOL_SET_COMPUTER_USE_20260830,
+        TOOL_SET_COMPUTER_USE_LATEST,
+    )
+
+    assert TOOL_SET_COMPUTER_USE_20260830 == "computer_use_tools-20260830"
+    assert TOOL_SET_COMPUTER_USE_20260825 == "computer_use_tools-20260825"
+    assert TOOL_SET_COMPUTER_USE_LATEST == TOOL_SET_COMPUTER_USE_20260830
+
+
+def test_20260830_has_the_same_capabilities_as_20260825() -> None:
+    """The two sets expose the same tools, so they belong to the same capability sets.
+
+    Each set used to be written as "... and whatever LATEST is", so publishing a newer set
+    silently moved 20260825 out of them — most damagingly into
+    TOOL_SETS_WITH_STANDALONE_SCREENSHOT, a tool it does not serve. Asserting the two are
+    equal members everywhere is what stops that from recurring.
+    """
+    from yutori.navigator import n2_actions
+    from yutori.navigator.models import (
+        TOOL_SET_COMPUTER_USE_20260825 as OLDER,
+    )
+    from yutori.navigator.models import (
+        TOOL_SET_COMPUTER_USE_20260830 as NEWER,
+    )
+
+    capability_sets = {
+        name: value
+        for name, value in vars(n2_actions).items()
+        if name.startswith("TOOL_SETS_") and isinstance(value, frozenset)
+    }
+    assert capability_sets, "expected the module to define TOOL_SETS_* frozensets"
+
+    differing = {
+        name: (OLDER in value, NEWER in value)
+        for name, value in capability_sets.items()
+        if (OLDER in value) != (NEWER in value)
+    }
+    assert differing == {}
+    assert NEWER in n2_actions.SUPPORTED_N2_TOOL_SETS
+    assert NEWER not in n2_actions.TOOL_SETS_WITH_STANDALONE_SCREENSHOT
+    assert OLDER not in n2_actions.TOOL_SETS_WITH_STANDALONE_SCREENSHOT
