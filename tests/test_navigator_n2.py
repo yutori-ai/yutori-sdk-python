@@ -138,6 +138,11 @@ def test_null_or_empty_modifier_is_an_ordinary_click():
 def test_scroll_converts_amount_to_pixels_and_validates_direction():
     actions = translate_n2_action("scroll", {"coordinates": [500, 500], "direction": "down", "amount": 3}, 1000, 800)
     assert actions == [{"type": "scroll", "x": 500, "y": 400, "scroll_x": 0, "scroll_y": 240}]
+    # The served schema names all four directions; left/right ride the scroll_x slot.
+    actions = translate_n2_action("scroll", {"coordinates": [500, 500], "direction": "right", "amount": 3}, 1000, 800)
+    assert actions == [{"type": "scroll", "x": 500, "y": 400, "scroll_x": 300, "scroll_y": 0}]
+    actions = translate_n2_action("scroll", {"coordinates": [500, 500], "direction": "left", "amount": 2}, 1000, 800)
+    assert actions == [{"type": "scroll", "x": 500, "y": 400, "scroll_x": -200, "scroll_y": 0}]
     with pytest.raises(N2ActionValidationError, match="direction"):
         translate_n2_action("scroll", {"coordinates": [1, 1], "direction": "sideways", "amount": 1}, 100, 100)
     with pytest.raises(N2ActionValidationError, match="amount"):
@@ -329,7 +334,7 @@ def test_image_window_keeps_only_two_newest_image_messages():
     windowed = retain_n2_image_window(messages)
     kept = [any(part["type"] == "image_url" for part in message["content"]) for message in windowed]
     assert kept == [False, False, True, True]
-    # Pruned frames leave the marker the model was trained on; `None` drops them outright.
+    # Pruned frames leave the marker the model expects; `None` drops them outright.
     assert windowed[0]["content"] == [{"type": "text", "text": "[older image omitted]"}]
     assert retain_n2_image_window(messages, omitted_text=None)[0]["content"] == []
     # The original list is untouched.

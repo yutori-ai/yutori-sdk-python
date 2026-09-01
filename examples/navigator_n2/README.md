@@ -2,6 +2,14 @@
 
 These runnable cookbooks use the public Python SDK loop, stable model id n2, and the public `cua-sandbox` package. They do not import an agent package or source code from another repository. Cua provides the local Docker runtime; the adapter and n2 loop in this repository are maintained by Yutori.
 
+**Which implementation should I start from?** Choose based on where your adapter runs relative to the desktop:
+
+- **Direct X11 Linux:** If the adapter runs on the desktop host and can access its display, shell, and filesystem directly, start from [direct_x11_adapter.py](direct_x11_adapter.py). The host may be a local machine or a VM.
+- **API-backed desktop:** If screenshot, input, shell, and file operations cross an API boundary — whether to local sandbox software or a remote service — start from [cua_adapter.py](cua_adapter.py) as a structural example. Adapt its provider calls, input units, result types, and process/file handling to your API.
+- **macOS:** Use the shipped `yutori.navigator.macos.MacOSComputer` runtime directly.
+
+All three expose the same SDK-facing computer-handler contract; their infrastructure-facing interfaces differ.
+
 The cookbook environment is separate because `cua-sandbox` requires Python 3.11–3.13. The tested dependency is pinned in pyproject.toml, and the SDK source is used from this checkout.
 
 On minimal Debian or Ubuntu images (including `python:3.12-slim`), install the compiler and Linux input headers that Cua's `evdev` dependency builds against:
@@ -33,6 +41,17 @@ uv run --extra macos python local_macos.py "Open Calculator and compute 17 * 23"
 ~~~
 
 The local runtime can execute bash and file tools only because the example explicitly enables its local-shell option. Every local shell command remains confirmable even with --auto-approve.
+
+## Direct X11 Linux
+
+The direct X11 entrypoint drives the desktop `$DISPLAY` points at — pyautogui for input (X11 wheel notches, key events, and drags are the native units n2's actions map onto), mss for screenshots, and local subprocesses for `bash` and the file tools. **X11 only**: on a Wayland session synthetic input fails or half-works through XWayland, so use an "on Xorg" session or a virtual display (Xvfb/x11vnc). This acts on a real machine, not a disposable sandbox: prefer a dedicated VM or virtual display, and shell commands stay confirmable even with `--auto-approve`.
+
+~~~bash
+uv sync --extra linux --python 3.12
+uv run --extra linux python local_x11.py "Open the calculator and compute 17 * 23"
+~~~
+
+Non-ASCII text falls back to clipboard paste, which needs `xclip` installed in the session.
 
 ## Disposable Linux sandbox
 

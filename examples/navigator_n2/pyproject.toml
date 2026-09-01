@@ -13,6 +13,12 @@ dependencies = [
 
 [project.optional-dependencies]
 macos = ["yutori[macos]==0.9.8"]
+linux = [
+    # pyautogui executes n2's GUI actions in their native X11 units (wheel
+    # notches, key events); mss captures X11 screenshots without scrot.
+    "pyautogui>=0.9.54",
+    "mss>=9.0.1",
+]
 
 [tool.uv.sources]
 yutori = { path = "../..", editable = true }

@@ -193,9 +193,9 @@ Your `MyComputer` environment is responsible for tool implementations (they are 
 
 | Tool | You implement | The SDK provides |
 |---|---|---|
-| `computer_batch` | the single-action GUI primitives (`click`, `type`, etc)<br>[reference implementation: [cua_adapter.py](examples/navigator_n2/cua_adapter.py)] | the batching: validation, coordinate mapping, sequencing, the screenshot result |
-| `bash` | `run_bash_command`<br>[reference implementation: [cua_adapter.py](examples/navigator_n2/cua_adapter.py)] | [`format_shell_output`](yutori/navigator/sandbox_tools.py) for the result format |
-| `read`/`write`/`edit` | `read_file`/`write_file`/`edit_file`<br>[reference implementations: [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (via the mixin), [MacOSComputer](yutori/navigator/macos/computer.py) (native)] | [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py): a complete implementation over your sandbox's shell — inherit it and supply its two small hooks |
+| `computer_batch` | the single-action GUI primitives (`click`, `type`, etc)<br>[reference implementations: [direct_x11_adapter.py](examples/navigator_n2/direct_x11_adapter.py) (direct X11), [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (API-backed sandbox)] | the batching: validation, coordinate mapping, sequencing, the screenshot result |
+| `bash` | `run_bash_command`<br>[reference implementations: [direct_x11_adapter.py](examples/navigator_n2/direct_x11_adapter.py) (direct X11), [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (API-backed sandbox)] | [`format_shell_output`](yutori/navigator/sandbox_tools.py) for the result format |
+| `read`/`write`/`edit` | `read_file`/`write_file`/`edit_file`<br>[reference implementations: [direct_x11_adapter.py](examples/navigator_n2/direct_x11_adapter.py) (direct X11) and [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (API-backed sandbox) via the mixin, [MacOSComputer](yutori/navigator/macos/computer.py) (native)] | [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py): a complete implementation over a POSIX shell — inherit it and supply its two small hooks |
 
 The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop).
 
@@ -241,9 +241,9 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 </details>
 
 <details>
-<summary>References, trained conventions, and long-run behavior</summary>
+<summary>References, model conventions, and long-run behavior</summary>
 
-See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, the full tool set served together (tools can be disabled or added, but n2 performs best with all five) — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows, matching how the model is trained for long-horizon work; pass `compactor=None` to disable, and the run instead continues past the trained 64K context and stops cleanly at the 128k serving limit.
+See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model relies on — the `bash` tool rather than a GUI terminal, image-returning reads, the full tool set served together (tools can be disabled or added, but n2 performs best with all five) — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows, which is the regime the model performs best in for long-horizon work; pass `compactor=None` to disable, and the run instead continues past the 64K working context and stops cleanly at the 128k serving limit.
 
 </details>
 

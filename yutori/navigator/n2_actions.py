@@ -190,7 +190,7 @@ _MODIFIER_ALIASES = {
     "windows": "cmd",
 }
 
-# `modifier` is accepted exactly where the trained schema carries it — the click
+# `modifier` is accepted exactly where the served schema carries it — the click
 # family and `scroll`. `drag` and `mouse_move` have no modifier slot in the
 # served tool definitions, so accepting one there would promise a gesture the
 # model was never taught to ask for.
@@ -257,10 +257,10 @@ def _tool_arguments(args: Any, tool_name: str, allowed_fields: set[str]) -> dict
 
 
 def normalize_modifier_args(args: dict[str, Any]) -> dict[str, Any]:
-    """Fold a ``modifier_keys`` spelling into the trained ``modifier`` one.
+    """Fold a ``modifier_keys`` spelling into the canonical ``modifier`` one.
 
-    The checkpoints hold a modifier through ``modifier``, a single string. Every
-    tool set before 20260815 stripped the parameter, and a checkpoint whose
+    The model holds a modifier through ``modifier``, a single string. Every
+    tool set before 20260815 stripped the parameter, and a model whose
     served schema has no modifier slot reaches for the plural instead — which
     strict field validation then rejects, costing the whole batch rather than
     just the modifier. Accepting the plural is cheap and keeps that step.
@@ -286,7 +286,7 @@ def flatten_batch_member(value: dict[str, Any]) -> dict[str, Any]:
     """Read either batch envelope and return the flat one.
 
     ``{"name": "left_click", "arguments": {"coordinates": [x, y]}}`` is the shape
-    training used and what tool sets 20260812/20260815 advertise. The flat
+    tool sets 20260812/20260815 advertise. The flat
     ``{"action": "left_click", "coordinates": [x, y]}`` shape stays accepted
     because 20260807/20260808 still serve it, and a model can mix the two within
     one batch. Everything downstream sees the flat shape.
@@ -304,7 +304,7 @@ def parse_n2_modifier(value: Any, path: str) -> list[str]:
     Absent/null/empty means "no modifier held", so a model that emits
     ``"modifier": null`` alongside an ordinary click gets an ordinary click
     rather than a rejected batch. A chord is accepted because holding two keys is
-    a real gesture, even though training only ever emits one.
+    a real gesture, even though the model only ever emits one.
     """
     if value is None or value == "":
         return []
@@ -470,18 +470,25 @@ def translate_n2_action(
     if action == "scroll":
         x, y = native_point(args.get("coordinates"), "scroll.coordinates", native_width, native_height)
         direction = args.get("direction")
-        if direction not in {"up", "down"}:
-            raise N2ActionValidationError("scroll.direction must be up or down")
+        if direction not in {"up", "down", "left", "right"}:
+            raise N2ActionValidationError("scroll.direction must be up, down, left, or right")
         amount = args.get("amount")
         if not is_strict_int(amount) or not 1 <= amount <= N2_MAX_SCROLL_AMOUNT:
             raise N2ActionValidationError(f"scroll.amount must be an integer between 1 and {N2_MAX_SCROLL_AMOUNT}")
-        scroll_y = round(amount * native_height * 0.1) * (1 if direction == "down" else -1)
+        # All four directions the served schema names are valid; a handler that
+        # cannot scroll horizontally fails that one action rather than the call.
+        if direction in {"up", "down"}:
+            scroll_x = 0
+            scroll_y = round(amount * native_height * 0.1) * (1 if direction == "down" else -1)
+        else:
+            scroll_x = round(amount * native_width * 0.1) * (1 if direction == "right" else -1)
+            scroll_y = 0
         return [
             internal(
                 "scroll",
                 x=x,
                 y=y,
-                scroll_x=0,
+                scroll_x=scroll_x,
                 scroll_y=scroll_y,
                 **modifier_args,
             )

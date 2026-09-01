@@ -231,8 +231,9 @@ class N2Computer(Protocol):
     implementation.
 
     Optional extensions the loop probes for (see the Navigator n2 loop section
-    of ``api.md`` and ``examples/navigator_n2/cua_adapter.py``, the
-    full-surface reference): ``triple_click`` (else double-click plus click),
+    of ``api.md``; ``examples/navigator_n2/direct_x11_adapter.py`` is the direct-X11
+    full-surface reference and ``examples/navigator_n2/cua_adapter.py`` shows
+    the same surface across a sandbox API): ``triple_click`` (else double-click plus click),
     ``hold_key(key, ms)`` plus the ``key_down``/``key_up`` pair for held keys,
     ``left_mouse_down``/``left_mouse_up`` and ``release_held_mouse_button``,
     ``get_dimensions()`` returning ``(width, height)``, a ``modifier=``
@@ -247,7 +248,14 @@ class N2Computer(Protocol):
     """
 
     async def screenshot(self) -> Any:
-        """Capture the desktop; return a data-URL or raw-base64 string (or a native ``N2Observation``)."""
+        """Capture the desktop; return a data-URL or raw-base64 string (or a native ``N2Observation``).
+
+        The capture size defines the model's viewport; 1280x720 is a good
+        starting point when you control the desktop size, and native size also
+        works. A handler that downscales captures instead must scale incoming
+        coordinates back up: the loop maps the model's normalized coordinates
+        onto the capture's dimensions, so they arrive in capture space.
+        """
 
     async def click(self, x: int, y: int, button: str = "left") -> Any:
         """Click at native pixel (x, y); button is left, right, or middle."""
@@ -1138,8 +1146,9 @@ class N2ComputerAgent:
     ``computer`` is any object with the async computer-handler surface; the
     :class:`N2Computer` protocol spells it out — the GUI base handlers plus
     the current tool set's ``run_bash_command`` and file tools — and
-    ``examples/navigator_n2/cua_adapter.py`` is the reference
-    implementation. ``completions`` is a
+    ``examples/navigator_n2/direct_x11_adapter.py`` (direct X11) and
+    ``examples/navigator_n2/cua_adapter.py`` (API-backed sandbox) are the
+    reference implementations. ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from
     ``api_key``/``base_url`` and closes it via ``aclose()`` or the async

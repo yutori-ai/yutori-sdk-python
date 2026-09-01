@@ -571,7 +571,7 @@ async def test_daytona_file_tool_failures_become_plain_error_results() -> None:
     assert await computer.write_file("a.txt", "x") == "ERROR: ValueError: boom"
 
 
-async def test_daytona_bash_timeout_is_the_trained_result_and_clamped() -> None:
+async def test_daytona_bash_timeout_is_the_expected_result_and_clamped() -> None:
     async def exec_(*_args, **kwargs):
         assert kwargs["timeout"] == 600  # the n2 contract clamps the model's request to [0, 600]
         raise _SandboxTimeout("deadline exceeded")
@@ -646,7 +646,7 @@ async def test_daytona_scroll_rejects_horizontal_in_both_forms() -> None:
         await computer.scroll(10, 20, 45, 0)
 
 
-async def test_daytona_bash_background_result_matches_the_trained_format() -> None:
+async def test_daytona_bash_background_result_matches_the_expected_format() -> None:
     async def exec_(*_args, **_kwargs):
         return SimpleNamespace(result="4242\n", exit_code=0)
 
