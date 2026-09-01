@@ -1,8 +1,8 @@
 """Reference n2 file-tool and shell-result implementations for sandbox adapters.
 
-n2's tool sets are all-or-nothing: an adapter that pins a set with the file
-tools (``read``/``write``/``edit``/``grep``/``glob``) must implement all of
-them, with the exact result strings the model was trained on. This module
+The n2 loop serves every tool in its pinned set: an adapter that pins a set
+with the file tools (``read``/``write``/``edit``/``grep``/``glob``) must
+implement all of them, with the exact result strings the model was trained on. This module
 ships that implementation for any sandbox that can run a shell command:
 ``FILE_TOOL_SCRIPT`` executes inside the sandbox (python3 stdlib only), and
 :class:`ShellFileToolsMixin` provides the handler methods over two small
