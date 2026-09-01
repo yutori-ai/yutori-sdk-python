@@ -15,8 +15,10 @@ output contracts are the adapter's to honor. When building (or pointing a
 coding agent at) a custom adapter, the expected formats live in
 ``FILE_TOOL_SCRIPT`` below (``cat -n`` numbering, the sha256 read-before-edit
 gate, truncation markers), ``format_shell_output``, and
-``render_image_result``; ``examples/navigator_n2/cua_adapter.py`` adds the
-``bash`` timeout and background-run forms and shows the full wiring.
+``render_image_result``; ``examples/navigator_n2/cua_adapter.py`` and
+``examples/navigator_n2/linux_adapter.py`` add the ``bash`` timeout and
+background-run forms and show the full wiring (over a hosted sandbox API
+and over a local X11 desktop, respectively).
 """
 
 from __future__ import annotations
@@ -458,7 +460,6 @@ class ShellFileToolsMixin:
     async def glob_files(self, pattern: str, path: str | None = None) -> str:
         output = await self._run_file_tool("glob", pattern=pattern, path=path)
         return output.rstrip("\n") or "No files found."
-
 
     async def _run_file_tool(self, operation: str, **arguments: Any) -> str:
         payload = {"operation": operation, "cwd": await self.file_tool_cwd(), **arguments}

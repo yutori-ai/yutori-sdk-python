@@ -113,6 +113,14 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         modifier: Sequence[str] | None = None,
         model_action: dict[str, Any] | None = None,
     ) -> None:
+        """Send wheel notches through Cua's public mouse interface.
+
+        Known server limitation: the local Linux image used with the pinned
+        ``cua-sandbox==0.1.17`` currently routes this command to a legacy
+        handler that ignores ``scroll_x`` and ``scroll_y``. The client-side
+        values here are correct, but scrolling remains broken in that image
+        until its server dispatch is fixed.
+        """
         self._pointer = (x, y)
         notches_x, notches_y = await self._scroll_notches(scroll_x, scroll_y, model_action)
         await self._with_modifiers(

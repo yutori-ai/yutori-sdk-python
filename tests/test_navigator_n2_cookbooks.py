@@ -728,7 +728,11 @@ from examples.navigator_n2.linux_adapter import LocalX11Computer  # noqa: E402
 
 
 class FakeX11Gui:
-    KEYBOARD_KEYS = frozenset({"\t", "\n", " "} | {chr(code) for code in range(33, 127)})
+    # Match PyAutoGUI: uppercase letters are valid in the X11 backend but are
+    # omitted from its public KEYBOARD_KEYS list.
+    KEYBOARD_KEYS = frozenset(
+        {"\t", "\n", "\r", " "} | {chr(code) for code in range(33, 127) if not chr(code).isupper()}
+    )
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
@@ -785,8 +789,40 @@ async def test_local_linux_adapter_wraps_gestures_in_modifiers_and_maps_keys() -
     assert gui.calls == [("press", "pageup")]
 
     gui.calls.clear()
-    await computer.type("plain ascii\n")
-    assert gui.calls == [("write", "plain ascii\n", ("interval", 0.01))]
+    await computer.type("Plain ASCII\n")
+    assert gui.calls == [("write", "Plain ASCII\n", ("interval", 0.01))]
+
+
+def test_local_linux_adapter_uses_x11_shift_characters() -> None:
+    from examples.navigator_n2.linux_adapter import _is_x11_shift_character
+
+    assert _is_x11_shift_character("A")
+    assert _is_x11_shift_character(">")
+    assert not _is_x11_shift_character("<")
+
+
+async def test_local_linux_screenshot_uses_pointer_coordinate_space(monkeypatch: pytest.MonkeyPatch) -> None:
+    gui = FakeX11Gui()
+    computer = LocalX11Computer(gui=gui)
+    captured: list[dict[str, int]] = []
+
+    class FakeMss:
+        def __enter__(self) -> "FakeMss":
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+        def grab(self, region: dict[str, int]) -> SimpleNamespace:
+            captured.append(region)
+            return SimpleNamespace(size=(200, 100), bgra=bytes(200 * 100 * 4))
+
+    monkeypatch.setitem(sys.modules, "mss", SimpleNamespace(mss=FakeMss))
+
+    screenshot = await computer.screenshot()
+
+    assert captured == [{"left": 0, "top": 0, "width": 200, "height": 100}]
+    assert screenshot.startswith("data:image/png;base64,")
 
 
 async def test_local_linux_adapter_runs_bash_with_persistent_cwd_and_n2_result_formats(tmp_path: Path) -> None:

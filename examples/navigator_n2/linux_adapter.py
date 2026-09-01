@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -62,11 +63,27 @@ _PYAUTOGUI_KEY_MAP = {
     "page_down": "pagedown",
 }
 
+# PyAutoGUI's X11 mapping gives ``<`` its own keysym, so adding Shift (as its
+# platform-neutral predicate does) produces the wrong key event on Linux.
+_X11_SHIFT_CHARACTERS = frozenset('~!@#$%^&*()_+{}|:">?')
+
 _DRAG_SECONDS = 0.5  # paced so the target registers one continuous drag, not a click
 
 
 def _map_key(key: str) -> str:
     return _PYAUTOGUI_KEY_MAP.get(key, key)
+
+
+def _is_x11_shift_character(character: str) -> bool:
+    return character.isupper() or character in _X11_SHIFT_CHARACTERS
+
+
+def _is_directly_typeable(gui: Any, character: str) -> bool:
+    # KEYBOARD_KEYS omits uppercase letters even though PyAutoGUI's X11 backend
+    # has mappings for them and synthesizes them with Shift.
+    return character in gui.KEYBOARD_KEYS or (
+        character.isascii() and character.isupper() and character.lower() in gui.KEYBOARD_KEYS
+    )
 
 
 class LocalX11Computer(ShellFileToolsMixin):
@@ -82,6 +99,10 @@ class LocalX11Computer(ShellFileToolsMixin):
         self._gui_module = gui
         self._bash_cwd = cwd or str(Path.home())
         self._left_mouse_down = False
+        # python-xlib Display objects are not thread-safe, and pyautogui opens one
+        # at import. Pin the import and every GUI call to this one thread so the
+        # connection is created and used on a single thread for the adapter's life.
+        self._gui_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="x11-gui")
 
     def _gui(self) -> Any:
         if self._gui_module is None:
@@ -91,21 +112,26 @@ class LocalX11Computer(ShellFileToolsMixin):
             # abort those actions. Pacing comes from the loop, not per-call pauses.
             pyautogui.FAILSAFE = False
             pyautogui.PAUSE = 0.05
+            pyautogui.isShiftCharacter = _is_x11_shift_character
             self._gui_module = pyautogui
         return self._gui_module
 
     async def _run_gui(self, action: Callable[[], Any]) -> Any:
-        return await asyncio.to_thread(action)
+        return await asyncio.get_running_loop().run_in_executor(self._gui_thread, action)
 
     # -- observation --------------------------------------------------------
 
     async def screenshot(self) -> str:
+        width, height = await self.get_dimensions()
+
         def grab() -> str:
             import mss
             from PIL import Image
 
             with mss.mss() as sct:
-                frame = sct.grab(sct.monitors[1])
+                # Match the root-screen coordinate space used by PyAutoGUI
+                # instead of selecting one physical monitor from an X11 layout.
+                frame = sct.grab({"left": 0, "top": 0, "width": width, "height": height})
                 image = Image.frombytes("RGB", frame.size, frame.bgra, "raw", "BGRX")
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
@@ -215,7 +241,7 @@ class LocalX11Computer(ShellFileToolsMixin):
     async def type(self, text: str) -> None:
         def run() -> None:
             gui = self._gui()
-            if all(char in gui.KEYBOARD_KEYS for char in text):
+            if all(_is_directly_typeable(gui, char) for char in text):
                 gui.write(text, interval=0.01)
                 return
             # Characters X11 key synthesis cannot produce (non-ASCII) go
