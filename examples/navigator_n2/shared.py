@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from yutori.navigator import (
@@ -130,6 +132,28 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
             "pass a smaller budget for simpler tasks or to cap time/cost)"
         ),
     )
+
+
+def parse_common_args(description: str | None, argv: list[str] | None = None) -> argparse.Namespace:
+    """Build the shared cookbook parser and parse it -- the ``parse_args()`` body every
+    local-desktop entrypoint (``local_docker.py``, ``local_macos.py``) repeated verbatim
+    apart from its module ``description``."""
+    parser = argparse.ArgumentParser(description=description)
+    add_common_arguments(parser)
+    return parser.parse_args(argv)
+
+
+def run_cli_main(
+    main: Callable[[argparse.Namespace], Awaitable[None]],
+    parse_args: Callable[[], argparse.Namespace],
+) -> None:
+    """Run an entrypoint's ``main(parse_args())`` under ``asyncio.run``, printing a plain
+    message instead of a traceback on Ctrl-C -- the ``if __name__ == "__main__":`` body every
+    local-desktop entrypoint repeated verbatim."""
+    try:
+        asyncio.run(main(parse_args()))
+    except KeyboardInterrupt:
+        print("Interrupted.")
 
 
 def _text_items(response: dict[str, Any]) -> list[str]:
