@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
+from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
 from .polling import FRAME_POLL_ACTION_MAX_MS, FramePollResult, frame_poll_wait_budget_ms, poll_until_frame_changes
 from .presentation import MacOSPresentationController
@@ -63,6 +64,15 @@ class MacOSUncertainActionError(MacOSRecoverableActionError):
     def __init__(self, message: str, observation: "N2Observation | None" = None) -> None:
         super().__init__(message)
         self.observation = observation
+
+
+class MacOSFocusChangedError(MacOSUncertainActionError):
+    """Keystrokes were withheld because the frontmost app changed since the last screenshot.
+
+    Desktop-scope keyboard delivery goes to whatever application is frontmost. When that is
+    no longer the application the model was looking at, the safe outcome is to send nothing
+    and hand the model a fresh frame; the attached observation is that frame.
+    """
 
 
 class MacOSTargetCrashedError(MacOSComputerError):
@@ -210,6 +220,8 @@ class MacOSComputer:
         recover_target: "Callable[[], Awaitable[int | None]] | None" = None,
         overlay_cache_directory: "str | Path | None" = None,
         known_secrets: "Sequence[str]" = (),
+        verify_focus: bool = True,
+        frontmost_probe: "Callable[[], Awaitable[FrontmostApp | None]] | None" = None,
     ) -> None:
         if transport is not None and owns_transport is None:
             raise ValueError("owns_transport must be explicit when transport is injected")
@@ -224,6 +236,10 @@ class MacOSComputer:
         self.target_pid = target_pid
         self.recover_target = recover_target
         self.overlay_cache_directory = overlay_cache_directory
+        self.verify_focus = verify_focus
+        self._frontmost_probe = frontmost_probe or frontmost_app
+        self._observed_frontmost: "FrontmostApp | None" = None
+        self._focus_guard_trips = 0
         values = (known_secrets,) if isinstance(known_secrets, str) else known_secrets
         self._known_secrets = tuple(secret for secret in values if secret)
         self.presentation: "MacOSPresentationController | None" = None
@@ -380,6 +396,8 @@ class MacOSComputer:
         observation = await self._encode_observation(capture_id, png_bytes, width, height)
         self._current_observation = observation
         self._no_progress.record_frame(observation)
+        if self.verify_focus:
+            self._observed_frontmost = await self._probe_frontmost()
         await self._ensure_target_alive()
         return observation
 
@@ -506,12 +524,14 @@ class MacOSComputer:
             raise MacOSRecoverableActionError(
                 "The pinned Cua Driver cannot hold a modifier while typing text."
             )
+        await self._guard_frontmost("type_text")
         await self._mutate("type_text", self._desktop_args(text=text, delay_ms=0))
 
     async def keypress(self, keys: "Sequence[str] | str") -> None:
         sequence = [keys] if isinstance(keys, str) else list(keys)
         if self._emulated_held_keys:
             sequence = self._merged_modifiers(sequence)
+        await self._guard_frontmost("press_key" if len(sequence) == 1 else "hotkey")
         if len(sequence) == 1:
             await self._mutate("press_key", self._desktop_args(key=sequence[0]))
         else:
@@ -1038,6 +1058,44 @@ class MacOSComputer:
         finally:
             self._timings["action_ms"] += (time.monotonic() - started_at) * 1000
         await self._ensure_target_alive()
+
+    @property
+    def focus_guard_trips(self) -> int:
+        return self._focus_guard_trips
+
+    async def _probe_frontmost(self) -> "FrontmostApp | None":
+        try:
+            return await self._await_with_cancellation(self._frontmost_probe())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the probe is advisory; failing open keeps input flowing
+            return None
+
+    async def _guard_frontmost(self, tool: str) -> None:
+        """Refuse desktop-scope keystrokes when focus moved since the model's last frame.
+
+        The driver delivers ``type_text``/``press_key``/``hotkey`` in desktop scope to the
+        frontmost application without a target check. Comparing the frontmost app now with
+        the one recorded at the last screenshot catches a dialog, notification, slow launch,
+        or app switch that landed after the model decided what to type. On a mismatch the
+        keys are not sent and the model receives the current frame instead.
+        """
+        if not self.verify_focus or self._observed_frontmost is None:
+            return
+        current = await self._probe_frontmost()
+        if current is None or current.pid == self._observed_frontmost.pid:
+            return
+        expected = self._observed_frontmost
+        self._focus_guard_trips += 1
+        observation = None
+        with suppress(Exception):
+            observation = await self.screenshot()
+        raise MacOSFocusChangedError(
+            f"{tool} was not sent: the frontmost application changed from {expected.describe()} to "
+            f"{current.describe()} after the last screenshot. Check the attached frame and retry the keys "
+            "if that application is the intended target.",
+            observation,
+        )
 
     def _desktop_args(self, **arguments: Any) -> dict[str, Any]:
         return {
