@@ -57,6 +57,9 @@ from yutori.navigator.sandbox_tools import (
 from yutori.navigator.sandbox_tools import (
     scroll_notches_from_pixels as _scroll_notches_from_pixels,
 )
+from yutori.navigator.sandbox_tools import (
+    wait_for_file as _wait_for_file,
+)
 
 
 class CuaSandboxComputer(ShellFileToolsMixin):
@@ -272,15 +275,7 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         if not isinstance(process_id, int) or process_id <= 0:
             raise RuntimeError("Cua PTY did not return a valid process id.")
 
-        async def wait_for_status() -> None:
-            delay = 0.01
-            while not await self.sandbox.files.exists(status_path):
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 0.25)
-
-        try:
-            await asyncio.wait_for(wait_for_status(), timeout=timeout_s)
-        except asyncio.TimeoutError:
+        if not await _wait_for_file(lambda: self.sandbox.files.exists(status_path), timeout_s):
             try:
                 await asyncio.wait_for(self.sandbox.terminal.close(process_id), timeout=5)
             except Exception:  # noqa: BLE001 - the disposable sandbox is the final cleanup boundary

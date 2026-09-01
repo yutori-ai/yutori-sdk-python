@@ -63,6 +63,9 @@ from yutori.navigator.sandbox_tools import (
 from yutori.navigator.sandbox_tools import (
     scroll_notches_from_pixels as _scroll_notches_from_pixels,
 )
+from yutori.navigator.sandbox_tools import (
+    wait_for_file as _wait_for_file,
+)
 
 # The SDK loop's key vocabulary is already canonical lowercase (punctuation
 # arrives as literal characters); only these names spell differently in
@@ -380,16 +383,11 @@ class LocalX11Computer(ShellFileToolsMixin):
                 start_new_session=True,
             )
 
-        async def wait_for_status() -> None:
-            delay = 0.01
-            while not os.path.exists(status_path):
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 0.25)
+        async def _status_exists() -> bool:
+            return os.path.exists(status_path)
 
         try:
-            try:
-                await asyncio.wait_for(wait_for_status(), timeout=timeout_s)
-            except asyncio.TimeoutError:
+            if not await _wait_for_file(_status_exists, timeout_s):
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 return f"Command timed out after {timeout_s:g}s"
