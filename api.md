@@ -880,7 +880,7 @@ Optional extras:
 |-------|----------|---------|
 | `dev` | `pytest`, `pytest-asyncio`, `ruff`, `build` | Development tooling. |
 | `examples` | `loguru`, `playwright`, `pydantic`, `tenacity` | Running the `examples/` scripts. Pydantic is also the library to install if you want to pass Pydantic models to `output_schema=`. |
-| `macos` | `cua-driver==0.19.3` | Native macOS CUA driver for Navigator n2 loops. |
+| `macos` | `cua-driver==0.23.2` | Native macOS CUA driver for Navigator n2 loops. |
 
 ## Error handling example
 
