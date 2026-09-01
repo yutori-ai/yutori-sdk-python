@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 
 from yutori import AsyncYutoriClient
 from yutori.auth import require_api_key
@@ -11,10 +10,10 @@ from yutori.navigator import NAVIGATOR_N2_MODEL, N2ComputerAgent
 
 try:
     from .cua_adapter import CuaSandboxComputer
-    from .shared import add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
+    from .shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
 except ImportError:
     from cua_adapter import CuaSandboxComputer
-    from shared import add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
+    from shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
 
 
 def _watch_url(sandbox) -> "str | None":
@@ -56,13 +55,8 @@ async def main(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    add_common_arguments(parser)
-    return parser.parse_args()
+    return parse_common_args(__doc__)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main(parse_args()))
-    except KeyboardInterrupt:
-        print("Interrupted.")
+    run_cli_main(main, parse_args)
