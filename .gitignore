@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Screen recordings — `examples/navigator_n2_daytona.py --record` writes
+# n2-daytona-run.mp4 to the working directory.
+*.mp4
