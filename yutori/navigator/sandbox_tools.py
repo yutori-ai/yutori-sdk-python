@@ -28,6 +28,7 @@ import base64
 import io
 import json
 import shlex
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -390,6 +391,50 @@ def clamp_bash_timeout(timeout: float | None) -> float:
     return max(0.0, min(float(BASH_TIMEOUT_DEFAULT_SECONDS if timeout is None else timeout), BASH_TIMEOUT_MAX_SECONDS))
 
 
+def build_cwd_tracking_bash_script(command: str, *, cwd: str, cwd_path: str, status_path: str) -> str:
+    """Build the n2 `bash` wrapper script: `cd` into ``cwd``, run ``command``, and record its
+    resulting working directory and exit status for the caller to read back afterward.
+
+    The exit status is only meaningful once ``status_path`` exists, so both it and the recorded
+    cwd are written to a ``.tmp`` sibling and moved into place, never written in place: a status
+    poller must never observe a partially written file. The cwd capture runs in an inner shell
+    with its own ``trap ... 0`` so it fires even if ``command`` exits early, backgrounds a
+    descendant, or is killed by a signal — the outer ``if`` only backstops the case where the cd
+    itself failed and the inner shell never ran.
+
+    Returns the script body only; the caller supplies its own output redirection, either embedded
+    in the string (wrapping it in ``(...)`` with a trailing `` < /dev/null > out 2> err`` to hand
+    one string to a remote shell) or via subprocess stdout/stderr handles.
+    """
+    status_tmp = f"{status_path}.tmp"
+    cwd_tmp = f"{cwd_path}.tmp"
+    finish = f"__yutori_finish_{uuid.uuid4().hex}"
+    inner = (
+        f"{finish}() {{\n"
+        f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_tmp)}\n"
+        f"  mv {shlex.quote(cwd_tmp)} {shlex.quote(cwd_path)}\n"
+        "}\n"
+        f"trap {finish} 0\n"
+        f"{command}"
+    )
+    return (
+        f"cd {shlex.quote(cwd)}\n"
+        "__yutori_cd_rc=$?\n"
+        'if [ "$__yutori_cd_rc" -eq 0 ]; then\n'
+        f"  /bin/bash -c {shlex.quote(inner)}\n"
+        "  __yutori_rc=$?\n"
+        "else\n"
+        "  __yutori_rc=$__yutori_cd_rc\n"
+        "fi\n"
+        f"if [ ! -f {shlex.quote(cwd_path)} ]; then\n"
+        f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_path)}\n"
+        "fi\n"
+        f"printf '%s' \"$__yutori_rc\" > {shlex.quote(status_tmp)}\n"
+        f"mv {shlex.quote(status_tmp)} {shlex.quote(status_path)}\n"
+        'exit "$__yutori_rc"\n'
+    )
+
+
 async def scroll_notches_from_pixels(
     scroll_x: int,
     scroll_y: int,
@@ -562,6 +607,7 @@ __all__ = [
     "IMAGE_VIEW_MAX_EDGE",
     "ShellFileToolsMixin",
     "append_stream",
+    "build_cwd_tracking_bash_script",
     "clamp_bash_timeout",
     "format_background_task_started",
     "format_shell_output",
