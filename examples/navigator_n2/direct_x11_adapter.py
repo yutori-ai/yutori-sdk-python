@@ -52,6 +52,9 @@ from yutori.navigator.sandbox_tools import (
     clamp_bash_timeout as _clamp_bash_timeout,
 )
 from yutori.navigator.sandbox_tools import (
+    format_background_task_started as _format_background_task_started,
+)
+from yutori.navigator.sandbox_tools import (
     format_shell_output as _format_shell_output,
 )
 from yutori.navigator.sandbox_tools import (
@@ -322,13 +325,7 @@ class LocalX11Computer(ShellFileToolsMixin):
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
                 )
-            return (
-                f"Started background task `bash_{log_path[-12:-4]}`.\n"
-                f"stdout+stderr is streaming to: {log_path}\n"
-                "Use the read tool on that file to retrieve output.\n"
-                f"Process id: {process.pid}\n"
-                f"To cancel: run bash with `kill {process.pid}`"
-            )
+            return _format_background_task_started(log_path, process.pid)
 
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
         # NORMAL result the model can react to, never a raised failure envelope.

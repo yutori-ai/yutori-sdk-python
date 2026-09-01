@@ -339,6 +339,21 @@ def format_shell_result(result: Any) -> str:
     return format_shell_output(join_output_streams(result), result_returncode(result))
 
 
+def format_background_task_started(log_path: str, process_id: Any) -> str:
+    """Render the n2 ``run_bash_command(run_in_background=True)`` acknowledgment.
+
+    ``log_path`` is expected to end in ``.log``; the task id shown to the model is
+    the 8 characters before that suffix (the random hex the caller generated it from).
+    """
+    return (
+        f"Started background task `bash_{log_path[-12:-4]}`.\n"
+        f"stdout+stderr is streaming to: {log_path}\n"
+        "Use the read tool on that file to retrieve output.\n"
+        f"Process id: {process_id}\n"
+        f"To cancel: run bash with `kill {process_id}`"
+    )
+
+
 BASH_TIMEOUT_DEFAULT_SECONDS = 120.0
 BASH_TIMEOUT_MAX_SECONDS = 600.0
 
@@ -521,6 +536,7 @@ __all__ = [
     "ShellFileToolsMixin",
     "append_stream",
     "clamp_bash_timeout",
+    "format_background_task_started",
     "format_shell_output",
     "format_shell_result",
     "join_output_streams",
