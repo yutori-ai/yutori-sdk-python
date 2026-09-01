@@ -23,6 +23,7 @@ through direct X11 access, respectively).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -354,6 +355,32 @@ def format_background_task_started(log_path: str, process_id: Any) -> str:
     )
 
 
+async def wait_for_file(exists: Callable[[], Awaitable[bool]], timeout_seconds: float) -> bool:
+    """Poll ``exists`` with capped exponential backoff until it returns true or
+    ``timeout_seconds`` elapses.
+
+    This is the n2 ``bash`` contract's atomic-status-file wait: the adapter's
+    generated script writes a status file only once the command has fully
+    exited, so polling for that file's existence is the completion signal,
+    independent of any backgrounded descendant still running. Delay starts at
+    10ms and doubles up to a 250ms cap. Returns ``False`` on timeout rather
+    than raising, so the caller can turn it into a normal (non-exceptional)
+    "Command timed out" result.
+    """
+
+    async def poll() -> None:
+        delay = 0.01
+        while not await exists():
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 0.25)
+
+    try:
+        await asyncio.wait_for(poll(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
 BASH_TIMEOUT_DEFAULT_SECONDS = 120.0
 BASH_TIMEOUT_MAX_SECONDS = 600.0
 
@@ -547,4 +574,5 @@ __all__ = [
     "result_stdout",
     "scroll_notches_from_pixels",
     "truncate_tool_output",
+    "wait_for_file",
 ]
