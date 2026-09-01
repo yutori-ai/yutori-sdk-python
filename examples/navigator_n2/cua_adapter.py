@@ -12,6 +12,10 @@ sha256-fingerprint read-before-edit gate, and every expected tool error as a pla
 when building a handler for your own environment. The ``computer_batch`` tool itself
 lives in the SDK loop — this module implements what the loop delegates: the GUI
 primitives it calls, and the full ``bash``/file-tool output contracts.
+
+Cua here is the sandbox vendor (https://cua.ai, github.com/trycua), whose
+``cua-sandbox`` package provides the disposable Docker desktop — not the generic
+"computer-use agent" acronym used elsewhere in Yutori's own package names.
 """
 
 from __future__ import annotations
@@ -107,12 +111,45 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         scroll_x: int,
         scroll_y: int,
         modifier: Sequence[str] | None = None,
+        model_action: dict[str, Any] | None = None,
     ) -> None:
         self._pointer = (x, y)
+        notches_x, notches_y = await self._scroll_notches(scroll_x, scroll_y, model_action)
         await self._with_modifiers(
             modifier,
-            lambda: self.sandbox.mouse.scroll(x, y, scroll_x=scroll_x, scroll_y=scroll_y),
+            lambda: self.sandbox.mouse.scroll(x, y, scroll_x=notches_x, scroll_y=notches_y),
         )
+
+    async def _scroll_notches(
+        self,
+        scroll_x: int,
+        scroll_y: int,
+        model_action: dict[str, Any] | None,
+    ) -> tuple[int, int]:
+        """Convert the loop's pixel deltas into Cua wheel notches.
+
+        The loop's ``scroll_x``/``scroll_y`` are pixel deltas (10% of the native
+        dimension per model unit, positive = down/right), but Cua's identically
+        named parameters are wheel notches with pynput signs (positive = up/right
+        — its own default is ``scroll_y=3``, a notch count). Passing the pixels
+        through scrolls the wrong way by two orders of magnitude. The model's
+        call carries the exact notch count, so prefer it; otherwise recover it
+        by inverting the loop's translation.
+        """
+        action = model_action or {}
+        direction, amount = action.get("direction"), action.get("amount")
+        if direction in ("up", "down", "left", "right") and type(amount) is int and amount > 0:
+            if direction in ("up", "down"):
+                return 0, amount if direction == "up" else -amount
+            return (amount if direction == "right" else -amount), 0
+        width, height = await self.get_dimensions()
+        if scroll_y:
+            notches = max(1, round(abs(scroll_y) / (0.1 * height)))
+            return 0, (-notches if scroll_y > 0 else notches)
+        if scroll_x:
+            notches = max(1, round(abs(scroll_x) / (0.1 * width)))
+            return (notches if scroll_x > 0 else -notches), 0
+        return 0, 0
 
     async def drag(self, path: list[dict[str, int]]) -> None:
         if len(path) < 2:

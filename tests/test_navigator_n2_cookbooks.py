@@ -365,6 +365,9 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     assert result["output"]["type"] == "input_image"
     assert ("mouse_down", 120, 40, "left") in sandbox.calls
     assert ("mouse_up", 120, 40, "left") in sandbox.calls
+    # Cua scrolls in wheel notches with pynput signs (positive = up), so the model's
+    # "down, amount 2" must arrive as -2 notches — not as the loop's pixel delta.
+    assert ("scroll", 100, 50, 0, -2) in sandbox.calls
     assert ("key_down", "ctrl") in sandbox.calls
     assert ("key_up", "ctrl") in sandbox.calls
     assert ("key_down", "shift") in sandbox.calls
@@ -373,6 +376,32 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     held_shift_up = [index for index, call in enumerate(sandbox.calls) if call == ("key_up", "shift")][-1]
     mouse_move = sandbox.calls.index(("move", 120, 40))
     assert held_shift_down < mouse_move < held_shift_up
+
+
+async def test_public_cua_adapter_converts_pixel_scroll_deltas_to_notches() -> None:
+    """Without a model_action, the adapter inverts the loop's pixel translation.
+
+    The loop sends round(amount * 0.1 * dimension) pixels with positive = down;
+    Cua executes wheel notches with positive = up. FakeSandbox is 200x100.
+    """
+    sandbox = FakeSandbox()
+    computer = CuaSandboxComputer(sandbox)
+
+    await computer.scroll(100, 50, 0, 30)  # loop's "down, amount 3" at 100px height
+    assert sandbox.calls[-1] == ("scroll", 100, 50, 0, -3)
+
+    await computer.scroll(100, 50, 0, -10)  # "up, amount 1"
+    assert sandbox.calls[-1] == ("scroll", 100, 50, 0, 1)
+
+    await computer.scroll(100, 50, 40, 0)  # "right, amount 2" at 200px width
+    assert sandbox.calls[-1] == ("scroll", 100, 50, 2, 0)
+
+    await computer.scroll(100, 50, 0, 0)  # no delta: no notches, not a default-3 scroll
+    assert sandbox.calls[-1] == ("scroll", 100, 50, 0, 0)
+
+    # The model's own call wins over the pixel round-trip.
+    await computer.scroll(100, 50, 0, 30, model_action={"action": "scroll", "direction": "down", "amount": 5})
+    assert sandbox.calls[-1] == ("scroll", 100, 50, 0, -5)
 
 
 async def test_public_cua_adapter_uses_pty_for_a_command_that_leaves_xcalc_running(
