@@ -28,13 +28,18 @@ from __future__ import annotations
 
 import asyncio
 import shlex
-import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from yutori.navigator import ShellFileToolsMixin
 from yutori.navigator.sandbox_tools import (
     append_stream as _append_stream,
+)
+from yutori.navigator.sandbox_tools import (
+    background_bash_log_path as _background_bash_log_path,
+)
+from yutori.navigator.sandbox_tools import (
+    build_bash_result_paths as _build_bash_result_paths,
 )
 from yutori.navigator.sandbox_tools import (
     build_cwd_tracking_bash_script as _build_cwd_tracking_bash_script,
@@ -217,7 +222,7 @@ class CuaSandboxComputer(ShellFileToolsMixin):
     ) -> str:
         cwd = await self._working_directory()
         if run_in_background:
-            log_path = f"/tmp/yutori-n2-bash-{uuid.uuid4().hex[:8]}.log"
+            log_path = _background_bash_log_path("/tmp")
             session = await self.sandbox.terminal.create(
                 f"cd {shlex.quote(cwd)} && exec /bin/bash -c {shlex.quote(command)} "
                 f"> {shlex.quote(log_path)} 2>&1 < /dev/null"
@@ -238,55 +243,34 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         # three standard streams prevents descendants from retaining the PTY, while
         # the atomic status file distinguishes shell completion from output that a
         # deliberately backgrounded descendant may continue to produce.
-        token = uuid.uuid4().hex
-        result_prefix = f"/tmp/yutori-n2-bash-{token}"
-        stdout_path = f"{result_prefix}.stdout"
-        stderr_path = f"{result_prefix}.stderr"
-        status_path = f"{result_prefix}.status"
-        cwd_path = f"{result_prefix}.cwd"
-        inner_cwd_tmp = f"{cwd_path}.tmp"
-        status_tmp = f"{status_path}.tmp"
-        script = _build_cwd_tracking_bash_script(command, cwd=cwd, cwd_path=cwd_path, status_path=status_path)
-        wrapped = f"(\n{script}) < /dev/null > {shlex.quote(stdout_path)} 2> {shlex.quote(stderr_path)}"
+        paths = _build_bash_result_paths("/tmp")
+        script = _build_cwd_tracking_bash_script(command, cwd=cwd, cwd_path=paths.cwd, status_path=paths.status)
+        wrapped = f"(\n{script}) < /dev/null > {shlex.quote(paths.stdout)} 2> {shlex.quote(paths.stderr)}"
         session = await self.sandbox.terminal.create(wrapped)
         process_id = session.get("pid")
         if not isinstance(process_id, int) or process_id <= 0:
             raise RuntimeError("Cua PTY did not return a valid process id.")
 
-        if not await _wait_for_file(lambda: self.sandbox.files.exists(status_path), timeout_s):
+        if not await _wait_for_file(lambda: self.sandbox.files.exists(paths.status), timeout_s):
             try:
                 await asyncio.wait_for(self.sandbox.terminal.close(process_id), timeout=5)
             except Exception:  # noqa: BLE001 - the disposable sandbox is the final cleanup boundary
                 pass
-            await self._remove_bash_result_files(
-                stdout_path,
-                stderr_path,
-                status_path,
-                status_tmp,
-                cwd_path,
-                inner_cwd_tmp,
-            )
+            await self._remove_bash_result_files(*paths.cleanup_paths())
             return f"Command timed out after {timeout_s:g}s"
 
         try:
             stdout, stderr, status, new_cwd = await asyncio.gather(
-                self.sandbox.files.read_text(stdout_path),
-                self.sandbox.files.read_text(stderr_path),
-                self.sandbox.files.read_text(status_path),
-                self.sandbox.files.read_text(cwd_path),
+                self.sandbox.files.read_text(paths.stdout),
+                self.sandbox.files.read_text(paths.stderr),
+                self.sandbox.files.read_text(paths.status),
+                self.sandbox.files.read_text(paths.cwd),
             )
             self._bash_cwd = new_cwd.strip() or cwd
             body = _append_stream(stdout, stderr)
             return _format_shell_output(body, int(status.strip()))
         finally:
-            await self._remove_bash_result_files(
-                stdout_path,
-                stderr_path,
-                status_path,
-                status_tmp,
-                cwd_path,
-                inner_cwd_tmp,
-            )
+            await self._remove_bash_result_files(*paths.cleanup_paths())
 
     async def _remove_bash_result_files(self, *paths: str) -> None:
         await asyncio.gather(

@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock
 import pytest
 from PIL import Image
 
-from examples.navigator_n2 import cua_adapter as cua_adapter_module
 from examples.navigator_n2.cua_adapter import CuaSandboxComputer
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from examples.navigator_n2_daytona import CWD_SENTINEL, DaytonaComputer
@@ -29,6 +28,7 @@ from yutori.navigator import (
     N2ComputerAgent,
 )
 from yutori.navigator import format_shell_output as _format_shell_output
+from yutori.navigator import sandbox_tools as sandbox_tools_module
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 from .conftest import FakeCompletions
@@ -492,7 +492,7 @@ async def test_public_cua_adapter_uses_pty_for_a_command_that_leaves_xcalc_runni
         async def remove(self, path: str) -> None:
             removed.append(path)
 
-    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    monkeypatch.setattr(sandbox_tools_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
     computer = CuaSandboxComputer(SimpleNamespace(shell=Shell(), terminal=Terminal(), files=Files()))
     command = (
         "export DISPLAY=:1; nohup xcalc >/tmp/xcalc.log 2>&1 & sleep 3; "
@@ -538,7 +538,7 @@ async def test_public_cua_adapter_preserves_bash_cwd_and_failure_output_over_pty
         async def remove(self, _path: str) -> None:
             pass
 
-    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    monkeypatch.setattr(sandbox_tools_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
     computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal(), files=Files()))
 
     output = await computer.run_bash_command("false")
@@ -558,7 +558,7 @@ async def test_public_cua_adapter_uses_pty_for_explicit_background_bash(
             commands.append(command)
             return {"pid": 4242}
 
-    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    monkeypatch.setattr(sandbox_tools_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
     computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal()))
 
     output = await computer.run_bash_command("sleep 999", run_in_background=True)
@@ -596,7 +596,7 @@ async def test_public_cua_adapter_pty_timeout_is_a_normal_result(
         async def remove(self, _path: str) -> None:
             pass
 
-    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    monkeypatch.setattr(sandbox_tools_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
     computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal(), files=Files()))
 
     output = await computer.run_bash_command("sleep 10", timeout=0.01)
