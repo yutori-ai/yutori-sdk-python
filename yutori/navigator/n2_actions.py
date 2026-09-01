@@ -470,18 +470,25 @@ def translate_n2_action(
     if action == "scroll":
         x, y = native_point(args.get("coordinates"), "scroll.coordinates", native_width, native_height)
         direction = args.get("direction")
-        if direction not in {"up", "down"}:
-            raise N2ActionValidationError("scroll.direction must be up or down")
+        if direction not in {"up", "down", "left", "right"}:
+            raise N2ActionValidationError("scroll.direction must be up, down, left, or right")
         amount = args.get("amount")
         if not is_strict_int(amount) or not 1 <= amount <= N2_MAX_SCROLL_AMOUNT:
             raise N2ActionValidationError(f"scroll.amount must be an integer between 1 and {N2_MAX_SCROLL_AMOUNT}")
-        scroll_y = round(amount * native_height * 0.1) * (1 if direction == "down" else -1)
+        # All four directions the served schema names are valid; a handler that
+        # cannot scroll horizontally fails that one action rather than the call.
+        if direction in {"up", "down"}:
+            scroll_x = 0
+            scroll_y = round(amount * native_height * 0.1) * (1 if direction == "down" else -1)
+        else:
+            scroll_x = round(amount * native_width * 0.1) * (1 if direction == "right" else -1)
+            scroll_y = 0
         return [
             internal(
                 "scroll",
                 x=x,
                 y=y,
-                scroll_x=0,
+                scroll_x=scroll_x,
                 scroll_y=scroll_y,
                 **modifier_args,
             )

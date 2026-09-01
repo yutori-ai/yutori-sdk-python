@@ -580,7 +580,7 @@ Required (all `async def`):
 | `double_click(x, y)` | — |
 | `move(x, y)` | Move the pointer without clicking. |
 | `drag(path)` | `path` is exactly two `{"x", "y"}` dicts: start and end. |
-| `scroll(x, y, scroll_x, scroll_y)` | Pixel deltas at (x, y); positive `scroll_y` is down. The loop converts the model's notches at one notch = 10% of screen height; a backend that wants the model's own units should take `model_action=` (below) and read its `direction`/`amount`. |
+| `scroll(x, y, scroll_x, scroll_y)` | Pixel deltas at (x, y); positive `scroll_y` is down, positive `scroll_x` is right (exactly one is nonzero per call). The loop converts the model's notches at one notch = 10% of the screen dimension; a backend that wants the model's own units should take `model_action=` (below) and read its `direction`/`amount`. A handler without horizontal scrolling should raise on a nonzero `scroll_x`, failing that one action rather than the run. |
 | `type(text)` | Type into the focused element. |
 | `keypress(keys)` | One chord per call, as a list: `"ctrl+c"` arrives as `["ctrl", "c"]`, and a space-separated sequence (`"down down enter"`) becomes one call per combo. Names are pre-normalized to the SDK vocabulary (`Return` → `enter`, `ArrowUp` → `up`, `meta`/`super` → `cmd`, …); names outside it pass through lowercased for the handler to accept or reject. |
 | `wait(ms)` | Idle for `ms` milliseconds. |
