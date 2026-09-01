@@ -250,10 +250,10 @@ class N2Computer(Protocol):
     async def screenshot(self) -> Any:
         """Capture the desktop; return a data-URL or raw-base64 string (or a native ``N2Observation``).
 
-        The capture size defines the model's viewport; when you control the
-        desktop size, 1280x720 is a good starting point. A handler may instead
-        return downscaled captures — coordinates then arrive in capture space,
-        so scale them back up before executing.
+        The capture size defines the model's viewport; 1280x720 is a good
+        starting point when you control the desktop size, and native size also
+        works. A handler that downscales captures instead must scale incoming
+        coordinates back up — they arrive in capture space.
         """
 
     async def click(self, x: int, y: int, button: str = "left") -> Any:
