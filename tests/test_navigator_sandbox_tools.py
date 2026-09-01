@@ -7,6 +7,12 @@ import json
 from types import SimpleNamespace
 
 from yutori.navigator import FILE_TOOL_SCRIPT, ShellFileToolsMixin, format_shell_output
+from yutori.navigator.sandbox_tools import (
+    format_shell_result,
+    result_returncode,
+    result_stderr,
+    result_stdout,
+)
 
 
 class RecordingAdapter(ShellFileToolsMixin):
@@ -58,3 +64,15 @@ def test_shared_helpers_render_the_bash_contract() -> None:
     assert format_shell_output("", 0) == "(Bash completed with no output)"
     assert format_shell_output("boom", 7) == "Exit code 7\nboom"
     assert "def done(text):" in FILE_TOOL_SCRIPT  # in-VM script is exported intact
+
+
+def test_result_accessors_tolerate_missing_and_none_fields() -> None:
+    full = SimpleNamespace(stdout="out", stderr="err", returncode=2)
+    assert (result_stdout(full), result_stderr(full), result_returncode(full)) == ("out", "err", 2)
+
+    # A sandbox result may omit a field entirely, or set it to None; both read as "unset".
+    for sparse in (SimpleNamespace(), SimpleNamespace(stdout=None, stderr=None, returncode=None)):
+        assert result_stdout(sparse) == ""
+        assert result_stderr(sparse) == ""
+        assert result_returncode(sparse) == 0
+        assert format_shell_result(sparse) == "(Bash completed with no output)"

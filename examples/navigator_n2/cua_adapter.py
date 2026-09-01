@@ -35,6 +35,15 @@ from yutori.navigator.sandbox_tools import (
 from yutori.navigator.sandbox_tools import (
     format_shell_result as _shell_result,
 )
+from yutori.navigator.sandbox_tools import (
+    result_returncode as _result_returncode,
+)
+from yutori.navigator.sandbox_tools import (
+    result_stderr as _result_stderr,
+)
+from yutori.navigator.sandbox_tools import (
+    result_stdout as _result_stdout,
+)
 
 
 class CuaSandboxComputer(ShellFileToolsMixin):
@@ -185,7 +194,7 @@ class CuaSandboxComputer(ShellFileToolsMixin):
                 f"{prefix}nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 < /dev/null & echo $!",
                 timeout=30,
             )
-            process_id = str(getattr(result, "stdout", "") or "").strip() or "unknown"
+            process_id = _result_stdout(result).strip() or "unknown"
             return (
                 f"Started background task `bash_{log_path[-12:-4]}`.\n"
                 f"stdout+stderr is streaming to: {log_path}\n"
@@ -208,20 +217,20 @@ class CuaSandboxComputer(ShellFileToolsMixin):
             if "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower():
                 return f"Command timed out after {timeout_s:g}s"
             raise
-        stdout = str(getattr(result, "stdout", "") or "")
+        stdout = _result_stdout(result)
         body, marker, new_cwd = stdout.rpartition(f"\n{sentinel}")
         if marker:
             self._bash_cwd = new_cwd.strip() or cwd
-            body = _append_stream(body, str(getattr(result, "stderr", "") or ""))
-            return _format_shell_output(body, int(getattr(result, "returncode", 0) or 0))
+            body = _append_stream(body, _result_stderr(result))
+            return _format_shell_output(body, _result_returncode(result))
         return _shell_result(result)
 
     async def _working_directory(self) -> str:
         if self._bash_cwd is None:
             result = await self.sandbox.shell.run("pwd", timeout=30)
-            if int(getattr(result, "returncode", 0) or 0) != 0:
+            if _result_returncode(result) != 0:
                 raise RuntimeError(_shell_result(result))
-            self._bash_cwd = str(getattr(result, "stdout", "") or "").strip()
+            self._bash_cwd = _result_stdout(result).strip()
         if not self._bash_cwd:
             raise RuntimeError("Sandbox shell did not report a working directory.")
         return self._bash_cwd
