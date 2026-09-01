@@ -2,7 +2,7 @@
 
 The n2 loop serves every tool in its pinned set: an adapter that pins a set
 with the file tools (``read``/``write``/``edit``/``grep``/``glob``) must
-implement all of them, with the exact result strings the model was trained on. This module
+implement all of them, with the exact result strings the model relies on. This module
 ships that implementation for any sandbox that can run a shell command:
 ``FILE_TOOL_SCRIPT`` executes inside the sandbox (python3 stdlib only), and
 :class:`ShellFileToolsMixin` provides the handler methods over two small
@@ -12,7 +12,7 @@ the same way (``Exit code N`` headers, truncation caps).
 Ownership note: the n2 loop implements ``computer_batch`` itself but only
 routes shell/file handler text (a trim and a 256K backstop aside) — these
 output contracts are the adapter's to honor. When building (or pointing a
-coding agent at) a custom adapter, the trained formats live in
+coding agent at) a custom adapter, the expected formats live in
 ``FILE_TOOL_SCRIPT`` below (``cat -n`` numbering, the sha256 read-before-edit
 gate, truncation markers), ``format_shell_output``, and
 ``render_image_result``; ``examples/navigator_n2/cua_adapter.py`` adds the

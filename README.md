@@ -241,9 +241,9 @@ uvx yutori-mcp computer-use run "In Calculator, compute 17 * 23 and report the r
 </details>
 
 <details>
-<summary>References, trained conventions, and long-run behavior</summary>
+<summary>References, model conventions, and long-run behavior</summary>
 
-See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model is trained around — the `bash` tool rather than a GUI terminal, image-returning reads, the full tool set served together (tools can be disabled or added, but n2 performs best with all five) — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows, matching how the model is trained for long-horizon work; pass `compactor=None` to disable, and the run instead continues past the trained 64K context and stops cleanly at the 128k serving limit.
+See the [Navigator n2 reference](https://docs.yutori.com/reference/n2) for the tools, actions, and coordinate system, and the [API reference](api.md#navigator-n2) for direct `client.chat.completions.create(...)` calls. A few conventions the model relies on — the `bash` tool rather than a GUI terminal, image-returning reads, the full tool set served together (tools can be disabled or added, but n2 performs best with all five) — are covered in the [API reference](api.md#navigator-n2-loop), and the SDK ships the reference file-tool implementation (`ShellFileToolsMixin`) for any sandbox with a shell. Long runs are compacted automatically once the context grows, which is the regime the model performs best in for long-horizon work; pass `compactor=None` to disable, and the run instead continues past the 64K working context and stops cleanly at the 128k serving limit.
 
 </details>
 

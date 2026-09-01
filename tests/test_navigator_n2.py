@@ -329,7 +329,7 @@ def test_image_window_keeps_only_two_newest_image_messages():
     windowed = retain_n2_image_window(messages)
     kept = [any(part["type"] == "image_url" for part in message["content"]) for message in windowed]
     assert kept == [False, False, True, True]
-    # Pruned frames leave the marker the model was trained on; `None` drops them outright.
+    # Pruned frames leave the marker the model expects; `None` drops them outright.
     assert windowed[0]["content"] == [{"type": "text", "text": "[older image omitted]"}]
     assert retain_n2_image_window(messages, omitted_text=None)[0]["content"] == []
     # The original list is untouched.
