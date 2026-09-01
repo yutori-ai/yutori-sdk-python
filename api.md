@@ -553,6 +553,8 @@ Constructor parameters (the `**loop_policies` keywords have [their own table](#l
 
 `MacOSComputer` is the native macOS adapter — CuaDriver session, capture/input, shell lifecycle, cancellation, recovery, and the optional presentation overlay. It is what Yutori MCP runs; local shell execution stays off unless the caller enables it.
 
+Keyboard actions carry a focus guard (`verify_focus=True`): the adapter records the frontmost application at every screenshot and re-checks it right before `type_text`, `press_key`, and `hotkey`. If focus moved since the frame the model reasoned over — a dialog, a notification, a slow launch — the keys are not sent and the model receives `MacOSFocusChangedError` with a fresh frame as the tool result. The probe uses LaunchServices (`lsappinfo`) and needs no permission grant; when it cannot answer, the guard fails open. Pass `verify_focus=False` to disable it, or `frontmost_probe=` to substitute the probe in tests.
+
 #### Running and resuming
 
 `run(task)` (a task string or a message list) is an async generator yielding `{"output": [items], "usage": {...}, "message": {...}}` per model turn (`message` is the raw assistant message) and `{"output": [result items], "usage": {}}` per executed tool call. The items are responses-style dicts, the same shapes kept in `agent.trajectory`:

@@ -20,10 +20,12 @@ import yutori.navigator.macos.computer as computer_module
 from yutori.navigator.macos.computer import (
     MacOSActionRefusedError,
     MacOSComputer,
+    MacOSFocusChangedError,
     MacOSRecoverableActionError,
     MacOSTargetCrashedError,
     MacOSUncertainActionError,
 )
+from yutori.navigator.macos.frontmost import FrontmostApp
 from yutori.navigator.macos.polling import FramePollResult
 from yutori.navigator.macos.transport import CuaDriverToolError, CuaDriverUncertainActionError
 from yutori.navigator.macos.types import MacOSPresentationStatus, N2Observation
@@ -820,3 +822,93 @@ async def test_wait_for_change_raises_on_an_aborted_poll(monkeypatch):
 
     with pytest.raises(asyncio.CancelledError, match="operator_stop"):
         await computer.wait_for_change(500, _frame(1))
+
+
+def _frontmost_probe(sequence: list[FrontmostApp | None]):
+    calls = {"count": 0}
+
+    async def probe() -> FrontmostApp | None:
+        calls["count"] += 1
+        return sequence.pop(0) if len(sequence) > 1 else sequence[0]
+
+    probe.calls = calls  # type: ignore[attr-defined]
+    return probe
+
+
+async def test_keyboard_delivery_proceeds_while_the_frontmost_app_is_unchanged():
+    transport = FakeTransport()
+    probe = _frontmost_probe([FrontmostApp(10, "Calculator")])
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        await computer.type("9*9=")
+        await computer.keypress("Return")
+        await computer.keypress(["cmd", "c"])
+    sent = [call[0] for call in transport.calls]
+    assert sent.count("type_text") == 1 and sent.count("press_key") == 1 and sent.count("hotkey") == 1
+    assert computer.focus_guard_trips == 0
+    # One probe per screenshot plus one per keyboard action.
+    assert probe.calls["count"] == 4
+
+
+async def test_keystrokes_are_withheld_when_focus_moved_since_the_last_frame():
+    transport = FakeTransport([_png(100, 50), _png(200, 80)])
+    probe = _frontmost_probe([FrontmostApp(10, "Calculator"), FrontmostApp(20, "Slack")])
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        captures_before = [call[0] for call in transport.calls].count("get_desktop_state")
+        with pytest.raises(MacOSFocusChangedError) as raised:
+            await computer.type("hello")
+        error = raised.value
+        assert error.recoverable
+        assert "Calculator (pid 10)" in str(error) and "Slack (pid 20)" in str(error)
+        assert isinstance(error.observation, N2Observation)
+        assert (error.observation.native_width, error.observation.native_height) == (200, 80)
+        assert computer.focus_guard_trips == 1
+        # The refusal captured exactly one fresh frame for the model.
+        assert [call[0] for call in transport.calls].count("get_desktop_state") == captures_before + 1
+        # That frame re-anchored the guard on Slack, so a retry against it goes through.
+        await computer.type("hello")
+    assert [call[0] for call in transport.calls].count("type_text") == 1
+
+
+async def test_focus_guard_fails_open_when_the_probe_cannot_answer():
+    transport = FakeTransport()
+    probe = _frontmost_probe([None])
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        await computer.keypress("Return")
+    assert [call[0] for call in transport.calls].count("press_key") == 1
+
+
+async def test_focus_guard_fails_open_when_the_probe_raises():
+    transport = FakeTransport()
+
+    async def probe() -> FrontmostApp | None:
+        raise OSError("lsappinfo missing")
+
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        await computer.type("x")
+    assert [call[0] for call in transport.calls].count("type_text") == 1
+
+
+async def test_focus_guard_can_be_disabled():
+    transport = FakeTransport()
+    probe = _frontmost_probe([FrontmostApp(10, "Calculator"), FrontmostApp(20, "Slack")])
+    async with MacOSComputer(
+        transport, owns_transport=False, presentation=False, verify_focus=False, frontmost_probe=probe
+    ) as computer:
+        await computer.screenshot()
+        await computer.type("x")
+    assert probe.calls["count"] == 0
+    assert [call[0] for call in transport.calls].count("type_text") == 1
+
+
+async def test_pointer_actions_do_not_consult_the_focus_guard():
+    transport = FakeTransport()
+    probe = _frontmost_probe([FrontmostApp(10, "Calculator"), FrontmostApp(20, "Slack")])
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        await computer.click(5, 5)
+    assert probe.calls["count"] == 1
+    assert [call[0] for call in transport.calls].count("click") == 1

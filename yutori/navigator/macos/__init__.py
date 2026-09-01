@@ -6,10 +6,12 @@ from .computer import (
     MacOSActionRefusedError,
     MacOSComputer,
     MacOSComputerError,
+    MacOSFocusChangedError,
     MacOSRecoverableActionError,
     MacOSTargetCrashedError,
     MacOSUncertainActionError,
 )
+from .frontmost import FrontmostApp, frontmost_app
 from .overlay_build import (
     MacOSOverlayCheck,
     MacOSOverlayPreparationError,
@@ -31,9 +33,11 @@ from .types import (
 __all__ = [
     "COMMAND_PREVIEW_MAX_CHARACTERS",
     "CancellationLatch",
+    "FrontmostApp",
     "MacOSActionRefusedError",
     "MacOSComputer",
     "MacOSComputerError",
+    "MacOSFocusChangedError",
     "MacOSOverlayCheck",
     "MacOSOverlayPreparationError",
     "MacOSPresentationCapabilities",
@@ -48,6 +52,7 @@ __all__ = [
     "PreparedMacOSOverlay",
     "ShellPresentationEvent",
     "check_macos_overlay",
+    "frontmost_app",
     "prepare_macos_overlay",
     "sanitize_command_preview",
 ]
