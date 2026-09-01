@@ -187,7 +187,8 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         if run_in_background:
             log_path = f"/tmp/yutori-n2-bash-{uuid.uuid4().hex[:8]}.log"
             session = await self.sandbox.terminal.create(
-                f"cd {shlex.quote(cwd)} && exec sh -c {shlex.quote(command)} > {shlex.quote(log_path)} 2>&1 < /dev/null"
+                f"cd {shlex.quote(cwd)} && exec /bin/bash -c {shlex.quote(command)} "
+                f"> {shlex.quote(log_path)} 2>&1 < /dev/null"
             )
             process_id = str(session.get("pid") or "unknown")
             return (
@@ -233,7 +234,7 @@ class CuaSandboxComputer(ShellFileToolsMixin):
             f"cd {shlex.quote(cwd)}\n"
             "__yutori_cd_rc=$?\n"
             'if [ "$__yutori_cd_rc" -eq 0 ]; then\n'
-            f"  sh -c {shlex.quote(inner)}\n"
+            f"  /bin/bash -c {shlex.quote(inner)}\n"
             "  __yutori_rc=$?\n"
             "else\n"
             "  __yutori_rc=$__yutori_cd_rc\n"

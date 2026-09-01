@@ -423,6 +423,7 @@ async def test_public_cua_adapter_uses_pty_for_a_command_that_leaves_xcalc_runni
     assert shell_commands == ["pwd"]  # The command itself never uses Cua's hanging /cmd path.
     assert len(terminal_commands) == 1
     assert "nohup xcalc" in terminal_commands[0]
+    assert "/bin/bash -c" in terminal_commands[0]
     assert "< /dev/null" in terminal_commands[0]
     assert f"> {result_prefix}.stdout 2> {result_prefix}.stderr" in terminal_commands[0]
     assert computer._bash_cwd == "/next-workspace"
@@ -481,7 +482,9 @@ async def test_public_cua_adapter_uses_pty_for_explicit_background_bash(
 
     output = await computer.run_bash_command("sleep 999", run_in_background=True)
 
-    assert commands == ["cd /workspace && exec sh -c 'sleep 999' > /tmp/yutori-n2-bash-cccccccc.log 2>&1 < /dev/null"]
+    assert commands == [
+        "cd /workspace && exec /bin/bash -c 'sleep 999' > /tmp/yutori-n2-bash-cccccccc.log 2>&1 < /dev/null"
+    ]
     assert output == (
         "Started background task `bash_cccccccc`.\n"
         "stdout+stderr is streaming to: /tmp/yutori-n2-bash-cccccccc.log\n"
