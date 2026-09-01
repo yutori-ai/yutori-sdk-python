@@ -27,6 +27,7 @@ import base64
 import io
 import json
 import shlex
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from PIL import Image
@@ -347,6 +348,38 @@ def clamp_bash_timeout(timeout: float | None) -> float:
     return max(0.0, min(float(BASH_TIMEOUT_DEFAULT_SECONDS if timeout is None else timeout), BASH_TIMEOUT_MAX_SECONDS))
 
 
+async def scroll_notches_from_pixels(
+    scroll_x: int,
+    scroll_y: int,
+    model_action: "dict[str, Any] | None",
+    get_dimensions: Callable[[], Awaitable[tuple[int, int]]],
+) -> tuple[int, int]:
+    """Convert the loop's pixel scroll deltas into wheel notches.
+
+    The loop hands adapters pixel deltas (``round(amount * 0.1 * dimension)``,
+    positive = down/right), but wheel APIs (Cua's mouse, pyautogui, ...) take
+    notches with the opposite sign convention (positive = up/right). The
+    model's own tool call carries the exact notch count via ``direction``/
+    ``amount`` in ``model_action``, so prefer that; otherwise recover the
+    notch count by inverting the loop's pixel translation, calling
+    ``get_dimensions`` only in that fallback path.
+    """
+    action = model_action or {}
+    direction, amount = action.get("direction"), action.get("amount")
+    if direction in ("up", "down", "left", "right") and type(amount) is int and amount > 0:
+        if direction in ("up", "down"):
+            return 0, amount if direction == "up" else -amount
+        return (amount if direction == "right" else -amount), 0
+    width, height = await get_dimensions()
+    if scroll_y:
+        notches = max(1, round(abs(scroll_y) / (0.1 * height)))
+        return 0, (-notches if scroll_y > 0 else notches)
+    if scroll_x:
+        notches = max(1, round(abs(scroll_x) / (0.1 * width)))
+        return (notches if scroll_x > 0 else -notches), 0
+    return 0, 0
+
+
 IMAGE_VIEW_MAX_EDGE = 1568
 
 
@@ -496,5 +529,6 @@ __all__ = [
     "result_returncode",
     "result_stderr",
     "result_stdout",
+    "scroll_notches_from_pixels",
     "truncate_tool_output",
 ]

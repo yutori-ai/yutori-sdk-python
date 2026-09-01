@@ -57,6 +57,9 @@ from yutori.navigator.sandbox_tools import (
 from yutori.navigator.sandbox_tools import (
     format_shell_result as _shell_result,
 )
+from yutori.navigator.sandbox_tools import (
+    scroll_notches_from_pixels as _scroll_notches_from_pixels,
+)
 
 # The SDK loop's key vocabulary is already canonical lowercase (punctuation
 # arrives as literal characters); only these names spell differently in
@@ -202,7 +205,7 @@ class LocalX11Computer(ShellFileToolsMixin):
         modifier: Sequence[str] | None = None,
         model_action: dict[str, Any] | None = None,
     ) -> None:
-        notches_x, notches_y = await self._scroll_notches(scroll_x, scroll_y, model_action)
+        notches_x, notches_y = await _scroll_notches_from_pixels(scroll_x, scroll_y, model_action, self.get_dimensions)
 
         def run() -> None:
             gui = self._gui()
@@ -213,34 +216,6 @@ class LocalX11Computer(ShellFileToolsMixin):
                 gui.hscroll(notches_x, x, y)
 
         await self._with_modifiers(modifier, lambda: self._run_gui(run))
-
-    async def _scroll_notches(
-        self,
-        scroll_x: int,
-        scroll_y: int,
-        model_action: dict[str, Any] | None,
-    ) -> tuple[int, int]:
-        """Convert the loop's pixel deltas into X11 wheel notches.
-
-        The loop's ``scroll_x``/``scroll_y`` are pixel deltas (10% of the native
-        dimension per model unit, positive = down/right); the wheel scrolls in
-        detents with positive = up/right. The model's call carries the exact
-        notch count, so prefer it; otherwise invert the loop's translation.
-        """
-        action = model_action or {}
-        direction, amount = action.get("direction"), action.get("amount")
-        if direction in ("up", "down", "left", "right") and type(amount) is int and amount > 0:
-            if direction in ("up", "down"):
-                return 0, amount if direction == "up" else -amount
-            return (amount if direction == "right" else -amount), 0
-        width, height = await self.get_dimensions()
-        if scroll_y:
-            notches = max(1, round(abs(scroll_y) / (0.1 * height)))
-            return 0, (-notches if scroll_y > 0 else notches)
-        if scroll_x:
-            notches = max(1, round(abs(scroll_x) / (0.1 * width)))
-            return (notches if scroll_x > 0 else -notches), 0
-        return 0, 0
 
     async def type(self, text: str) -> None:
         def run() -> None:
