@@ -115,8 +115,8 @@ def test_every_ported_example_is_importable_without_its_optional_runtime() -> No
         "examples.navigator_n2.local_driver",
         "examples.navigator_n2.local_macos",
         "examples.navigator_n2.local_docker",
-        "examples.navigator_n2.local_linux",
-        "examples.navigator_n2.linux_adapter",
+        "examples.navigator_n2.local_x11",
+        "examples.navigator_n2.direct_x11_adapter",
         "examples.navigator_n2.shared",
         "examples.navigator_n2_daytona",
     ):
@@ -722,9 +722,9 @@ def test_cua_read_file_returns_visible_image_content() -> None:
         assert shown.size == (1568, 392)
 
 
-# --- Local X11 Linux adapter (vendor-free) ----------------------------------
+# --- Direct X11 Linux adapter -----------------------------------------------
 
-from examples.navigator_n2.linux_adapter import LocalX11Computer  # noqa: E402
+from examples.navigator_n2.direct_x11_adapter import LocalX11Computer  # noqa: E402
 
 
 class FakeX11Gui:
@@ -747,7 +747,7 @@ class FakeX11Gui:
         return record
 
 
-async def test_local_linux_adapter_scrolls_in_notches_with_pyautogui_signs() -> None:
+async def test_direct_x11_adapter_scrolls_in_notches_with_pyautogui_signs() -> None:
     gui = FakeX11Gui()
     computer = LocalX11Computer(gui=gui)
 
@@ -773,7 +773,7 @@ async def test_local_linux_adapter_scrolls_in_notches_with_pyautogui_signs() -> 
     assert len(gui.calls) == calls_before
 
 
-async def test_local_linux_adapter_wraps_gestures_in_modifiers_and_maps_keys() -> None:
+async def test_direct_x11_adapter_wraps_gestures_in_modifiers_and_maps_keys() -> None:
     gui = FakeX11Gui()
     computer = LocalX11Computer(gui=gui)
 
@@ -793,15 +793,15 @@ async def test_local_linux_adapter_wraps_gestures_in_modifiers_and_maps_keys() -
     assert gui.calls == [("write", "Plain ASCII\n", ("interval", 0.01))]
 
 
-def test_local_linux_adapter_uses_x11_shift_characters() -> None:
-    from examples.navigator_n2.linux_adapter import _is_x11_shift_character
+def test_direct_x11_adapter_uses_x11_shift_characters() -> None:
+    from examples.navigator_n2.direct_x11_adapter import _is_x11_shift_character
 
     assert _is_x11_shift_character("A")
     assert _is_x11_shift_character(">")
     assert not _is_x11_shift_character("<")
 
 
-async def test_local_linux_screenshot_uses_pointer_coordinate_space(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_direct_x11_screenshot_uses_pointer_coordinate_space(monkeypatch: pytest.MonkeyPatch) -> None:
     gui = FakeX11Gui()
     computer = LocalX11Computer(gui=gui)
     captured: list[dict[str, int]] = []
@@ -825,7 +825,7 @@ async def test_local_linux_screenshot_uses_pointer_coordinate_space(monkeypatch:
     assert screenshot.startswith("data:image/png;base64,")
 
 
-async def test_local_linux_adapter_runs_bash_with_persistent_cwd_and_n2_result_formats(tmp_path: Path) -> None:
+async def test_direct_x11_adapter_runs_bash_with_persistent_cwd_and_n2_result_formats(tmp_path: Path) -> None:
     computer = LocalX11Computer(cwd=str(tmp_path))
 
     assert await computer.run_bash_command("pwd") == f"{tmp_path}\n"
@@ -844,7 +844,7 @@ async def test_local_linux_adapter_runs_bash_with_persistent_cwd_and_n2_result_f
     assert "Use the read tool on that file to retrieve output." in background
 
 
-async def test_local_linux_adapter_file_tools_roundtrip_locally(tmp_path: Path) -> None:
+async def test_direct_x11_adapter_file_tools_roundtrip_locally(tmp_path: Path) -> None:
     computer = LocalX11Computer(cwd=str(tmp_path))
 
     assert await computer.write_file("draft.txt", "before") == "File created successfully at: draft.txt"

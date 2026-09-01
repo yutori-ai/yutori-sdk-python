@@ -16,9 +16,9 @@ coding agent at) a custom adapter, the expected formats live in
 ``FILE_TOOL_SCRIPT`` below (``cat -n`` numbering, the sha256 read-before-edit
 gate, truncation markers), ``format_shell_output``, and
 ``render_image_result``; ``examples/navigator_n2/cua_adapter.py`` and
-``examples/navigator_n2/linux_adapter.py`` add the ``bash`` timeout and
-background-run forms and show the full wiring (over a hosted sandbox API
-and over a local X11 desktop, respectively).
+``examples/navigator_n2/direct_x11_adapter.py`` add the ``bash`` timeout and
+background-run forms and show the full wiring (across a sandbox API and
+through direct X11 access, respectively).
 """
 
 from __future__ import annotations

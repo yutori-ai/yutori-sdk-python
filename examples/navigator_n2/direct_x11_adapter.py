@@ -1,9 +1,9 @@
-"""A vendor-free Navigator n2 computer handler for a local X11 Linux desktop.
+"""A direct X11 Linux computer handler for Navigator n2.
 
-Start from this file when your code can run on (or inside) the machine it
-drives — a local desktop, or an agent process you install in your own VMs.
-When your desktops live behind a remote API instead, start from
-``cua_adapter.py``, which adapts the same surface to remote calls.
+Start from this file when the adapter runs on the X11 desktop host and can
+access its display, shell, and filesystem directly. That host may be a local
+machine or a VM. When those operations cross an API boundary instead, start
+from ``cua_adapter.py`` as an API-backed structural example.
 
 ``LocalX11Computer`` implements the full handler surface `N2ComputerAgent` calls
 directly against the desktop that ``$DISPLAY`` points at: GUI primitives through
@@ -21,9 +21,8 @@ Scope and safety:
   mouse, types on your keyboard, and runs shell commands as your user. Prefer a
   dedicated VM or virtual display, and keep the confirmation callback armed.
 
-Unlike ``cua_adapter.py`` (the same contract over the Cua sandbox vendor's API),
-nothing here crosses a vendor transport: what the handler sends is what the X
-server receives.
+Unlike ``cua_adapter.py`` (the same contract across a sandbox API), this adapter
+calls the X server and local OS primitives directly.
 """
 
 from __future__ import annotations
@@ -92,7 +91,7 @@ def _is_directly_typeable(gui: Any, character: str) -> bool:
 
 
 class LocalX11Computer(ShellFileToolsMixin):
-    """N2 computer handler over the local X11 display and local shell.
+    """N2 computer handler with direct access to an X11 display and local shell.
 
     ``gui`` exists for tests: any object with pyautogui's surface (``click``,
     ``scroll``, ``keyDown``, ...) can stand in. By default pyautogui is imported

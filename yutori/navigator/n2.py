@@ -231,9 +231,9 @@ class N2Computer(Protocol):
     implementation.
 
     Optional extensions the loop probes for (see the Navigator n2 loop section
-    of ``api.md``; ``examples/navigator_n2/linux_adapter.py`` is the vendor-free
-    full-surface reference and ``examples/navigator_n2/cua_adapter.py`` adapts
-    the same surface to a hosted sandbox API): ``triple_click`` (else double-click plus click),
+    of ``api.md``; ``examples/navigator_n2/direct_x11_adapter.py`` is the direct-X11
+    full-surface reference and ``examples/navigator_n2/cua_adapter.py`` shows
+    the same surface across a sandbox API): ``triple_click`` (else double-click plus click),
     ``hold_key(key, ms)`` plus the ``key_down``/``key_up`` pair for held keys,
     ``left_mouse_down``/``left_mouse_up`` and ``release_held_mouse_button``,
     ``get_dimensions()`` returning ``(width, height)``, a ``modifier=``
@@ -1146,8 +1146,8 @@ class N2ComputerAgent:
     ``computer`` is any object with the async computer-handler surface; the
     :class:`N2Computer` protocol spells it out — the GUI base handlers plus
     the current tool set's ``run_bash_command`` and file tools — and
-    ``examples/navigator_n2/linux_adapter.py`` (local X11) and
-    ``examples/navigator_n2/cua_adapter.py`` (hosted sandbox API) are the
+    ``examples/navigator_n2/direct_x11_adapter.py`` (direct X11) and
+    ``examples/navigator_n2/cua_adapter.py`` (API-backed sandbox) are the
     reference implementations. ``completions`` is a
     chat-completions surface such as ``AsyncYutoriClient().chat.completions``;
     when omitted, the agent owns an ``AsyncYutoriClient`` built from

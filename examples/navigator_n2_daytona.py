@@ -21,6 +21,11 @@ the whole integration — the `DaytonaComputer` adapter plus the sandbox
 lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
+This is a compact API-backed implementation of the same SDK-facing
+computer-handler contract as `examples/navigator_n2/cua_adapter.py`. For an
+implementation that accesses an X11 desktop directly, see
+`examples/navigator_n2/direct_x11_adapter.py`.
+
 The adapter implements GUI and `bash` natively over Daytona's REST primitives
 and gets the file tools (`read`/`write`/`edit`) from the SDK's
 `ShellFileToolsMixin` reference implementation. Daytona's
@@ -169,7 +174,7 @@ class DaytonaComputer(ShellFileToolsMixin):
         await self._cu.mouse.drag(path[0]["x"], path[0]["y"], path[-1]["x"], path[-1]["y"])
 
     async def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int, model_action: dict | None = None) -> None:
-        # Daytona wants wheel notches, and scrolls vertically only (so does n2).
+        # Daytona wants wheel notches and supports vertical scrolling only.
         # Declaring `model_action=` makes the loop pass the model's own call, whose
         # `direction`/`amount` are already notches (see api.md, "Navigator n2 loop"); the
         # pixel arithmetic — one notch of `amount` is a tenth of the screen — is the

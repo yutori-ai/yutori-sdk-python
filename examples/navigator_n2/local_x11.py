@@ -1,4 +1,4 @@
-"""Run stable Navigator n2 against the local X11 Linux desktop (vendor-free)."""
+"""Run stable Navigator n2 through direct access to an X11 Linux desktop."""
 
 from __future__ import annotations
 
@@ -13,16 +13,16 @@ from yutori.navigator import NAVIGATOR_N2_MODEL, N2ComputerAgent
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 try:
-    from .linux_adapter import LocalX11Computer
+    from .direct_x11_adapter import LocalX11Computer
     from .shared import add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
 except ImportError:
-    from linux_adapter import LocalX11Computer
+    from direct_x11_adapter import LocalX11Computer
     from shared import add_common_arguments, build_confirmation_callback, run_agent, selected_tool_set
 
 
 def _require_x11() -> None:
     if not sys.platform.startswith("linux"):
-        raise SystemExit("local_linux.py drives an X11 Linux desktop; on macOS use local_macos.py.")
+        raise SystemExit("local_x11.py drives an X11 Linux desktop; on macOS use local_macos.py.")
     if not os.environ.get("DISPLAY"):
         raise SystemExit(
             "No $DISPLAY is set. This entrypoint needs an X11 session — log into an 'on Xorg' "
