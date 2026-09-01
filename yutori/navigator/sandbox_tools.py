@@ -286,6 +286,26 @@ else:
 """
 
 
+# The shell-result contract ``run_sandbox_shell`` returns: an object exposing
+# ``stdout``, ``stderr``, and ``returncode``. It is duck-typed because every sandbox
+# SDK spells its own result type differently, so read it only through these three
+# accessors -- they are the one place the tolerated shapes (attribute absent, or
+# present but ``None``) are decided.
+def result_stdout(result: Any) -> str:
+    """Read a shell result's ``stdout``, treating a missing or ``None`` field as empty."""
+    return str(getattr(result, "stdout", "") or "")
+
+
+def result_stderr(result: Any) -> str:
+    """Read a shell result's ``stderr``, treating a missing or ``None`` field as empty."""
+    return str(getattr(result, "stderr", "") or "")
+
+
+def result_returncode(result: Any) -> int:
+    """Read a shell result's ``returncode``, treating a missing or ``None`` field as 0 (success)."""
+    return int(getattr(result, "returncode", 0) or 0)
+
+
 def append_stream(base: str, addition: str) -> str:
     """Append a second output stream to the first, inserting a newline only where one is missing."""
     if not addition:
@@ -295,7 +315,7 @@ def append_stream(base: str, addition: str) -> str:
 
 def join_output_streams(result: Any) -> str:
     """Join Cua's separate stdout and stderr streams without losing either."""
-    return append_stream(str(getattr(result, "stdout", "") or ""), str(getattr(result, "stderr", "") or ""))
+    return append_stream(result_stdout(result), result_stderr(result))
 
 
 def truncate_tool_output(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
@@ -313,10 +333,7 @@ def format_shell_output(output: str, exit_code: int) -> str:
 
 
 def format_shell_result(result: Any) -> str:
-    return format_shell_output(
-        join_output_streams(result),
-        int(getattr(result, "returncode", 0) or 0),
-    )
+    return format_shell_output(join_output_streams(result), result_returncode(result))
 
 
 BASH_TIMEOUT_DEFAULT_SECONDS = 120.0
@@ -451,13 +468,14 @@ class ShellFileToolsMixin:
         result = await self.run_sandbox_shell(
             python_file_tool_command(FILE_TOOL_SCRIPT, encoded), timeout_seconds=timeout
         )
-        if int(getattr(result, "returncode", 0) or 0) != 0:
+        returncode = result_returncode(result)
+        if returncode != 0:
             # n2 expects unexpected failures as a plain ``ERROR: ...``
             # tool result the model can react to, never a raised failure envelope.
-            detail = str(getattr(result, "stderr", "") or "").strip().splitlines()
-            reason = detail[-1] if detail else f"{operation} failed with exit code {getattr(result, 'returncode', '?')}"
+            detail = result_stderr(result).strip().splitlines()
+            reason = detail[-1] if detail else f"{operation} failed with exit code {returncode}"
             return f"ERROR: {reason}"
-        return str(getattr(result, "stdout", "") or "")
+        return result_stdout(result)
 
 
 __all__ = [
@@ -474,5 +492,8 @@ __all__ = [
     "join_output_streams",
     "python_file_tool_command",
     "render_image_result",
+    "result_returncode",
+    "result_stderr",
+    "result_stdout",
     "truncate_tool_output",
 ]
