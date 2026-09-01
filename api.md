@@ -85,8 +85,6 @@ usage = client.get_usage(period="7d")
 - `navigator_rate_limits` (`dict`): `requests_today`, `daily_limit`, `remaining_requests`, `reset_at`, `per_second_limit`
 - `activity` (`dict`): `period`, `scout_runs`, `browsing_tasks`, `research_tasks`, `navigator_calls`
 
-The response also includes `n1_rate_limits` and `activity.n1_calls` as deprecated aliases of `navigator_rate_limits` and `navigator_calls` respectively. They will be removed in a future release — prefer the `navigator_*` names.
-
 ## Model constants and tool sets
 
 Importable from `yutori.navigator`. Prefer these over hard-coded strings so upgrades land automatically.
@@ -103,15 +101,12 @@ from yutori.navigator import (
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `NAVIGATOR_N1_MODEL` | `"n1-latest"` | Retired: the API rejects `n1-*` model ids with HTTP 400. Kept for import compatibility only. |
 | `NAVIGATOR_N1_5_MODEL` | `"n1.5-latest"` | Alias for the latest stable Navigator n1.5 model (current default). |
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
 | `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
 | `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260830"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
-
-`N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
 
 **Replay note.** The SDK also accepts the immutable `computer_use_tools-20260818` browser set for replaying recorded trajectories. It is not a desktop set: its extra `goto_url` call requires a computer handler that implements `async goto_url(url: str)`. The bundled desktop and public Cua sandbox adapters deliberately return a recoverable unsupported-environment result for that browser-only call.
 
@@ -166,19 +161,6 @@ parsed = getattr(response, "parsed_json", None)
 - `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges Navigator n1.5 params into it.
 
 **Returns:** `openai.types.chat.ChatCompletion`. When `json_schema` is set on Navigator n1.5 and parsing succeeds, the API also sets `response.parsed_json`.
-
-**Migrating from the retired Navigator n1** (the API rejects `n1-*` model ids; reference: [docs.yutori.com](https://docs.yutori.com/reference/n1-5)):
-
-| Feature | Navigator n1 | Navigator n1.5 |
-|---------|----|----|
-| Tool sets | Fixed | `tool_set` (core / expanded) |
-| Disable tools | — | `disable_tools` supported |
-| Structured JSON output | — | `json_schema` → `response.parsed_json` |
-| Mouse move action | `hover` | `mouse_move` |
-| Key press param | `key_comb` (Playwright names) | `key` (lowercase names) |
-| Click modifiers | — | `ref`, `modifier` |
-| Extra actions | — | `hold_key`, `middle_click`, `mouse_down`, `mouse_up`, `go_forward` |
-| `type` extras | `press_enter_after`, `clear_before_typing` | — |
 
 #### Navigator n2
 
