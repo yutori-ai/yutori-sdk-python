@@ -39,9 +39,6 @@ from yutori.navigator.sandbox_tools import (
     result_returncode as _result_returncode,
 )
 from yutori.navigator.sandbox_tools import (
-    result_stderr as _result_stderr,
-)
-from yutori.navigator.sandbox_tools import (
     result_stdout as _result_stdout,
 )
 
@@ -187,14 +184,13 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         run_in_background: bool = False,
     ) -> str:
         cwd = await self._working_directory()
-        prefix = f"cd {shlex.quote(cwd)} && "
         if run_in_background:
             log_path = f"/tmp/yutori-n2-bash-{uuid.uuid4().hex[:8]}.log"
-            result = await self.sandbox.shell.run(
-                f"{prefix}nohup sh -c {shlex.quote(command)} > {log_path} 2>&1 < /dev/null & echo $!",
-                timeout=30,
+            session = await self.sandbox.terminal.create(
+                f"cd {shlex.quote(cwd)} && exec /bin/bash -c {shlex.quote(command)} "
+                f"> {shlex.quote(log_path)} 2>&1 < /dev/null"
             )
-            process_id = _result_stdout(result).strip() or "unknown"
+            process_id = str(session.get("pid") or "unknown")
             return (
                 f"Started background task `bash_{log_path[-12:-4]}`.\n"
                 f"stdout+stderr is streaming to: {log_path}\n"
@@ -203,27 +199,107 @@ class CuaSandboxComputer(ShellFileToolsMixin):
                 f"To cancel: run bash with `kill {process_id}`"
             )
 
-        sentinel = f"__YUTORI_N2_BASH_CWD_{uuid.uuid4().hex}__"
-        wrapped = f"{prefix}{command}\n__yutori_rc=$?\nprintf '\\n{sentinel}%s' \"$PWD\"\nexit $__yutori_rc"
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
-        # NORMAL result the model can react to, never a raised failure envelope. (The
-        # sandbox API discards partial output on expiry, so the result is the bare line.)
+        # NORMAL result the model can react to, never a raised failure envelope.
         timeout_s = _clamp_bash_timeout(timeout)
         if timeout_s == 0:
             return "Command timed out after 0s"
+
+        # cua-computer-server runs /cmd subprocesses on uvloop. If a shell command
+        # leaves any descendant alive (for example ``xcalc &``), uvloop reports that
+        # the shell exited but never finishes communicate(), so /cmd waits until its
+        # client timeout. Run bash in Cua's public PTY API instead. Redirecting all
+        # three standard streams prevents descendants from retaining the PTY, while
+        # the atomic status file distinguishes shell completion from output that a
+        # deliberately backgrounded descendant may continue to produce.
+        token = uuid.uuid4().hex
+        result_prefix = f"/tmp/yutori-n2-bash-{token}"
+        stdout_path = f"{result_prefix}.stdout"
+        stderr_path = f"{result_prefix}.stderr"
+        status_path = f"{result_prefix}.status"
+        cwd_path = f"{result_prefix}.cwd"
+        inner_cwd_tmp = f"{cwd_path}.tmp"
+        status_tmp = f"{status_path}.tmp"
+        finish = f"__yutori_finish_{token}"
+        inner = (
+            f"{finish}() {{\n"
+            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(inner_cwd_tmp)}\n"
+            f"  mv {shlex.quote(inner_cwd_tmp)} {shlex.quote(cwd_path)}\n"
+            "}\n"
+            f"trap {finish} 0\n"
+            f"{command}"
+        )
+        wrapped = (
+            "(\n"
+            f"cd {shlex.quote(cwd)}\n"
+            "__yutori_cd_rc=$?\n"
+            'if [ "$__yutori_cd_rc" -eq 0 ]; then\n'
+            f"  /bin/bash -c {shlex.quote(inner)}\n"
+            "  __yutori_rc=$?\n"
+            "else\n"
+            "  __yutori_rc=$__yutori_cd_rc\n"
+            "fi\n"
+            f"if [ ! -f {shlex.quote(cwd_path)} ]; then\n"
+            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_path)}\n"
+            "fi\n"
+            f"printf '%s' \"$__yutori_rc\" > {shlex.quote(status_tmp)}\n"
+            f"mv {shlex.quote(status_tmp)} {shlex.quote(status_path)}\n"
+            'exit "$__yutori_rc"\n'
+            f") < /dev/null > {shlex.quote(stdout_path)} 2> {shlex.quote(stderr_path)}"
+        )
+        session = await self.sandbox.terminal.create(wrapped)
+        process_id = session.get("pid")
+        if not isinstance(process_id, int) or process_id <= 0:
+            raise RuntimeError("Cua PTY did not return a valid process id.")
+
+        async def wait_for_status() -> None:
+            delay = 0.01
+            while not await self.sandbox.files.exists(status_path):
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 0.25)
+
         try:
-            result = await self.sandbox.shell.run(wrapped, timeout=timeout_s)
-        except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
-            if "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower():
-                return f"Command timed out after {timeout_s:g}s"
-            raise
-        stdout = _result_stdout(result)
-        body, marker, new_cwd = stdout.rpartition(f"\n{sentinel}")
-        if marker:
+            await asyncio.wait_for(wait_for_status(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            try:
+                await asyncio.wait_for(self.sandbox.terminal.close(process_id), timeout=5)
+            except Exception:  # noqa: BLE001 - the disposable sandbox is the final cleanup boundary
+                pass
+            await self._remove_bash_result_files(
+                stdout_path,
+                stderr_path,
+                status_path,
+                status_tmp,
+                cwd_path,
+                inner_cwd_tmp,
+            )
+            return f"Command timed out after {timeout_s:g}s"
+
+        try:
+            stdout, stderr, status, new_cwd = await asyncio.gather(
+                self.sandbox.files.read_text(stdout_path),
+                self.sandbox.files.read_text(stderr_path),
+                self.sandbox.files.read_text(status_path),
+                self.sandbox.files.read_text(cwd_path),
+            )
             self._bash_cwd = new_cwd.strip() or cwd
-            body = _append_stream(body, _result_stderr(result))
-            return _format_shell_output(body, _result_returncode(result))
-        return _shell_result(result)
+            body = _append_stream(stdout, stderr)
+            return _format_shell_output(body, int(status.strip()))
+        finally:
+            await self._remove_bash_result_files(
+                stdout_path,
+                stderr_path,
+                status_path,
+                status_tmp,
+                cwd_path,
+                inner_cwd_tmp,
+            )
+
+    async def _remove_bash_result_files(self, *paths: str) -> None:
+        await asyncio.gather(
+            *(self.sandbox.files.remove(path) for path in paths),
+            return_exceptions=True,
+        )
 
     async def _working_directory(self) -> str:
         if self._bash_cwd is None:

@@ -45,6 +45,8 @@ uv run python remote_sandbox.py "Open Calculator and compute 17 * 23"
 
 The script prints a `Watch the desktop live: http://localhost:<port>/vnc.html` link at startup — open it in a browser to follow the agent's actions on the sandbox's noVNC viewer. If a run hits `--max-steps`, the entrypoints take one summarize-only turn (no tool execution) and print the model's summary of progress before exiting.
 
+The current sandbox image has no Calculator desktop entry, although `xcalc` is available. In the suggested task, n2 moves between the GUI and bash to confirm the missing launcher, discover and launch `xcalc`, and then complete the calculation visually.
+
 This cookbook intentionally does not expose Cua cloud. Cua's current cloud path uses Fleet pools and provider-owned credentials rather than the retired image-based VM API in the pinned Python package; follow [Cua's current CLI documentation](https://cua.ai/docs/reference/cua-cli/cli-reference) if you need that infrastructure.
 
 The adapter supports the five current n2 tools: `computer_batch`, `edit`, `read`, `write`, and `bash`. It executes normalized coordinates against the sandbox's native screen, preserves a bash working directory, and uses Cua key-down/key-up primitives to keep modifiers attached to their click or scroll gesture.
