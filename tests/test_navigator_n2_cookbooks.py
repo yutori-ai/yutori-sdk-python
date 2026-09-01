@@ -380,6 +380,56 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     assert held_shift_down < mouse_move < held_shift_up
 
 
+async def test_scroll_right_batch_member_executes_horizontally_end_to_end() -> None:
+    """Loop validation, translation, and adapter execution compose for left/right."""
+    sandbox = FakeSandbox()
+    computer = CuaSandboxComputer(sandbox)
+    completions = FakeCompletions(
+        [
+            _response(
+                {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "b1",
+                            "function": {
+                                "name": "computer_batch",
+                                "arguments": json.dumps(
+                                    {
+                                        "actions": [
+                                            {
+                                                "name": "scroll",
+                                                "arguments": {
+                                                    "coordinates": [500, 500],
+                                                    "direction": "right",
+                                                    "amount": 2,
+                                                },
+                                            }
+                                        ]
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                }
+            ),
+            _response({"content": "done", "tool_calls": []}),
+        ]
+    )
+    agent = N2ComputerAgent(computer=computer, completions=completions, callbacks=[RunGuard(3)], screenshot_delay=0)
+
+    steps = [step async for step in agent.run("scroll the table right")]
+
+    assert ("scroll", 100, 50, 2, 0) in sandbox.calls
+    result = next(
+        item
+        for step in steps
+        for item in step["output"]
+        if item.get("type") == "function_call_output" and item.get("call_id") == "b1"
+    )
+    assert result["output"]["result"].startswith("[0:scroll]")
+
+
 async def test_public_cua_adapter_converts_pixel_scroll_deltas_to_notches() -> None:
     """Without a model_action, the adapter inverts the loop's pixel translation.
 

@@ -274,6 +274,22 @@ async def test_stop_region_refuses_click_drag_and_anchored_scroll_before_driver_
     assert not [call for call in transport.calls if call[0] in {"click", "drag", "scroll"}]
 
 
+async def test_scroll_translates_horizontal_pixel_deltas_to_line_scrolls():
+    transport = FakeTransport()
+    computer = MacOSComputer(transport, owns_transport=False, presentation=False)
+    computer._native_size = (1000, 800)
+
+    await computer.scroll(10, 10, 300, 0)
+    name, arguments, _ = transport.calls[-1]
+    assert name == "scroll"
+    assert arguments["direction"] == "right" and arguments["amount"] == 3 and arguments["by"] == "line"
+
+    await computer.scroll(10, 10, -100, 0)
+    name, arguments, _ = transport.calls[-1]
+    assert name == "scroll"
+    assert arguments["direction"] == "left" and arguments["amount"] == 1
+
+
 async def test_modified_scroll_fails_recoverably_without_driver_input():
     transport = FakeTransport()
     computer = MacOSComputer(transport, owns_transport=False, presentation=False)
