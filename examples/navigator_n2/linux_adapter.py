@@ -1,5 +1,10 @@
 """A vendor-free Navigator n2 computer handler for a local X11 Linux desktop.
 
+Start from this file when your code can run on (or inside) the machine it
+drives — a local desktop, or an agent process you install in your own VMs.
+When your desktops live behind a remote API instead, start from
+``cua_adapter.py``, which adapts the same surface to remote calls.
+
 ``LocalX11Computer`` implements the full handler surface `N2ComputerAgent` calls
 directly against the desktop that ``$DISPLAY`` points at: GUI primitives through
 pyautogui, whose X11 wheel notches, key events, and drags are the native units

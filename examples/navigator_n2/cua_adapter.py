@@ -1,5 +1,11 @@
 """The Cua computer handler for Navigator n2 — the reference tool implementations.
 
+Start from this file when your desktops live behind a remote API (a sandbox
+provider, or your own fleet service exposing mouse/keyboard/screenshot/shell
+calls): everything Cua-specific is confined to the ``self.sandbox.*`` calls, so
+swap those for your API's and keep the structure. When your code can run on (or
+inside) the machine it drives, start from ``linux_adapter.py`` instead.
+
 ``CuaSandboxComputer`` implements the full handler surface `N2ComputerAgent` calls
 (GUI primitives, ``run_bash_command`` with a persistent working directory, and the
 ``read``/``write``/``edit``/``grep``/``glob`` file tools) on the public ``cua`` sandbox

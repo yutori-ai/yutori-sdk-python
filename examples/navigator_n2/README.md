@@ -2,6 +2,8 @@
 
 These runnable cookbooks use the public Python SDK loop, stable model id n2, and the public `cua-sandbox` package. They do not import an agent package or source code from another repository. Cua provides the local Docker runtime; the adapter and n2 loop in this repository are maintained by Yutori.
 
+**Which file should I copy for my own environment?** If your code can run on (or inside) the machine it drives, start from [linux_adapter.py](linux_adapter.py) (in-process, no vendor in the chain). If your desktops sit behind a remote API — a sandbox provider or your own fleet service — start from [cua_adapter.py](cua_adapter.py) and swap its `self.sandbox.*` calls for your API's. The tool contracts are identical either way.
+
 The cookbook environment is separate because `cua-sandbox` requires Python 3.11–3.13. The tested dependency is pinned in pyproject.toml, and the SDK source is used from this checkout.
 
 On minimal Debian or Ubuntu images (including `python:3.12-slim`), install the compiler and Linux input headers that Cua's `evdev` dependency builds against:
