@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 
 _LSAPPINFO_TIMEOUT_SECONDS = 2.0
@@ -50,12 +51,22 @@ async def _run(*command: str) -> str | None:
         return None
     try:
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=_LSAPPINFO_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        process.kill()
-        return None
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        # Reap the child on both exits: a hung LaunchServices binary must not survive the
+        # probe, and every screenshot or keystroke would otherwise spawn another one.
+        await _reap(process)
+        raise
     if process.returncode != 0:
         return None
     return stdout.decode("utf-8", "replace")
+
+
+async def _reap(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            process.kill()
+    with suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(asyncio.shield(process.wait()), timeout=_LSAPPINFO_TIMEOUT_SECONDS)
 
 
 async def frontmost_app() -> FrontmostApp | None:
@@ -65,10 +76,13 @@ async def frontmost_app() -> FrontmostApp | None:
     the probe is a safety net, and LaunchServices being unavailable (headless session,
     login window) is not evidence that focus moved.
     """
-    asn = await _run("lsappinfo", "front")
-    if not asn or not asn.strip().startswith("ASN:"):
+    try:
+        asn = await _run("lsappinfo", "front")
+        if not asn or not asn.strip().startswith("ASN:"):
+            return None
+        info = await _run("lsappinfo", "info", "-only", "pid", "-only", "name", asn.strip())
+    except asyncio.TimeoutError:
         return None
-    info = await _run("lsappinfo", "info", "-only", "pid", "-only", "name", asn.strip())
     if info is None:
         return None
     return parse_lsappinfo_info(info)
