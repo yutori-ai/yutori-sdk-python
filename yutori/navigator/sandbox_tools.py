@@ -27,10 +27,11 @@ import asyncio
 import base64
 import io
 import json
+import os
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from PIL import Image
 
@@ -435,6 +436,46 @@ def build_cwd_tracking_bash_script(command: str, *, cwd: str, cwd_path: str, sta
     )
 
 
+class BashResultPaths(NamedTuple):
+    """File paths for one `run_bash_command` invocation's result-file handoff.
+
+    Built from a random token under ``base_dir`` so concurrent bash calls never
+    collide; ``status_tmp``/``cwd_tmp`` are the write-then-`mv` staging paths
+    `build_cwd_tracking_bash_script` targets before its atomic rename.
+    """
+
+    stdout: str
+    stderr: str
+    status: str
+    cwd: str
+    status_tmp: str
+    cwd_tmp: str
+
+    def cleanup_paths(self) -> tuple[str, str, str, str, str, str]:
+        """All six paths, in the order callers remove them once a result is read."""
+        return (self.stdout, self.stderr, self.status, self.status_tmp, self.cwd, self.cwd_tmp)
+
+
+def build_bash_result_paths(base_dir: str) -> BashResultPaths:
+    """Allocate a fresh, collision-free set of `run_bash_command` result-file paths under ``base_dir``."""
+    prefix = os.path.join(base_dir, f"yutori-n2-bash-{uuid.uuid4().hex}")
+    status_path = f"{prefix}.status"
+    cwd_path = f"{prefix}.cwd"
+    return BashResultPaths(
+        stdout=f"{prefix}.stdout",
+        stderr=f"{prefix}.stderr",
+        status=status_path,
+        cwd=cwd_path,
+        status_tmp=f"{status_path}.tmp",
+        cwd_tmp=f"{cwd_path}.tmp",
+    )
+
+
+def background_bash_log_path(base_dir: str) -> str:
+    """Allocate a fresh `run_bash_command(run_in_background=True)` log path under ``base_dir``."""
+    return os.path.join(base_dir, f"yutori-n2-bash-{uuid.uuid4().hex[:8]}.log")
+
+
 async def scroll_notches_from_pixels(
     scroll_x: int,
     scroll_y: int,
@@ -603,10 +644,13 @@ __all__ = [
     "BASH_RESULT_MAX_CHARS",
     "BASH_TIMEOUT_DEFAULT_SECONDS",
     "BASH_TIMEOUT_MAX_SECONDS",
+    "BashResultPaths",
     "FILE_TOOL_SCRIPT",
     "IMAGE_VIEW_MAX_EDGE",
     "ShellFileToolsMixin",
     "append_stream",
+    "background_bash_log_path",
+    "build_bash_result_paths",
     "build_cwd_tracking_bash_script",
     "clamp_bash_timeout",
     "format_background_task_started",
