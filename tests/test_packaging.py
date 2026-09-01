@@ -155,9 +155,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
             src_dir / "examples",
             ignore=shutil.ignore_patterns("__pycache__", "uv.lock", ".venv"),
         )
-        (src_dir / "examples" / "navigator_n2" / "uv.lock").write_text(
-            "developer-local lockfile\n", encoding="utf-8"
-        )
+        (src_dir / "examples" / "navigator_n2" / "uv.lock").write_text("developer-local lockfile\n", encoding="utf-8")
         cookbook_venv = src_dir / "examples" / "navigator_n2" / ".venv"
         cookbook_venv.mkdir()
         (cookbook_venv / "sentinel.txt").write_text("must not be packaged\n", encoding="utf-8")
@@ -219,6 +217,7 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
             N2ComputerAgent,
             N2Compactor,
             N2InlineCompactor,
+            SUPPORTED_N2_TOOL_SETS,
             TOOL_SET_COMPUTER_USE_LATEST,
             translate_n2_read,
             translate_n2_write,
@@ -230,7 +229,8 @@ def test_built_distributions_include_packaged_assets(tmp_path: Path) -> None:
         # annotation in the installed package.
         assert resources.files("yutori").joinpath("py.typed").is_file()
         assert NAVIGATOR_N2_MODEL == "n2"
-        assert TOOL_SET_COMPUTER_USE_LATEST == "computer_use_tools-20260825"
+        assert TOOL_SET_COMPUTER_USE_LATEST in SUPPORTED_N2_TOOL_SETS
+        assert TOOL_SET_COMPUTER_USE_LATEST.startswith("computer_use_tools-")
         assert N2Computer and N2ComputerAgent and MacOSComputer
         assert N2CompactionContext and N2CompactionResult and N2Compactor and N2InlineCompactor
         assert translate_n2_read({"file_path": "notes.txt"})

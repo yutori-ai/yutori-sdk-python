@@ -8,6 +8,7 @@ from typing import Any
 
 from yutori.navigator import (
     TOOL_SET_COMPUTER_USE,
+    TOOL_SET_COMPUTER_USE_20260825,
     TOOL_SET_COMPUTER_USE_BASH_BATCH,
     TOOL_SET_COMPUTER_USE_BASH_BATCH_FULL,
     TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS,
@@ -28,6 +29,9 @@ SHELL_TOOL_NAMES = frozenset({"bash", "shell_command", "run_command"})
 
 TOOL_SET_ALIASES = {
     "latest": TOOL_SET_COMPUTER_USE_LATEST,
+    # Every dated set keeps a stable alias of its own, so bumping "latest" never
+    # strands one -- 20260825 had no other name until 20260830 was published.
+    "batch-files": TOOL_SET_COMPUTER_USE_20260825,
     "full-batch": TOOL_SET_COMPUTER_USE_BASH_BATCH_FULL,
     "screenshot-batch": TOOL_SET_COMPUTER_USE_BASH_BATCH_SCREENSHOT,
     "modifiers-batch": TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS,
@@ -109,7 +113,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "Explicit n2 tool set alias ("
             + ", ".join(TOOL_SET_ALIASES)
-            + ") or dated id. Default: latest (computer_use_tools-20260825)."
+            + ") or dated id. Default: latest (computer_use_tools-20260830)."
         ),
     )
     parser.add_argument(

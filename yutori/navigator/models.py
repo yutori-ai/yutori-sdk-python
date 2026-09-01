@@ -40,5 +40,11 @@ TOOL_SET_COMPUTER_USE_BASH_BATCH_MODIFIERS = "computer_use_tools-20260815"
 TOOL_SET_COMPUTER_USE_BASH_BATCH_SCREENSHOT = "computer_use_tools-20260821"
 TOOL_SET_COMPUTER_USE_BASH_BATCH_FULL = "computer_use_tools-20260822"
 
-# The SDK's stable n2 surface: computer_batch, edit, read, write, and bash.
-TOOL_SET_COMPUTER_USE_LATEST = "computer_use_tools-20260825"
+# The n2 desktop surface: computer_batch, edit, read, write, and bash. Both sets expose the
+# same five tools and the same batch actions; they differ in the tool descriptions and in
+# computer_batch's parameter schemas. On 20260830 an optional argument is optional -- a
+# left_click needs only `coordinates` -- where 20260825 marks every argument required.
+TOOL_SET_COMPUTER_USE_20260825 = "computer_use_tools-20260825"
+TOOL_SET_COMPUTER_USE_20260830 = "computer_use_tools-20260830"
+
+TOOL_SET_COMPUTER_USE_LATEST = TOOL_SET_COMPUTER_USE_20260830

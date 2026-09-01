@@ -62,6 +62,7 @@ from .n2_actions import (
     SAFE_WITHOUT_CONFIRMATION,
     SHELL_COMMAND_TOOL_NAMES,
     SUPPORTED_N2_TOOL_SETS,
+    TOOL_SETS_BATCH_ONLY_GUI,
     TOOL_SETS_WITH_BASH,
     TOOL_SETS_WITH_BATCH,
     TOOL_SETS_WITH_BROWSER_NAVIGATION,
@@ -612,7 +613,7 @@ def parse_n2_tool_calls(
                 call_item = finish(translate_n2_goto_url(args))
             elif name == "screenshot" and tool_set not in TOOL_SETS_WITH_STANDALONE_SCREENSHOT:
                 raise N2ActionValidationError(f"{tool_set} does not expose screenshot")
-            elif tool_set == TOOL_SET_COMPUTER_USE_LATEST:
+            elif tool_set in TOOL_SETS_BATCH_ONLY_GUI:
                 raise N2ActionValidationError(f"{tool_set} does not expose {name}")
             else:
                 call_item = finish(

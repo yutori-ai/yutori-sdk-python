@@ -212,13 +212,17 @@ def test_cookbook_adapter_does_not_shadow_cua_sandbox_package() -> None:
 
 
 def test_cookbook_aliases_include_current_and_historical_n2_tool_sets() -> None:
-    assert selected_tool_set("latest") == "computer_use_tools-20260825"
+    # Tracks the constant rather than a literal: "latest" is meant to follow the newest
+    # published set, so pinning the date here fails every time one ships.
+    assert selected_tool_set("latest") == TOOL_SET_COMPUTER_USE_LATEST
+    assert selected_tool_set("batch-files") == "computer_use_tools-20260825"
     assert selected_tool_set("bash-batch") == "computer_use_tools-20260812"
     assert set(TOOL_SET_ALIASES.values()).issuperset(
         {
             "computer_use_tools-20260708",
             "computer_use_tools-20260716",
             "computer_use_tools-20260825",
+            "computer_use_tools-20260830",
         }
     )
     assert selected_tool_set("latest") in TOOL_SETS_WITH_CLICK_MODIFIERS

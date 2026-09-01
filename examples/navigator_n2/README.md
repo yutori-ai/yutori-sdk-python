@@ -51,11 +51,12 @@ The adapter supports the five current n2 tools: `computer_batch`, `edit`, `read`
 
 ## Tool sets
 
-Both examples always send an explicit immutable tool-set id. The default alias is latest, which resolves to computer_use_tools-20260825. Use an older published set only to replay a compatible trajectory:
+Both examples always send an explicit immutable tool-set id. The default alias is latest, which resolves to computer_use_tools-20260830. Use an older published set only to replay a compatible trajectory:
 
 | Alias | Tool set |
 | --- | --- |
-| latest | computer_use_tools-20260825 |
+| latest | computer_use_tools-20260830 |
+| batch-files | computer_use_tools-20260825 |
 | full-batch | computer_use_tools-20260822 |
 | screenshot-batch | computer_use_tools-20260821 |
 | modifiers-batch | computer_use_tools-20260815 |

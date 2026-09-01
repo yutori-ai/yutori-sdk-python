@@ -108,7 +108,7 @@ from yutori.navigator import (
 | `TOOL_SET_CORE` | `"browser_tools_core-20260403"` | Default Navigator n1.5 tool set — 18 coordinate-based browser tools. |
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
 | `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
-| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260825"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
+| `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260830"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
@@ -144,7 +144,7 @@ response = client.chat.completions.create(
         }
     ],
     tool_set=TOOL_SET_EXPANDED,           # n1.5 tool set; n2 uses TOOL_SET_COMPUTER_USE_LATEST
-    disable_tools=["hold_key", "drag"],    # Navigator n1.5 only
+    disable_tools=["hold_key", "drag"],    # n1.5 names; n2 takes bash/read/write/edit
     json_schema={...},                     # Navigator n1.5 only
 )
 
@@ -161,7 +161,7 @@ parsed = getattr(response, "parsed_json", None)
 - `messages` (`Iterable[ChatCompletionMessageParam]`): OpenAI-format chat messages. Include screenshots as `image_url` content blocks.
 - `model` (`str`, default `"n1.5-latest"`): Model alias or pinned ID. Pass `NAVIGATOR_N1_5_MODEL` or `"n2"` for clarity.
 - `tool_set` (`str | None`): Which server-side tool set to activate. Navigator n1.5: `TOOL_SET_CORE` or `TOOL_SET_EXPANDED`. Navigator n2: `TOOL_SET_COMPUTER_USE_LATEST` (pin it explicitly). Forwarded via `extra_body`.
-- `disable_tools` (`list[str] | None`, **Navigator n1.5 only**): Tool names to remove from the active tool set.
+- `disable_tools` (`list[str] | None`): Tool names to remove from the active tool set. Navigator n2 accepts only `bash`, `read`, `write`, `edit` — `computer_batch` is its GUI surface and cannot be disabled, and unknown names are rejected rather than ignored.
 - `json_schema` (`dict | None`, **Navigator n1.5 only**): JSON Schema object. When provided, the API constrains decoding and attaches the parsed result as `response.parsed_json`.
 - `**kwargs`: Any other OpenAI Chat Completions parameter (`temperature`, `tools`, `tool_choice`, `response_format`, etc.). If the caller already passes `extra_body`, the SDK merges Navigator n1.5 params into it.
 
@@ -182,7 +182,7 @@ parsed = getattr(response, "parsed_json", None)
 
 #### Navigator n2
 
-Navigator n2 operates a full desktop. Use `model="n2"` and pin the tool set — `TOOL_SET_COMPUTER_USE_LATEST` is the set the SDK's loop implements. It answers with `computer_batch` calls (an ordered sequence of GUI actions, answered with one screenshot taken after the last one), `bash` calls (answered with the command's output), and `read`/`write`/`edit` file-tool calls (answered with the tool's text; a `read` of an image returns the image); a turn with text and no `tool_calls` is the final answer. No frame rides with a `bash` or file-tool result — when the model needs a fresh look after them (or at the start of a run), it requests one itself with a `screenshot` batch member. n2 is non-streaming and rejects caller-provided `tools`, `disable_tools`, `json_schema`, `response_format`, and non-auto `tool_choice`. Send the full conversation: the server keeps every screenshot in the two newest image-bearing messages and strips older image parts while preserving the rest of the history.
+Navigator n2 operates a full desktop. Use `model="n2"` and pin the tool set — `TOOL_SET_COMPUTER_USE_LATEST` is the set the SDK's loop implements. It answers with `computer_batch` calls (an ordered sequence of GUI actions, answered with one screenshot taken after the last one), `bash` calls (answered with the command's output), and `read`/`write`/`edit` file-tool calls (answered with the tool's text; a `read` of an image returns the image); a turn with text and no `tool_calls` is the final answer. No frame rides with a `bash` or file-tool result — when the model needs a fresh look after them (or at the start of a run), it requests one itself with a `screenshot` batch member. n2 is non-streaming and rejects caller-provided `json_schema`, `response_format`, and non-auto `tool_choice`. It does accept `disable_tools` and `tools` — see [Changing the n2 tool set](#changing-the-n2-tool-set). Send the full conversation: the server keeps every screenshot in the two newest image-bearing messages and strips older image parts while preserving the rest of the history.
 
 **System prompt.** The server owns the n2 system prompt: every request is served with the model's tool definitions and coordinate conventions, plus an environment block telling the model to resolve paths under the current user's `$HOME` and stating the current date and time in US Pacific time (zone named). A caller-supplied system message never replaces any of this — it is appended at the end under a `# User Instructions` header.
 
@@ -193,6 +193,60 @@ response = client.chat.completions.create(
     messages=[...],  # task + full-screen screenshot, then alternating assistant tool_calls / tool results
 )
 ```
+
+#### Changing the n2 tool set
+
+A tool set is fixed, but you can drop tools from it and add your own.
+
+`disable_tools` removes tools your harness cannot back — a machine with no shell or no
+filesystem should say so rather than let the model call a tool that always fails:
+
+```python
+response = client.chat.completions.create(
+    model="n2",
+    messages=[...],
+    tool_set=TOOL_SET_COMPUTER_USE_LATEST,
+    disable_tools=["bash", "write", "edit"],
+)
+```
+
+Only `bash`, `read`, `write` and `edit` can be disabled. `computer_batch` cannot — it is the
+GUI surface, and without it there is no agent. Unknown names are rejected rather than ignored,
+so a typo fails the call instead of quietly serving the full set. Serve as much of the set as
+your harness can back: see [Tool ownership](#tool-ownership) on keeping at least
+`computer_batch` and `bash`.
+
+`tools` serves your own definitions alongside the set, in the standard OpenAI tool shape, and
+composes with `disable_tools` — your tools are appended after the set's, and disabling one
+frees its name:
+
+```python
+response = client.chat.completions.create(
+    model="n2",
+    messages=[...],
+    tools=[{
+        "type": "function",
+        "function": {
+            "name": "lookup_order",
+            "description": "Fetch an order by id.",
+            "parameters": {
+                "type": "object",
+                "properties": {"order_id": {"type": "string"}},
+                "required": ["order_id"],
+            },
+        },
+    }],
+)
+```
+
+A definition whose name the set already serves is **refused**, not silently applied, so a
+custom `read` or `bash` cannot shadow the tool the model expects — disable the served tool
+first. `computer_batch` cannot be redefined at all.
+
+`N2ComputerAgent` implements only the tools in the set (see [Tool ownership](#tool-ownership)),
+so it has nowhere to dispatch a custom call — on `TOOL_SET_COMPUTER_USE_LATEST` the model gets
+back a recoverable `[ERROR] Invalid <name> call: ... does not expose <name>` tool result and
+carries on. To actually run custom tools, drive `chat.completions.create` in your own loop.
 
 `N2ComputerAgent` runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact agent using third-party Daytona infrastructure; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 
