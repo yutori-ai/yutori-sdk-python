@@ -1,0 +1,434 @@
+"""A vendor-free Navigator n2 computer handler for a local X11 Linux desktop.
+
+``LocalX11Computer`` implements the full handler surface `N2ComputerAgent` calls
+directly against the desktop that ``$DISPLAY`` points at: GUI primitives through
+pyautogui, whose X11 wheel notches, key events, and drags are the native units
+n2's actions map onto, screenshots through mss, and ``bash`` plus the ``read``/
+``write``/``edit``/``grep``/``glob`` file tools through local subprocesses in the
+exact result formats n2 expects.
+
+Scope and safety:
+
+- **X11 only.** pyautogui emits X11 input events; on a Wayland session synthetic
+  input fails or half-works through XWayland. Use an "on Xorg" session, or point
+  ``$DISPLAY`` at a virtual server (Xvfb/x11vnc).
+- **This is a real machine, not a disposable sandbox.** The agent moves your
+  mouse, types on your keyboard, and runs shell commands as your user. Prefer a
+  dedicated VM or virtual display, and keep the confirmation callback armed.
+
+Unlike ``cua_adapter.py`` (the same contract over the Cua sandbox vendor's API),
+nothing here crosses a vendor transport: what the handler sends is what the X
+server receives.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import contextlib
+import io
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import tempfile
+import uuid
+from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+from yutori.navigator import ShellFileToolsMixin
+from yutori.navigator.sandbox_tools import (
+    append_stream as _append_stream,
+)
+from yutori.navigator.sandbox_tools import (
+    clamp_bash_timeout as _clamp_bash_timeout,
+)
+from yutori.navigator.sandbox_tools import (
+    format_shell_output as _format_shell_output,
+)
+from yutori.navigator.sandbox_tools import (
+    format_shell_result as _shell_result,
+)
+
+# The SDK loop's key vocabulary is already canonical lowercase (punctuation
+# arrives as literal characters); only these names spell differently in
+# pyautogui. ``cmd`` maps to the Super/Windows key.
+_PYAUTOGUI_KEY_MAP = {
+    "cmd": "win",
+    "page_up": "pageup",
+    "page_down": "pagedown",
+}
+
+_DRAG_SECONDS = 0.5  # paced so the target registers one continuous drag, not a click
+
+
+def _map_key(key: str) -> str:
+    return _PYAUTOGUI_KEY_MAP.get(key, key)
+
+
+class LocalX11Computer(ShellFileToolsMixin):
+    """N2 computer handler over the local X11 display and local shell.
+
+    ``gui`` exists for tests: any object with pyautogui's surface (``click``,
+    ``scroll``, ``keyDown``, ...) can stand in. By default pyautogui is imported
+    lazily on first GUI action, so this module imports cleanly on hosts without
+    an X11 stack.
+    """
+
+    def __init__(self, cwd: str | None = None, *, gui: Any = None) -> None:
+        self._gui_module = gui
+        self._bash_cwd = cwd or str(Path.home())
+        self._left_mouse_down = False
+
+    def _gui(self) -> Any:
+        if self._gui_module is None:
+            import pyautogui
+
+            # The agent legitimately targets screen corners; the fail-safe would
+            # abort those actions. Pacing comes from the loop, not per-call pauses.
+            pyautogui.FAILSAFE = False
+            pyautogui.PAUSE = 0.05
+            self._gui_module = pyautogui
+        return self._gui_module
+
+    async def _run_gui(self, action: Callable[[], Any]) -> Any:
+        return await asyncio.to_thread(action)
+
+    # -- observation --------------------------------------------------------
+
+    async def screenshot(self) -> str:
+        def grab() -> str:
+            import mss
+            from PIL import Image
+
+            with mss.mss() as sct:
+                frame = sct.grab(sct.monitors[1])
+                image = Image.frombytes("RGB", frame.size, frame.bgra, "raw", "BGRX")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+        return await asyncio.to_thread(grab)
+
+    async def get_dimensions(self) -> tuple[int, int]:
+        size = await self._run_gui(lambda: self._gui().size())
+        return int(size[0]), int(size[1])
+
+    # -- GUI actions ---------------------------------------------------------
+
+    async def _with_modifiers(
+        self,
+        modifier: Sequence[str] | None,
+        action: Callable[[], Awaitable[None]],
+    ) -> None:
+        keys = [_map_key(key) for key in modifier or ()]
+        for key in keys:
+            await self._run_gui(lambda k=key: self._gui().keyDown(k))
+        try:
+            await action()
+        finally:
+            for key in reversed(keys):
+                await self._run_gui(lambda k=key: self._gui().keyUp(k))
+
+    async def click(
+        self,
+        x: int,
+        y: int,
+        button: str = "left",
+        modifier: Sequence[str] | None = None,
+    ) -> None:
+        await self._with_modifiers(modifier, lambda: self._run_gui(lambda: self._gui().click(x, y, button=button)))
+
+    async def double_click(self, x: int, y: int, modifier: Sequence[str] | None = None) -> None:
+        await self._with_modifiers(modifier, lambda: self._run_gui(lambda: self._gui().doubleClick(x, y)))
+
+    async def triple_click(self, x: int, y: int, modifier: Sequence[str] | None = None) -> None:
+        await self._with_modifiers(modifier, lambda: self._run_gui(lambda: self._gui().tripleClick(x, y)))
+
+    async def move(self, x: int, y: int) -> None:
+        await self._run_gui(lambda: self._gui().moveTo(x, y))
+
+    async def drag(self, path: list[dict[str, int]]) -> None:
+        if len(path) < 2:
+            raise ValueError("drag path must contain at least two points")
+        start, end = path[0], path[-1]
+
+        def run() -> None:
+            gui = self._gui()
+            gui.moveTo(start["x"], start["y"])
+            gui.dragTo(end["x"], end["y"], duration=_DRAG_SECONDS, button="left")
+
+        await self._run_gui(run)
+
+    async def scroll(
+        self,
+        x: int,
+        y: int,
+        scroll_x: int,
+        scroll_y: int,
+        modifier: Sequence[str] | None = None,
+        model_action: dict[str, Any] | None = None,
+    ) -> None:
+        notches_x, notches_y = await self._scroll_notches(scroll_x, scroll_y, model_action)
+
+        def run() -> None:
+            gui = self._gui()
+            # pyautogui signs: positive scroll() is up, positive hscroll() is right.
+            if notches_y:
+                gui.scroll(notches_y, x, y)
+            if notches_x:
+                gui.hscroll(notches_x, x, y)
+
+        await self._with_modifiers(modifier, lambda: self._run_gui(run))
+
+    async def _scroll_notches(
+        self,
+        scroll_x: int,
+        scroll_y: int,
+        model_action: dict[str, Any] | None,
+    ) -> tuple[int, int]:
+        """Convert the loop's pixel deltas into X11 wheel notches.
+
+        The loop's ``scroll_x``/``scroll_y`` are pixel deltas (10% of the native
+        dimension per model unit, positive = down/right); the wheel scrolls in
+        detents with positive = up/right. The model's call carries the exact
+        notch count, so prefer it; otherwise invert the loop's translation.
+        """
+        action = model_action or {}
+        direction, amount = action.get("direction"), action.get("amount")
+        if direction in ("up", "down", "left", "right") and type(amount) is int and amount > 0:
+            if direction in ("up", "down"):
+                return 0, amount if direction == "up" else -amount
+            return (amount if direction == "right" else -amount), 0
+        width, height = await self.get_dimensions()
+        if scroll_y:
+            notches = max(1, round(abs(scroll_y) / (0.1 * height)))
+            return 0, (-notches if scroll_y > 0 else notches)
+        if scroll_x:
+            notches = max(1, round(abs(scroll_x) / (0.1 * width)))
+            return (notches if scroll_x > 0 else -notches), 0
+        return 0, 0
+
+    async def type(self, text: str) -> None:
+        def run() -> None:
+            gui = self._gui()
+            if all(char in gui.KEYBOARD_KEYS for char in text):
+                gui.write(text, interval=0.01)
+                return
+            # Characters X11 key synthesis cannot produce (non-ASCII) go
+            # through the clipboard instead.
+            xclip = shutil.which("xclip")
+            if xclip is None:
+                raise RuntimeError("text contains characters pyautogui cannot type; install xclip for clipboard paste")
+            subprocess.run([xclip, "-selection", "clipboard"], input=text.encode("utf-8"), check=True)
+            gui.hotkey("ctrl", "v")
+
+        await self._run_gui(run)
+
+    async def keypress(self, keys: Sequence[str] | str) -> None:
+        sequence = [keys] if isinstance(keys, str) else list(keys)
+        mapped = [_map_key(key) for key in sequence]
+
+        def run() -> None:
+            gui = self._gui()
+            if len(mapped) == 1:
+                gui.press(mapped[0])
+                return
+            for key in mapped:
+                gui.keyDown(key)
+            for key in reversed(mapped):
+                gui.keyUp(key)
+
+        await self._run_gui(run)
+
+    async def key_down(self, key: str) -> None:
+        await self._run_gui(lambda: self._gui().keyDown(_map_key(key)))
+
+    async def key_up(self, key: str) -> None:
+        await self._run_gui(lambda: self._gui().keyUp(_map_key(key)))
+
+    async def hold_key(self, key: str, ms: int = 1_000) -> None:
+        await self.key_down(key)
+        try:
+            await asyncio.sleep(ms / 1_000)
+        finally:
+            await self.key_up(key)
+
+    async def wait(self, ms: int = 1_000) -> None:
+        await asyncio.sleep(ms / 1_000)
+
+    async def left_mouse_down(self, x: int | None = None, y: int | None = None) -> None:
+        def run() -> None:
+            gui = self._gui()
+            if x is not None and y is not None:
+                gui.mouseDown(x=x, y=y, button="left")
+            else:
+                gui.mouseDown(button="left")
+
+        await self._run_gui(run)
+        self._left_mouse_down = True
+
+    async def left_mouse_up(self, x: int | None = None, y: int | None = None) -> None:
+        def run() -> None:
+            gui = self._gui()
+            if x is not None and y is not None:
+                gui.mouseUp(x=x, y=y, button="left")
+            else:
+                gui.mouseUp(button="left")
+
+        try:
+            await self._run_gui(run)
+        finally:
+            self._left_mouse_down = False
+
+    async def release_held_mouse_button(self) -> None:
+        if self._left_mouse_down:
+            await self.left_mouse_up()
+
+    # -- shell / file tools --------------------------------------------------
+
+    async def run_shell_command(
+        self,
+        command: str,
+        cwd: str | None = None,
+        timeout_seconds: int = 10,
+    ) -> str:
+        prefix = f"cd {shlex.quote(cwd)} && " if cwd else ""
+        return _shell_result(await self.run_sandbox_shell(f"{prefix}{command}", timeout_seconds=timeout_seconds))
+
+    async def run_bash_command(
+        self,
+        command: str,
+        timeout: float = 120.0,
+        run_in_background: bool = False,
+    ) -> str:
+        cwd = self._bash_cwd
+        if run_in_background:
+            log_path = os.path.join(tempfile.gettempdir(), f"yutori-n2-bash-{uuid.uuid4().hex[:8]}.log")
+            with open(log_path, "wb") as log_file:
+                process = subprocess.Popen(
+                    ["/bin/bash", "-c", command],
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            return (
+                f"Started background task `bash_{log_path[-12:-4]}`.\n"
+                f"stdout+stderr is streaming to: {log_path}\n"
+                "Use the read tool on that file to retrieve output.\n"
+                f"Process id: {process.pid}\n"
+                f"To cancel: run bash with `kill {process.pid}`"
+            )
+
+        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
+        # NORMAL result the model can react to, never a raised failure envelope.
+        timeout_s = _clamp_bash_timeout(timeout)
+        if timeout_s == 0:
+            return "Command timed out after 0s"
+
+        # Output goes to files rather than pipes: a command that leaves a
+        # descendant alive (``xcalc &``) holds a pipe open past bash's own exit,
+        # so a pipe read would hang the full timeout. The status file appearing
+        # is the completion signal, independent of surviving descendants.
+        token = uuid.uuid4().hex
+        result_prefix = os.path.join(tempfile.gettempdir(), f"yutori-n2-bash-{token}")
+        stdout_path = f"{result_prefix}.stdout"
+        stderr_path = f"{result_prefix}.stderr"
+        status_path = f"{result_prefix}.status"
+        cwd_path = f"{result_prefix}.cwd"
+        status_tmp = f"{status_path}.tmp"
+        finish = f"__yutori_finish_{token}"
+        inner = (
+            f"{finish}() {{\n"
+            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_path)}.tmp\n"
+            f"  mv {shlex.quote(cwd_path)}.tmp {shlex.quote(cwd_path)}\n"
+            "}\n"
+            f"trap {finish} 0\n"
+            f"{command}"
+        )
+        wrapped = (
+            f"cd {shlex.quote(cwd)}\n"
+            "__yutori_cd_rc=$?\n"
+            'if [ "$__yutori_cd_rc" -eq 0 ]; then\n'
+            f"  /bin/bash -c {shlex.quote(inner)}\n"
+            "  __yutori_rc=$?\n"
+            "else\n"
+            "  __yutori_rc=$__yutori_cd_rc\n"
+            "fi\n"
+            f"if [ ! -f {shlex.quote(cwd_path)} ]; then\n"
+            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_path)}\n"
+            "fi\n"
+            f"printf '%s' \"$__yutori_rc\" > {shlex.quote(status_tmp)}\n"
+            f"mv {shlex.quote(status_tmp)} {shlex.quote(status_path)}\n"
+            'exit "$__yutori_rc"\n'
+        )
+        with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:
+            process = await asyncio.create_subprocess_exec(
+                "/bin/bash",
+                "-c",
+                wrapped,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                start_new_session=True,
+            )
+
+        async def wait_for_status() -> None:
+            delay = 0.01
+            while not os.path.exists(status_path):
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 0.25)
+
+        try:
+            try:
+                await asyncio.wait_for(wait_for_status(), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                return f"Command timed out after {timeout_s:g}s"
+            stdout = Path(stdout_path).read_text(encoding="utf-8", errors="replace")
+            stderr = Path(stderr_path).read_text(encoding="utf-8", errors="replace")
+            status = Path(status_path).read_text(encoding="utf-8")
+            new_cwd = Path(cwd_path).read_text(encoding="utf-8", errors="replace").strip()
+            self._bash_cwd = new_cwd or cwd
+            return _format_shell_output(_append_stream(stdout, stderr), int(status.strip()))
+        finally:
+            # Reap bash when it exited; a timed-out group was already killed.
+            if process.returncode is None:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=5)
+            for path in (stdout_path, stderr_path, status_path, status_tmp, cwd_path, f"{cwd_path}.tmp"):
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+
+    async def run_sandbox_shell(self, command: str, *, timeout_seconds: int) -> Any:
+        process = await asyncio.create_subprocess_exec(
+            "/bin/bash",
+            "-c",
+            command,
+            cwd=self._bash_cwd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            await process.wait()
+            return SimpleNamespace(stdout="", stderr=f"command timed out after {timeout_seconds}s", returncode=124)
+        return SimpleNamespace(
+            stdout=(stdout or b"").decode("utf-8", "replace"),
+            stderr=(stderr or b"").decode("utf-8", "replace"),
+            returncode=process.returncode,
+        )
+
+    async def file_tool_cwd(self) -> str:
+        return self._bash_cwd

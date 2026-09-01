@@ -115,6 +115,8 @@ def test_every_ported_example_is_importable_without_its_optional_runtime() -> No
         "examples.navigator_n2.local_driver",
         "examples.navigator_n2.local_macos",
         "examples.navigator_n2.local_docker",
+        "examples.navigator_n2.local_linux",
+        "examples.navigator_n2.linux_adapter",
         "examples.navigator_n2.shared",
         "examples.navigator_n2_daytona",
     ):
@@ -668,3 +670,100 @@ def test_cua_read_file_returns_visible_image_content() -> None:
     assert result["image_url"].startswith("data:image/webp;base64,")
     with _Image.open(_io.BytesIO(base64.b64decode(result["image_url"].split(",", 1)[1]))) as shown:
         assert shown.size == (1568, 392)
+
+
+# --- Local X11 Linux adapter (vendor-free) ----------------------------------
+
+from examples.navigator_n2.linux_adapter import LocalX11Computer  # noqa: E402
+
+
+class FakeX11Gui:
+    KEYBOARD_KEYS = frozenset({"\t", "\n", " "} | {chr(code) for code in range(33, 127)})
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def size(self) -> tuple[int, int]:
+        return (200, 100)
+
+    def __getattr__(self, name: str) -> Any:
+        def record(*args: Any, **kwargs: Any) -> None:
+            self.calls.append((name, *args, *sorted(kwargs.items())))
+
+        return record
+
+
+async def test_local_linux_adapter_scrolls_in_notches_with_pyautogui_signs() -> None:
+    gui = FakeX11Gui()
+    computer = LocalX11Computer(gui=gui)
+
+    # The model's own call wins: "down, amount 3" is -3 notches (positive is up).
+    await computer.scroll(100, 50, 0, 30, model_action={"action": "scroll", "direction": "down", "amount": 3})
+    assert gui.calls[-1] == ("scroll", -3, 100, 50)
+
+    await computer.scroll(100, 50, 0, 0, model_action={"action": "scroll", "direction": "right", "amount": 2})
+    assert gui.calls[-1] == ("hscroll", 2, 100, 50)
+
+    # Without model_action, invert the loop's pixel translation (200x100 fake screen).
+    await computer.scroll(100, 50, 0, 30)  # loop's "down, amount 3" at 100px height
+    assert gui.calls[-1] == ("scroll", -3, 100, 50)
+
+    await computer.scroll(100, 50, 0, -10)  # "up, amount 1"
+    assert gui.calls[-1] == ("scroll", 1, 100, 50)
+
+    await computer.scroll(100, 50, -40, 0)  # "left, amount 2" at 200px width
+    assert gui.calls[-1] == ("hscroll", -2, 100, 50)
+
+    calls_before = len(gui.calls)
+    await computer.scroll(100, 50, 0, 0)  # no delta: no wheel event at all
+    assert len(gui.calls) == calls_before
+
+
+async def test_local_linux_adapter_wraps_gestures_in_modifiers_and_maps_keys() -> None:
+    gui = FakeX11Gui()
+    computer = LocalX11Computer(gui=gui)
+
+    await computer.click(10, 20, modifier=["ctrl"])
+    assert gui.calls == [("keyDown", "ctrl"), ("click", 10, 20, ("button", "left")), ("keyUp", "ctrl")]
+
+    gui.calls.clear()
+    await computer.keypress(["cmd", "c"])
+    assert gui.calls == [("keyDown", "win"), ("keyDown", "c"), ("keyUp", "c"), ("keyUp", "win")]
+
+    gui.calls.clear()
+    await computer.keypress(["page_up"])
+    assert gui.calls == [("press", "pageup")]
+
+    gui.calls.clear()
+    await computer.type("plain ascii\n")
+    assert gui.calls == [("write", "plain ascii\n", ("interval", 0.01))]
+
+
+async def test_local_linux_adapter_runs_bash_with_persistent_cwd_and_n2_result_formats(tmp_path: Path) -> None:
+    computer = LocalX11Computer(cwd=str(tmp_path))
+
+    assert await computer.run_bash_command("pwd") == f"{tmp_path}\n"
+    (tmp_path / "sub").mkdir()
+    await computer.run_bash_command("cd sub")
+    assert await computer.run_bash_command("pwd") == f"{tmp_path / 'sub'}\n"
+
+    assert await computer.run_bash_command("true") == "(Bash completed with no output)"
+    assert await computer.run_bash_command("echo out; echo err >&2; exit 7") == "Exit code 7\nout\nerr\n"
+    assert await computer.run_bash_command("sleep 5", timeout=0.3) == "Command timed out after 0.3s"
+    # A surviving descendant must not stall the result past bash's own exit.
+    assert await computer.run_bash_command("(sleep 30 &) ; echo done", timeout=5) == "done\n"
+
+    background = await computer.run_bash_command("echo bg", run_in_background=True)
+    assert background.startswith("Started background task `bash_")
+    assert "Use the read tool on that file to retrieve output." in background
+
+
+async def test_local_linux_adapter_file_tools_roundtrip_locally(tmp_path: Path) -> None:
+    computer = LocalX11Computer(cwd=str(tmp_path))
+
+    assert await computer.write_file("draft.txt", "before") == "File created successfully at: draft.txt"
+    read_back = await computer.read_file("draft.txt")
+    assert read_back == "     1\tbefore"
+    edited = await computer.edit_file("draft.txt", "before", "after")
+    assert edited.startswith("The file draft.txt has been updated successfully:")
+    assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "after"
