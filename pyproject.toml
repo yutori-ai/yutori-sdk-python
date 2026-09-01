@@ -48,7 +48,7 @@ yutori = "yutori.cli.main:app"
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.1", "build>=1.2.0"]
 examples = ["loguru>=0.7.0", "playwright>=1.40.0", "pydantic>=2.0.0", "tenacity>=9.0.0"]
-macos = ["cua-driver==0.19.3; python_version >= '3.10' and platform_system == 'Darwin'"]
+macos = ["cua-driver==0.23.2; python_version >= '3.10' and platform_system == 'Darwin'"]
 
 [tool.setuptools.packages.find]
 where = ["."]
