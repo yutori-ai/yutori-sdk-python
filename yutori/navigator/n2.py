@@ -253,7 +253,8 @@ class N2Computer(Protocol):
         The capture size defines the model's viewport; 1280x720 is a good
         starting point when you control the desktop size, and native size also
         works. A handler that downscales captures instead must scale incoming
-        coordinates back up — they arrive in capture space.
+        coordinates back up: the loop maps the model's normalized coordinates
+        onto the capture's dimensions, so they arrive in capture space.
         """
 
     async def click(self, x: int, y: int, button: str = "left") -> Any:
