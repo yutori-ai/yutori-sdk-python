@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 from PIL import Image
 
+from examples.navigator_n2 import cua_adapter as cua_adapter_module
 from examples.navigator_n2.cua_adapter import CuaSandboxComputer
 from examples.navigator_n2.shared import TOOL_SET_ALIASES, RunGuard, selected_tool_set
 from examples.navigator_n2_daytona import CWD_SENTINEL, DaytonaComputer
@@ -374,28 +375,150 @@ async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     assert held_shift_down < mouse_move < held_shift_up
 
 
-async def test_public_cua_adapter_preserves_bash_cwd_when_the_command_fails() -> None:
-    class FailingBashShell:
-        async def run(self, command: str, timeout: int = 30) -> SimpleNamespace:
-            del timeout
-            if command == "pwd":
-                return SimpleNamespace(stdout="/workspace\n", stderr="", returncode=0)
-            sentinel = re.search(r"__YUTORI_N2_BASH_CWD_[a-f0-9]+__", command)
-            assert sentinel is not None
-            return SimpleNamespace(
-                stdout=f"command output\n{sentinel.group()}/next-workspace\n",
-                stderr="command error",
-                returncode=7,
-            )
+async def test_public_cua_adapter_uses_pty_for_a_command_that_leaves_xcalc_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "a" * 32
+    result_prefix = f"/tmp/yutori-n2-bash-{token}"
+    contents = {
+        f"{result_prefix}.stdout": "calculator launched\n",
+        f"{result_prefix}.stderr": "font warning",
+        f"{result_prefix}.status": "0",
+        f"{result_prefix}.cwd": "/next-workspace\n",
+    }
+    removed: list[str] = []
+    terminal_commands: list[str] = []
+    shell_commands: list[str] = []
 
-    sandbox = FakeSandbox()
-    sandbox.shell = FailingBashShell()
-    computer = CuaSandboxComputer(sandbox)
+    class Shell:
+        async def run(self, command: str, timeout: int = 30) -> SimpleNamespace:
+            shell_commands.append(command)
+            assert timeout == 30
+            return SimpleNamespace(stdout="/workspace\n", stderr="", returncode=0)
+
+    class Terminal:
+        async def create(self, command: str) -> dict[str, int]:
+            terminal_commands.append(command)
+            return {"pid": 4242}
+
+    class Files:
+        async def exists(self, path: str) -> bool:
+            return path in contents
+
+        async def read_text(self, path: str) -> str:
+            return contents[path]
+
+        async def remove(self, path: str) -> None:
+            removed.append(path)
+
+    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    computer = CuaSandboxComputer(SimpleNamespace(shell=Shell(), terminal=Terminal(), files=Files()))
+    command = (
+        "export DISPLAY=:1; nohup xcalc >/tmp/xcalc.log 2>&1 & sleep 3; "
+        'cat /tmp/xcalc.log; echo "---"; DISPLAY=:1 wmctrl -l'
+    )
+
+    output = await computer.run_bash_command(command)
+
+    assert shell_commands == ["pwd"]  # The command itself never uses Cua's hanging /cmd path.
+    assert len(terminal_commands) == 1
+    assert "nohup xcalc" in terminal_commands[0]
+    assert "< /dev/null" in terminal_commands[0]
+    assert f"> {result_prefix}.stdout 2> {result_prefix}.stderr" in terminal_commands[0]
+    assert computer._bash_cwd == "/next-workspace"
+    assert output == "calculator launched\nfont warning"
+    assert set(removed).issuperset(contents)
+
+
+async def test_public_cua_adapter_preserves_bash_cwd_and_failure_output_over_pty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "b" * 32
+    result_prefix = f"/tmp/yutori-n2-bash-{token}"
+    contents = {
+        f"{result_prefix}.stdout": "command output\n",
+        f"{result_prefix}.stderr": "command error",
+        f"{result_prefix}.status": "7",
+        f"{result_prefix}.cwd": "/next-workspace\n",
+    }
+
+    class Terminal:
+        async def create(self, _command: str) -> dict[str, int]:
+            return {"pid": 4242}
+
+    class Files:
+        async def exists(self, path: str) -> bool:
+            return path in contents
+
+        async def read_text(self, path: str) -> str:
+            return contents[path]
+
+        async def remove(self, _path: str) -> None:
+            pass
+
+    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal(), files=Files()))
 
     output = await computer.run_bash_command("false")
 
     assert computer._bash_cwd == "/next-workspace"
     assert output == "Exit code 7\ncommand output\ncommand error"
+
+
+async def test_public_cua_adapter_uses_pty_for_explicit_background_bash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "c" * 32
+    commands: list[str] = []
+
+    class Terminal:
+        async def create(self, command: str) -> dict[str, int]:
+            commands.append(command)
+            return {"pid": 4242}
+
+    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal()))
+
+    output = await computer.run_bash_command("sleep 999", run_in_background=True)
+
+    assert commands == ["cd /workspace && exec sh -c 'sleep 999' > /tmp/yutori-n2-bash-cccccccc.log 2>&1 < /dev/null"]
+    assert output == (
+        "Started background task `bash_cccccccc`.\n"
+        "stdout+stderr is streaming to: /tmp/yutori-n2-bash-cccccccc.log\n"
+        "Use the read tool on that file to retrieve output.\n"
+        "Process id: 4242\n"
+        "To cancel: run bash with `kill 4242`"
+    )
+
+
+async def test_public_cua_adapter_pty_timeout_is_a_normal_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "d" * 32
+    closed: list[int] = []
+
+    class Terminal:
+        async def create(self, _command: str) -> dict[str, int]:
+            return {"pid": 4242}
+
+        async def close(self, pid: int) -> bool:
+            closed.append(pid)
+            return True
+
+    class Files:
+        async def exists(self, _path: str) -> bool:
+            return False
+
+        async def remove(self, _path: str) -> None:
+            pass
+
+    monkeypatch.setattr(cua_adapter_module.uuid, "uuid4", lambda: SimpleNamespace(hex=token))
+    computer = CuaSandboxComputer(SimpleNamespace(shell=FakeShell(), terminal=Terminal(), files=Files()))
+
+    output = await computer.run_bash_command("sleep 10", timeout=0.01)
+
+    assert output == "Command timed out after 0.01s"
+    assert closed == [4242]
 
 
 def test_cua_file_tools_match_the_n2_tool_contract(tmp_path: Path) -> None:

@@ -212,6 +212,7 @@ uv run python remote_sandbox.py --auto-approve "Open Calculator and compute 17 *
 ```
 
 The script prints a `Watch the desktop live:` URL at startup — open it in a browser to follow along.
+The Linux image in this example has no Calculator desktop app, and the example shows n2 moving between bash and GUI interactions to discover, launch, and visually operate the available `xcalc` fallback.
 
 #### Run on a Daytona Linux VM
 
