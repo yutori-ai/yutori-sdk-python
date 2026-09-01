@@ -319,6 +319,15 @@ def format_shell_result(result: Any) -> str:
     )
 
 
+BASH_TIMEOUT_DEFAULT_SECONDS = 120.0
+BASH_TIMEOUT_MAX_SECONDS = 600.0
+
+
+def clamp_bash_timeout(timeout: float | None) -> float:
+    """Clamp a `bash` timeout into the n2 contract's [0, 600] range, defaulting a missing value to 120s."""
+    return max(0.0, min(float(BASH_TIMEOUT_DEFAULT_SECONDS if timeout is None else timeout), BASH_TIMEOUT_MAX_SECONDS))
+
+
 IMAGE_VIEW_MAX_EDGE = 1568
 
 
@@ -453,10 +462,13 @@ class ShellFileToolsMixin:
 
 __all__ = [
     "BASH_RESULT_MAX_CHARS",
+    "BASH_TIMEOUT_DEFAULT_SECONDS",
+    "BASH_TIMEOUT_MAX_SECONDS",
     "FILE_TOOL_SCRIPT",
     "IMAGE_VIEW_MAX_EDGE",
     "ShellFileToolsMixin",
     "append_stream",
+    "clamp_bash_timeout",
     "format_shell_output",
     "format_shell_result",
     "join_output_streams",

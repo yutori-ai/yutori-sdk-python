@@ -67,6 +67,7 @@ from yutori.navigator import (
     format_stop_and_summarize,
 )
 from yutori.navigator.n2_compaction import response_message
+from yutori.navigator.sandbox_tools import clamp_bash_timeout
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -264,7 +265,7 @@ class DaytonaComputer(ShellFileToolsMixin):
         # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
         # a normal result the model can react to, never a raised failure envelope.
         # (Daytona raises on expiry and discards the partial output.)
-        timeout_s = max(0.0, min(float(120.0 if timeout is None else timeout), 600.0))
+        timeout_s = clamp_bash_timeout(timeout)
         if timeout_s == 0:
             return "Command timed out after 0s"
         # Run the command, then report the directory it finished in, keeping
