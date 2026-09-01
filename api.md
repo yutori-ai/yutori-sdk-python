@@ -575,7 +575,7 @@ Required (all `async def`):
 
 | Method | Contract |
 |---|---|
-| `screenshot() -> str` | The current frame as a data URL or bare base64 (any Pillow-decodable format). Capture at the size the model should see: the handler defines the viewport, with DPR scaling removed — the SDK re-encodes but never resizes. May instead return a native `N2Observation`, as `MacOSComputer` does, which unlocks the optional `wait_for_change`/`poll_after_action` hooks and skips the settle delay. |
+| `screenshot() -> str` | The current frame as a data URL or bare base64 (any Pillow-decodable format). Capture at the size the model should see: the handler defines the viewport, with DPR scaling removed — the SDK re-encodes but never resizes. We recommend starting with a 1280×720 desktop (or downscaling captures to about that size); larger frames also spend more tokens per screenshot. May instead return a native `N2Observation`, as `MacOSComputer` does, which unlocks the optional `wait_for_change`/`poll_after_action` hooks and skips the settle delay. |
 | `click(x, y, button="left")` | `button` is `"left"`, `"right"`, or `"middle"`. |
 | `double_click(x, y)` | — |
 | `move(x, y)` | Move the pointer without clicking. |
