@@ -109,6 +109,7 @@ from yutori.navigator import (
 | `TOOL_SET_EXPANDED` | `"browser_tools_expanded-20260403"` | Core tools + `extract_elements`, `find`, `set_element_value`, `execute_js`. |
 | `NAVIGATOR_N2_MODEL` | `"n2"` | Stable Navigator n2 model identifier and `N2ComputerAgent` default. |
 | `TOOL_SET_COMPUTER_USE_LATEST` | `"computer_use_tools-20260830"` | Current n2 tool set: `computer_batch`, `edit`, `read`, `write`, and `bash`. A batch contains up to 20 actions drawn from 15 action types, including held mouse/key actions and screenshot. |
+| `TOOL_SET_COMPUTER_USE_20260830` / `TOOL_SET_COMPUTER_USE_20260825` | those ids | The two current desktop sets, by name. `LATEST` aliases `20260830` and moves with the SDK release — import a dated name to hold one set across upgrades. They serve the same five tools and the same batch actions, differing in tool descriptions and in whether `computer_batch`'s optional arguments are marked required. |
 | `NAVIGATOR_COORDINATE_SCALE` | `1000` | The normalized action space is `NAVIGATOR_COORDINATE_SCALE × NAVIGATOR_COORDINATE_SCALE`. |
 
 `N1_MODEL`, `N1_5_MODEL`, and `N1_COORDINATE_SCALE` are still importable from the same module as deprecated aliases of the `NAVIGATOR_*` constants and may be removed in a future release.
@@ -554,7 +555,7 @@ Constructor parameters (the `**loop_policies` keywords have [their own table](#l
 | Parameter | What it does |
 |---|---|
 | `computer` | Your adapter — see [the adapter contract](#the-adapter-contract-n2computer). |
-| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. Tool sets are all-or-nothing — custom or disabled tools are rejected, and the adapter must serve every tool in the set. |
+| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. Your adapter must serve every tool the set exposes; to narrow it, pass `disable_tools` via `completion_kwargs` (see [Changing the n2 tool set](#changing-the-n2-tool-set)) rather than leaving a tool to fail on every call. |
 | `instructions` | Optional text inserted as the first user message of the run's history. |
 | `callbacks` | List of duck-typed observer objects — see [Callbacks and confirmation](#callbacks-and-confirmation). |
 | `action_confirmation_callback` | Opt-in approval gate for model actions — same section. |
