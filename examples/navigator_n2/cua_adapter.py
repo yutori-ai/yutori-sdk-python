@@ -37,6 +37,9 @@ from yutori.navigator.sandbox_tools import (
     append_stream as _append_stream,
 )
 from yutori.navigator.sandbox_tools import (
+    build_cwd_tracking_bash_script as _build_cwd_tracking_bash_script,
+)
+from yutori.navigator.sandbox_tools import (
     clamp_bash_timeout as _clamp_bash_timeout,
 )
 from yutori.navigator.sandbox_tools import (
@@ -243,33 +246,8 @@ class CuaSandboxComputer(ShellFileToolsMixin):
         cwd_path = f"{result_prefix}.cwd"
         inner_cwd_tmp = f"{cwd_path}.tmp"
         status_tmp = f"{status_path}.tmp"
-        finish = f"__yutori_finish_{token}"
-        inner = (
-            f"{finish}() {{\n"
-            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(inner_cwd_tmp)}\n"
-            f"  mv {shlex.quote(inner_cwd_tmp)} {shlex.quote(cwd_path)}\n"
-            "}\n"
-            f"trap {finish} 0\n"
-            f"{command}"
-        )
-        wrapped = (
-            "(\n"
-            f"cd {shlex.quote(cwd)}\n"
-            "__yutori_cd_rc=$?\n"
-            'if [ "$__yutori_cd_rc" -eq 0 ]; then\n'
-            f"  /bin/bash -c {shlex.quote(inner)}\n"
-            "  __yutori_rc=$?\n"
-            "else\n"
-            "  __yutori_rc=$__yutori_cd_rc\n"
-            "fi\n"
-            f"if [ ! -f {shlex.quote(cwd_path)} ]; then\n"
-            f"  printf '%s\\n' \"$PWD\" > {shlex.quote(cwd_path)}\n"
-            "fi\n"
-            f"printf '%s' \"$__yutori_rc\" > {shlex.quote(status_tmp)}\n"
-            f"mv {shlex.quote(status_tmp)} {shlex.quote(status_path)}\n"
-            'exit "$__yutori_rc"\n'
-            f") < /dev/null > {shlex.quote(stdout_path)} 2> {shlex.quote(stderr_path)}"
-        )
+        script = _build_cwd_tracking_bash_script(command, cwd=cwd, cwd_path=cwd_path, status_path=status_path)
+        wrapped = f"(\n{script}) < /dev/null > {shlex.quote(stdout_path)} 2> {shlex.quote(stderr_path)}"
         session = await self.sandbox.terminal.create(wrapped)
         process_id = session.get("pid")
         if not isinstance(process_id, int) or process_id <= 0:
