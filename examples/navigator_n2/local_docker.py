@@ -6,14 +6,13 @@ import argparse
 
 from yutori import AsyncYutoriClient
 from yutori.auth import require_api_key
-from yutori.navigator import NAVIGATOR_N2_MODEL, N2ComputerAgent
 
 try:
     from .cua_adapter import CuaSandboxComputer
-    from .shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
+    from .shared import parse_common_args, run_cli_main, run_computer_agent, selected_tool_set
 except ImportError:
     from cua_adapter import CuaSandboxComputer
-    from shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
+    from shared import parse_common_args, run_cli_main, run_computer_agent, selected_tool_set
 
 
 def _watch_url(sandbox) -> "str | None":
@@ -42,16 +41,14 @@ async def main(args: argparse.Namespace) -> None:
             if watch:
                 print(f"Watch the desktop live: {watch}")
             computer = CuaSandboxComputer(sandbox)
-            async with N2ComputerAgent(
+            await run_computer_agent(
+                client=client,
                 computer=computer,
-                completions=client.chat.completions,
-                model=NAVIGATOR_N2_MODEL,
+                args=args,
                 tool_set=tool_set,
-                max_steps=args.max_steps,
-                action_confirmation_callback=build_confirmation_callback(args.auto_approve, always_confirm_shell=False),
+                always_confirm_shell=False,
                 supports_click_modifiers=True,
-            ) as agent:
-                await run_agent(agent, args.task, completions=client.chat.completions)
+            )
 
 
 def parse_args() -> argparse.Namespace:

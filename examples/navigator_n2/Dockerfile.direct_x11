@@ -1,0 +1,40 @@
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        less \
+        libxcb-render0 \
+        libxcb-shm0 \
+        libxcb1 \
+        novnc \
+        openbox \
+        procps \
+        python3-tk \
+        x11-apps \
+        x11-utils \
+        xauth \
+        xclip \
+        xdotool \
+        xfonts-base \
+        x11vnc \
+        xterm \
+        xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# The checkout is mounted at /sdk when the container runs. Installing the
+# released package here supplies its third-party dependencies; PYTHONPATH then
+# makes the mounted checkout itself win at import time.
+RUN python -m pip install --no-cache-dir \
+    "yutori==0.9.9" \
+    "pyautogui>=0.9.54" \
+    "mss>=9.0.1"
+
+COPY x11_docker_session.py /usr/local/bin/x11_docker_session.py
+
+WORKDIR /work
+ENTRYPOINT ["python", "/usr/local/bin/x11_docker_session.py"]

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from examples import navigator_n2_daytona
-from examples.navigator_n2 import local_docker
+from examples.navigator_n2 import local_docker, local_x11, local_x11_docker, shared
 
 
 def test_daytona_script_declares_its_uv_environment_inline() -> None:
@@ -27,6 +27,7 @@ def test_local_docker_cli_accepts_documented_command(monkeypatch: pytest.MonkeyP
     args = local_docker.parse_args()
 
     assert args.task == "Open Calculator"
+    assert args.auto_approve is False
 
 
 async def test_local_docker_resolves_yutori_key_before_allocation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,8 +125,8 @@ async def test_local_docker_wires_local_container_runtime(monkeypatch: pytest.Mo
     monkeypatch.setitem(sys.modules, "cua_sandbox", SimpleNamespace(Image=FakeImage, Sandbox=FakeSandbox))
     monkeypatch.setattr(local_docker, "require_api_key", lambda: "test-yutori-key")
     monkeypatch.setattr(local_docker, "CuaSandboxComputer", FakeComputer)
-    monkeypatch.setattr(local_docker, "N2ComputerAgent", FakeAgent)
-    monkeypatch.setattr(local_docker, "run_agent", fake_run_agent)
+    monkeypatch.setattr(shared, "N2ComputerAgent", FakeAgent)
+    monkeypatch.setattr(shared, "run_agent", fake_run_agent)
     args = argparse.Namespace(
         max_steps=2,
         task="test",
@@ -138,6 +139,9 @@ async def test_local_docker_wires_local_container_runtime(monkeypatch: pytest.Mo
     assert seen["image"] == {"kind": "container"}
     assert seen["ephemeral"] == ("linux-image", {"local": True})
     assert seen["computer-sandbox"] is fake_sandbox
+    agent_kwargs = seen["agent"]
+    assert isinstance(agent_kwargs, dict)
+    assert agent_kwargs["supports_click_modifiers"] is True
     assert seen["task"] == "test"
     assert seen["sandbox-closed"] is True
 
@@ -147,6 +151,144 @@ def test_local_docker_watch_url_comes_from_the_runtime_info() -> None:
     assert local_docker._watch_url(SimpleNamespace(_runtime_info=info)) == "http://localhost:54423/vnc.html"
     assert local_docker._watch_url(SimpleNamespace(_runtime_info=None)) is None
     assert local_docker._watch_url(SimpleNamespace()) is None
+
+
+def test_local_x11_docker_cli_accepts_documented_command() -> None:
+    args = local_x11_docker.parse_args(["Open Calculator"])
+
+    assert args.task == "Open Calculator"
+    assert args.auto_approve is True
+    assert local_x11_docker.parse_args(["--confirm-actions", "Open Calculator"]).auto_approve is False
+
+
+def test_local_x11_native_keeps_shell_auto_approval_internal() -> None:
+    native_args = local_x11.parse_args(["Open Calculator", "--auto-approve"])
+    assert native_args.auto_approve_shell is False
+    assert native_args.workspace is None
+
+    docker_args = local_x11.parse_args(
+        ["Open Calculator", "--auto-approve", "--auto-approve-shell", "--workspace", "/work"]
+    )
+    assert docker_args.auto_approve_shell is True
+    assert docker_args.workspace == "/work"
+
+
+async def test_local_x11_delegates_to_shared_agent_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+    computer = object()
+
+    class FakeClient:
+        def __init__(self, *, api_key: str) -> None:
+            seen["api-key"] = api_key
+            self.chat = SimpleNamespace(completions=object())
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+    async def fake_run_computer_agent(**kwargs: object) -> None:
+        seen["agent-args"] = kwargs
+
+    def fake_local_x11_computer(*, cwd: str | None) -> object:
+        seen["computer-cwd"] = cwd
+        return computer
+
+    monkeypatch.setattr(local_x11, "_require_x11", lambda: None)
+    monkeypatch.setattr(local_x11, "require_api_key", lambda: "test-yutori-key")
+    monkeypatch.setattr(local_x11, "AsyncYutoriClient", FakeClient)
+    monkeypatch.setattr(local_x11, "LocalX11Computer", fake_local_x11_computer)
+    monkeypatch.setattr(local_x11, "run_computer_agent", fake_run_computer_agent)
+
+    args = local_x11.parse_args(["Open Calculator", "--auto-approve", "--workspace", "/work"])
+    await local_x11.main(args)
+
+    agent_args = seen["agent-args"]
+    assert isinstance(agent_args, dict)
+    assert seen["api-key"] == "test-yutori-key"
+    assert seen["computer-cwd"] == "/work"
+    assert agent_args["computer"] is computer
+    assert agent_args["args"] is args
+    assert agent_args["always_confirm_shell"] is True
+    assert agent_args["supports_click_modifiers"] is True
+
+
+def test_local_x11_docker_builds_image_and_delegates_to_local_x11(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setenv("YUTORI_API_KEY", "test-yutori-key")
+    monkeypatch.setattr(
+        local_x11_docker,
+        "require_api_key",
+        lambda: pytest.fail("get_auth_status already resolved an authenticated source"),
+    )
+    monkeypatch.setattr(
+        local_x11_docker,
+        "get_auth_status",
+        lambda: SimpleNamespace(authenticated=True, source="env_var", config_path=None),
+    )
+    monkeypatch.setattr(local_x11_docker.shutil, "which", lambda _command: "/usr/local/bin/docker")
+    monkeypatch.setattr(local_x11_docker, "_available_local_port", lambda: 54321)
+    monkeypatch.setattr(local_x11_docker.subprocess, "run", fake_run)
+    args = argparse.Namespace(
+        max_steps=7,
+        task="Open Calculator",
+        tool_set="latest",
+        auto_approve=True,
+    )
+
+    local_x11_docker.main(args)
+
+    assert commands[0] == ["docker", "info"]
+    assert commands[1][0:2] == ["docker", "build"]
+    docker_run = commands[2]
+    assert docker_run[0:2] == ["docker", "run"]
+    assert ["--publish", "127.0.0.1:54321:6080"] == docker_run[
+        docker_run.index("--publish") : docker_run.index("--publish") + 2
+    ]
+    assert ["--env", "YUTORI_API_KEY"] == docker_run[
+        docker_run.index("YUTORI_API_KEY") - 1 : docker_run.index("YUTORI_API_KEY") + 1
+    ]
+    assert "/sdk/examples/navigator_n2/local_x11.py" in docker_run
+    assert "Open Calculator" in docker_run
+    assert ["--workspace", "/work"] == docker_run[docker_run.index("--workspace") : docker_run.index("--workspace") + 2]
+    assert docker_run[-2:] == ["--auto-approve", "--auto-approve-shell"]
+    assert "Watch the desktop live: http://localhost:54321/vnc.html" in capsys.readouterr().out
+
+    documentation = Path(local_x11_docker.__file__).with_name("README.md").read_text(encoding="utf-8")
+    assert 'uv run python local_x11_docker.py "Launch xcalc and compute 17 * 23."' in documentation
+    assert "A terminal is open" not in documentation
+    assert "view-only noVNC session" in documentation
+
+
+def test_local_x11_docker_uses_sdk_config_path_for_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        local_x11_docker,
+        "require_api_key",
+        lambda: pytest.fail("get_auth_status already resolved an authenticated source"),
+    )
+    monkeypatch.setattr(
+        local_x11_docker,
+        "get_auth_status",
+        lambda: SimpleNamespace(
+            authenticated=True,
+            source="config_file",
+            config_path="/custom/yutori/config.json",
+        ),
+    )
+
+    assert local_x11_docker._authentication_args() == [
+        "--mount",
+        "type=bind,source=/custom/yutori/config.json,target=/root/.yutori/config.json,readonly",
+    ]
 
 
 def test_daytona_cli_record_flag_is_optional_and_order_safe() -> None:

@@ -53,6 +53,14 @@ uv run --extra linux python local_x11.py "Open the calculator and compute 17 * 2
 
 Non-ASCII text falls back to clipboard paste, which needs `xclip` installed in the session.
 
+The same entrypoint can run inside a disposable Docker/Xvfb desktop on macOS or Linux. The Python wrapper builds the desktop image, mounts this checkout read-only, starts Xvfb with Openbox, and invokes `local_x11.py` inside it:
+
+~~~bash
+uv run python local_x11_docker.py "Launch xcalc and compute 17 * 23."
+~~~
+
+The wrapper prints a `Watch the desktop live: http://localhost:<port>/vnc.html` link for a view-only noVNC session. The port is selected automatically and published only on the host's loopback interface. No application is pre-opened: n2 can launch GUI programs with its bash tool, or open the installed xterm itself when a visible terminal is useful. Container actions, including shell commands, are auto-approved by default; pass `--confirm-actions` to restore per-action prompts. The wrapper passes `YUTORI_API_KEY` by name when set; otherwise it mounts `~/.yutori/config.json` read-only. The agent's shell and file tools operate in the container's writable `/work` directory, not in the mounted checkout.
+
 ## Disposable Linux sandbox
 
 The sandbox entrypoint adapts public Cua mouse, keyboard, screenshot, shell, and file interfaces to `N2ComputerAgent`. It creates a disposable Linux desktop in local Docker and destroys it when the process exits. Confirm Docker Desktop or Docker Engine is running, then run:
