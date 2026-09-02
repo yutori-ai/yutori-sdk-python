@@ -36,11 +36,11 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       release: ${{ steps.resolve.outputs.release }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -88,12 +88,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -186,7 +186,7 @@ jobs:
           PY
 
       - name: Store release distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-distributions
           path: dist/
@@ -196,7 +196,7 @@ jobs:
         run: git archive --format=tar.gz --prefix=source/ HEAD > release-source.tar.gz
 
       - name: Store verified release source archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-source
           path: release-source.tar.gz
@@ -215,7 +215,7 @@ jobs:
       RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
     steps:
       - name: Retrieve tested distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-distributions
           path: dist
@@ -265,7 +265,7 @@ jobs:
         if: steps.pypi-release.outputs.state == 'missing'
         # release/v1, pinned to an immutable commit. This action creates and
         # uploads PyPI attestations for the same distribution bytes by default.
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 (v1.14.2)
         with:
           packages-dir: packages/
           attestations: true
@@ -283,7 +283,7 @@ jobs:
       RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
     steps:
       - name: Retrieve tested distribution hashes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-distributions
           path: dist
@@ -292,7 +292,7 @@ jobs:
         run: (cd dist && sha256sum --check SHA256SUMS)
 
       - name: Retrieve verified release source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-source
           path: source-archive
@@ -330,7 +330,7 @@ jobs:
       - name: Upload release assets
         # Pinned to a commit SHA: this third-party action runs with
         # contents:write and uploads the curl|sh installer artifacts.
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: yutori ${{ env.RELEASE_TAG }}
