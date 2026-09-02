@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
-from .process_lifecycle import cancel_and_drain, drain_stream, spawn_rpc_subprocess, terminate_process_gracefully
+from .process_lifecycle import (
+    cancel_and_drain,
+    drain_stream,
+    race_sleep_against_cancellation,
+    spawn_rpc_subprocess,
+    terminate_process_gracefully,
+)
 from .types import (
     CancellationLatch,
     MacOSPresentationCapabilities,
@@ -706,10 +712,7 @@ class MacOSPresentationController:
     async def _sleep(self, seconds: float) -> bool:
         if self.cancellation.cancelled:
             return False
-        sleeper = asyncio.create_task(asyncio.sleep(seconds))
-        cancelled = asyncio.create_task(self.cancellation.wait())
-        done, pending = await asyncio.wait({sleeper, cancelled}, return_when=asyncio.FIRST_COMPLETED)
-        await cancel_and_drain(*pending)
+        sleeper, _cancelled, done = await race_sleep_against_cancellation(seconds, self.cancellation)
         return sleeper in done
 
     def _validate_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:

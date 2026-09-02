@@ -14,7 +14,10 @@ cancellation before continuing.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .types import CancellationLatch
 
 # Screenshot-bearing JSON-RPC frames routinely exceed asyncio's 64 KiB default,
 # so both stdio peers raise the stream limit to the same ceiling.
@@ -66,6 +69,25 @@ async def cancel_and_drain(*tasks: "asyncio.Task[Any]") -> None:
         if not task.done():
             task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def race_sleep_against_cancellation(
+    seconds: float,
+    cancellation: "CancellationLatch",
+    *,
+    timeout: "float | None" = None,
+) -> "tuple[asyncio.Task[Any], asyncio.Task[Any], set[asyncio.Task[Any]]]":
+    """Race ``asyncio.sleep(seconds)`` against ``cancellation.wait()``, draining the loser.
+
+    Returns ``(sleeper, cancelled, done)`` so a caller can tell which task(s) finished --
+    ``sleeper in done`` if the sleep (or an optional *timeout*) elapsed first, ``cancelled in
+    done`` if cancellation won, or neither if *timeout* elapsed before either task did.
+    """
+    sleeper = asyncio.create_task(asyncio.sleep(seconds))
+    cancelled = asyncio.create_task(cancellation.wait())
+    done, pending = await asyncio.wait({sleeper, cancelled}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    await cancel_and_drain(*pending)
+    return sleeper, cancelled, done
 
 
 async def terminate_process_gracefully(
