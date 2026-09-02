@@ -63,6 +63,21 @@ release, and only then publishes the release. Do not publish a GitHub release ma
 already-published release:
 `yutori.com/install.sh` follows the latest published release.
 
+## Releasing
+
+1. Open a PR titled `chore(release): X.Y.Z` that bumps `version` in `pyproject.toml`,
+   runs `bash scripts/build_install.sh` to regenerate `install.sh`, and updates the pinned
+   `yutori==` versions under `examples/navigator_n2/` (`pyproject.toml`, `README.md`,
+   `Dockerfile.direct_x11`).
+2. Merge it. The "Publish yutori to PyPI" workflow runs on the version change: it runs the
+   tests, builds and uploads the package, tags the merge commit `vX.Y.Z`, and creates the
+   GitHub release with generated notes and the installer assets.
+
+Do not create the tag or the release by hand. An existing `vX.Y.Z` tag tells the workflow
+that version already shipped, so it skips. If a run fails after PyPI accepted the upload,
+fix the cause and re-run it from the Actions tab; the upload step skips files PyPI already
+has, and the tag and release steps pick up where it stopped.
+
 ## Reporting Issues
 
 Please report issues at https://github.com/yutori-ai/yutori-sdk-python/issues

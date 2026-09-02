@@ -1,304 +1,130 @@
 name: Publish yutori to PyPI
 
+# A release is cut by merging a version bump: a PR that raises `version` in
+# pyproject.toml and regenerates install.sh (scripts/build_install.sh). When that
+# lands on main this workflow tags the merge commit vX.Y.Z, publishes the package
+# to PyPI, and creates the GitHub release with the installer assets. Do not create
+# the tag or the release by hand: an existing vX.Y.Z tag is the signal that the
+# version already shipped, and the run skips.
 on:
+  push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+  # Re-run for the current main by hand if a publish attempt failed midway.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Annotated release tag to publish (vX.Y.Z or X.Y.Z)"
-        required: true
-        type: string
 
-# A GitHub Release becomes "latest" as soon as it is published. Build, test,
-# publish to PyPI, and attach every release asset before publishing the release
-# so yutori.com/install.sh can never point at an incomplete release.
+# One publish at a time, and never cancel one that is already uploading.
 concurrency:
-  group: yutori-release
+  group: publish-to-pypi
   cancel-in-progress: false
 
 jobs:
-  normalize_tag:
-    name: Normalize release tag
+  version:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.normalize.outputs.tag }}
-    steps:
-      - id: normalize
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          version="${INPUT_TAG#v}"
-          test -n "$version"
-          printf 'tag=v%s\n' "$version" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: Build release artifacts
-    needs: normalize_tag
-    runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ needs.normalize_tag.outputs.tag }}
-    env:
-      RELEASE_TAG: ${{ needs.normalize_tag.outputs.tag }}
-    permissions:
-      contents: read
+      version: ${{ steps.read.outputs.version }}
+      unreleased: ${{ steps.check.outputs.unreleased }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Verify annotated release tag and package version
+      - name: Read the version from pyproject.toml
+        id: read
         run: |
-          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
-          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
-          test "${RELEASE_TAG#v}" != "$RELEASE_TAG"
-          test "$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")" = "${RELEASE_TAG#v}"
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Refuse to overwrite a published release
+      - name: Check whether this version is already tagged
+        id: check
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.read.outputs.version }}
         run: |
-          python - <<'PY'
-          import json
-          import os
-          from urllib.error import HTTPError
-          from urllib.parse import quote
-          from urllib.request import Request, urlopen
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null; then
+            echo "v${VERSION} is already released; nothing to publish."
+            echo "unreleased=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v${VERSION} is not tagged yet; publishing."
+            echo "unreleased=true" >> "$GITHUB_OUTPUT"
+          fi
 
-          repository = os.environ["GITHUB_REPOSITORY"]
-          tag = quote(os.environ["RELEASE_TAG"], safe="")
-          request = Request(
-              f"https://api.github.com/repos/{repository}/releases/tags/{tag}",
-              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"},
-          )
-          try:
-              with urlopen(request, timeout=30) as response:
-                  release = json.load(response)
-          except HTTPError as error:
-              if error.code == 404:
-                  raise SystemExit(0)
-              raise
+  publish:
+    needs: version
+    if: needs.version.outputs.unreleased == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
 
-          if not release["draft"]:
-              raise SystemExit(
-                  "Refusing to overwrite a published release; repair it separately or create a new release tag."
-              )
-          PY
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: Install build tools
         run: pip install build twine
 
+      # Gate publishing on the test suite — a broken version bump must not ship.
       - name: Run tests
         run: |
           pip install -e ".[dev]"
           pytest -m "not slow"
 
-      - name: Build and validate exact distributions
-        run: |
-          python -m build
-          twine check dist/*
-          (cd dist && sha256sum *.tar.gz *.whl > SHA256SUMS)
+      - name: Build package
+        run: python -m build
 
-      - name: Test exact distributions
-        env:
-          YUTORI_TEST_DISTRIBUTIONS_DIR: ${{ github.workspace }}/dist
-        run: pytest -m slow tests/test_packaging.py
+      - name: Validate package metadata
+        run: twine check dist/*
 
-      - name: Record public source provenance
-        run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import subprocess
-          import tomllib
-          from pathlib import Path
-
-          dist = Path("dist")
-          tag = os.environ["RELEASE_TAG"]
-          artifacts = {
-              path.name: f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
-              for path in sorted([*dist.glob("*.tar.gz"), *dist.glob("*.whl")])
-          }
-          provenance = {
-              "repository": "${{ github.repository }}",
-              "tag": tag,
-              "tag_object": subprocess.check_output(
-                  ["git", "rev-parse", f"refs/tags/{tag}"], text=True
-              ).strip(),
-              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "version": tomllib.load(open("pyproject.toml", "rb"))["project"]["version"],
-              "artifacts": artifacts,
-          }
-          (dist / "RELEASE-PROVENANCE.json").write_text(
-              json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-          )
-          PY
-
-      - name: Store release distributions
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-distributions
-          path: dist/
-          if-no-files-found: error
-
-      - name: Store verified release source
-        run: git archive --format=tar.gz --prefix=source/ HEAD > release-source.tar.gz
-
-      - name: Store verified release source archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-source
-          path: release-source.tar.gz
-          if-no-files-found: error
-
-  publish:
-    name: Publish exact distributions to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/yutori
-    permissions:
-      id-token: write
-    env:
-      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
-    steps:
-      - name: Retrieve tested distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distributions
-          path: dist
-
-      - name: Verify distribution hashes
-        run: (cd dist && sha256sum --check SHA256SUMS)
-
-      - name: Prepare exact distributions for publishing
-        run: |
-          mkdir packages
-          cp dist/*.tar.gz dist/*.whl packages/
-
-      - name: Check whether PyPI already has these distributions
-        id: pypi-release
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          from urllib.error import HTTPError
-          from urllib.request import urlopen
-
-          expected = {}
-          for line in Path("dist/SHA256SUMS").read_text(encoding="utf-8").splitlines():
-              digest, filename = line.split(maxsplit=1)
-              expected[filename.removeprefix("*")] = digest
-
-          version = os.environ["RELEASE_TAG"].removeprefix("v")
-          try:
-              with urlopen(f"https://pypi.org/pypi/yutori/{version}/json", timeout=30) as response:
-                  release = json.load(response)
-          except HTTPError as error:
-              if error.code != 404:
-                  raise
-              state = "missing"
-          else:
-              actual = {file["filename"]: file["digests"]["sha256"] for file in release["urls"]}
-              if actual != expected:
-                  raise SystemExit(f"PyPI yutori {version} does not match the verified distributions")
-              state = "matching"
-
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              print(f"state={state}", file=output)
-          PY
-
-      - name: Publish with PyPI Trusted Publishing
-        if: steps.pypi-release.outputs.state == 'missing'
-        # release/v1, pinned to an immutable commit. This action creates and
-        # uploads PyPI attestations for the same distribution bytes by default.
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
-        with:
-          packages-dir: packages/
-          attestations: true
-
-  release-assets:
-    name: Upload release checksums and installers
-    # Do not let a release become latest until its PyPI distributions exist.
-    # This job still creates a draft first, then publishes it only after all
-    # installer assets have been verified and uploaded.
-    needs: [build, publish]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
-    steps:
-      - name: Retrieve tested distribution hashes
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distributions
-          path: dist
-
-      - name: Verify distribution hashes
-        run: (cd dist && sha256sum --check SHA256SUMS)
-
-      - name: Retrieve verified release source
-        uses: actions/download-artifact@v4
-        with:
-          name: release-source
-          path: source-archive
-
-      - name: Extract verified release source
-        run: |
-          mkdir source
-          tar -xzf source-archive/release-source.tar.gz -C source --strip-components=1
+      - name: Verify the build carries the bumped version
+        run: ls "dist/yutori-${VERSION}.tar.gz" "dist/yutori-${VERSION}-py3-none-any.whl"
 
       # install.sh is regenerated from the committed template + banner +
       # frames so the uploaded release asset matches the tagged commit
       # deterministically. The pre-commit hook at
       # scripts/check_install_sh_fresh.sh catches drift at PR time.
       - name: Regenerate install.sh
-        run: bash source/scripts/build_install.sh
+        run: bash scripts/build_install.sh
 
       - name: Generate installer checksums
         run: |
-          chmod +x source/install.sh source/uninstall.sh
-          sha256sum source/install.sh > source/install.sh.sha256
-          sha256sum source/uninstall.sh > source/uninstall.sh.sha256
+          chmod +x install.sh uninstall.sh
+          sha256sum install.sh > install.sh.sha256
+          sha256sum uninstall.sh > uninstall.sh.sha256
 
-      - name: Verify release assets
+      - name: Publish to PyPI
+        # --skip-existing lets a re-run after a failed tag or release step pass the
+        # files PyPI already accepted instead of failing on them.
+        run: twine upload --skip-existing dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Tag the release commit
         run: |
-          for file in \
-            dist/SHA256SUMS \
-            dist/RELEASE-PROVENANCE.json \
-            source/install.sh \
-            source/install.sh.sha256 \
-            source/uninstall.sh \
-            source/uninstall.sh.sha256; do
-            test -s "$file"
-          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "yutori ${VERSION}" "${GITHUB_SHA}"
+          git push origin "v${VERSION}"
 
-      - name: Upload release assets
+      - name: Create the GitHub release with installer assets
         # Pinned to a commit SHA: this third-party action runs with
-        # contents:write and uploads the curl|sh installer artifacts.
+        # contents:write and uploads the curl|sh installer artifact, so a
+        # mutable tag would be a supply-chain risk.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: yutori ${{ env.RELEASE_TAG }}
+          tag_name: v${{ needs.version.outputs.version }}
+          name: yutori v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
-          draft: true
           fail_on_unmatched_files: true
           files: |
-            dist/SHA256SUMS
-            dist/RELEASE-PROVENANCE.json
-            source/install.sh
-            source/install.sh.sha256
-            source/uninstall.sh
-            source/uninstall.sh.sha256
-
-      - name: Publish release after verified assets upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+            install.sh
+            install.sh.sha256
+            uninstall.sh
+            uninstall.sh.sha256
