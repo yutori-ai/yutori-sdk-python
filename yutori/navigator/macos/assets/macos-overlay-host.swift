@@ -6,6 +6,50 @@ import WebKit
 
 private let overlayProtocolVersion = 2
 
+private let mousePointerIconViewBox: CGFloat = 24
+private let menuBarIconPoints: CGFloat = 18
+
+/// Lucide `mouse-pointer-2` (https://lucide.dev, ISC license) on its 24-unit box, the cursor
+/// glyph the rest of the Yutori UI uses. Generated from lucide-react 0.546.0 with the SVG
+/// arcs pre-converted to cubic curves, because AppKit has no SVG path parser.
+private func mousePointerGlyph() -> CGPath {
+    let path = CGMutablePath()
+    path.move(to: CGPoint(x: 4.037, y: 4.688))
+    path.addCurve(to: CGPoint(x: 4.141, y: 4.141), control1: CGPoint(x: 3.956, y: 4.502), control2: CGPoint(x: 3.998, y: 4.285))
+    path.addCurve(to: CGPoint(x: 4.688, y: 4.037), control1: CGPoint(x: 4.285, y: 3.998), control2: CGPoint(x: 4.502, y: 3.956))
+    path.addLine(to: CGPoint(x: 20.688, y: 10.537))
+    path.addCurve(to: CGPoint(x: 20.998, y: 11.033), control1: CGPoint(x: 20.888, y: 10.618), control2: CGPoint(x: 21.013, y: 10.818))
+    path.addCurve(to: CGPoint(x: 20.625, y: 11.484), control1: CGPoint(x: 20.984, y: 11.248), control2: CGPoint(x: 20.834, y: 11.43))
+    path.addLine(to: CGPoint(x: 14.501, y: 13.064))
+    path.addCurve(to: CGPoint(x: 13.063, y: 14.499), control1: CGPoint(x: 13.796, y: 13.245), control2: CGPoint(x: 13.246, y: 13.795))
+    path.addLine(to: CGPoint(x: 11.484, y: 20.625))
+    path.addCurve(to: CGPoint(x: 11.033, y: 20.998), control1: CGPoint(x: 11.43, y: 20.834), control2: CGPoint(x: 11.248, y: 20.984))
+    path.addCurve(to: CGPoint(x: 10.537, y: 20.688), control1: CGPoint(x: 10.818, y: 21.013), control2: CGPoint(x: 10.618, y: 20.888))
+    path.closeSubpath()
+    return path
+}
+
+/// A template image of the Lucide cursor, stroked the way Lucide draws it (2 units on a
+/// 24-unit box, round caps and joins), so it takes the menu bar's light or dark tint.
+private func stopMenuBarIcon() -> NSImage {
+    let glyph = mousePointerGlyph()
+    let image = NSImage(size: NSSize(width: menuBarIconPoints, height: menuBarIconPoints), flipped: true) { rect in
+        guard let context = NSGraphicsContext.current?.cgContext else { return false }
+        let scale = rect.width / mousePointerIconViewBox
+        context.scaleBy(x: scale, y: scale)
+        context.addPath(glyph)
+        context.setStrokeColor(NSColor.black.cgColor)
+        context.setLineWidth(2)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
+        return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = "Yutori n2 is controlling this Mac"
+    return image
+}
+
 private func writeJSON(_ value: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
     FileHandle.standardOutput.write(data)
@@ -17,12 +61,18 @@ private struct OverlayConfig: Decodable {
     let enableHotkey: Bool
 }
 
-private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     private let htmlURL: URL
     private let config: OverlayConfig
     private var panel: NSPanel?
-    private var stopPanel: NSPanel?
-    private var stopRegion: [String: Double]?
+    // The Stop control is a menu bar status item with a cursor icon whose menu carries
+    // the Stop action. Its on-screen frame is reported as `stop_region` so the Python
+    // side keeps refusing model clicks on it.
+    private var stopItem: NSStatusItem?
+    // Where the shell rail starts, in overlay page points: a 16pt inset below the menu
+    // bar, right-aligned with the Stop item above it. The page cannot see the menu bar.
+    private var railTop: CGFloat = 0
+    private var railRight: CGFloat = 16
     private var webView: WKWebView?
     private var screen: NSScreen?
     private var hotKey: EventHotKeyRef?
@@ -76,60 +126,52 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
 
         self.panel = panel
         self.webView = webView
-        if config.showStopButton { createStopPanel(on: screen) }
+        railTop = screen.frame.maxY - screen.visibleFrame.maxY + 16
+        railRight = screen.frame.maxX - screen.visibleFrame.maxX + 16
+        if config.showStopButton { createStopMenuBarItem() }
         let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
         panel.identifier = NSUserInterfaceItemIdentifier(hotkeyAvailable ? "n2-overlay-hotkey" : "n2-overlay-no-hotkey")
         webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
     }
 
-    private func createStopPanel(on screen: NSScreen) {
-        let size = NSSize(width: 146, height: 34)
-        let origin = NSPoint(
-            x: screen.visibleFrame.maxX - size.width - 16,
-            y: screen.visibleFrame.maxY - size.height - 16
-        )
-        let panel = NSPanel(
-            contentRect: NSRect(origin: origin, size: size),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.backgroundColor = .clear
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = false
-        panel.isOpaque = false
-        panel.isReleasedWhenClosed = false
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)) + 1)
-        panel.alphaValue = 0
+    private func createStopMenuBarItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            button.image = stopMenuBarIcon()
+            button.toolTip = "Yutori n2 is controlling this Mac. Stop with ⇧⌘Esc."
+        }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let status = NSMenuItem(title: "Yutori n2 is controlling this Mac", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        menu.addItem(status)
+        menu.addItem(.separator())
+        let stop = NSMenuItem(title: "Stop", action: #selector(stopFromMenu), keyEquivalent: "\u{1B}")
+        stop.keyEquivalentModifierMask = [.command, .shift]
+        stop.target = self
+        menu.addItem(stop)
+        item.menu = menu
+        stopItem = item
+    }
 
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(self, name: "stop")
-        let webView = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.loadHTMLString(
-            """
-            <!doctype html><meta name="color-scheme" content="dark"><style>
-            *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
-            button{width:100%;height:100%;border:1px solid rgba(208,252,235,.5);border-radius:11px;color:rgba(240,255,250,.96);font-size:12px;font-weight:600;letter-spacing:.1px;background:radial-gradient(circle at 24% 12%,rgba(236,255,248,.22),transparent 48%),linear-gradient(145deg,rgba(24,170,126,.78),rgba(8,70,53,.72));-webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:inset 3px 4px 9px rgba(255,255,255,.08),inset -5px -6px 11px rgba(3,22,17,.16),inset -2px -3px 4px rgba(210,255,238,.3);cursor:default}
-            button:active{transform:scale(.98)}button:focus-visible{outline:2px solid white;outline-offset:-3px}
-            @media(prefers-reduced-transparency:reduce){button{background:rgba(8,70,53,.96);-webkit-backdrop-filter:none}}
-            @media(prefers-contrast:more){button{border-color:white;color:white}}
-            @media(prefers-reduced-motion:reduce){button{transition:none}}
-            </style><button onclick="webkit.messageHandlers.stop.postMessage('button')">Stop · ⇧⌘Esc</button>
-            """,
-            baseURL: nil
-        )
-        panel.contentView = webView
-        panel.orderFrontRegardless()
-        stopRegion = [
-            "x": (origin.x - screen.frame.minX) / screen.frame.width * 1000,
-            "y": (screen.frame.maxY - origin.y - size.height) / screen.frame.height * 1000,
-            "width": size.width / screen.frame.width * 1000,
-            "height": size.height / screen.frame.height * 1000,
+    @objc private func stopFromMenu() {
+        requestStop(source: "menu")
+    }
+
+    /// The Stop item's frame in the overlay's normalized 0-1000 space, or nil when the
+    /// item is not on this screen (the menu bar can live on another display). Status item
+    /// windows can overhang the screen frame by a point on notch displays, so the frame is
+    /// clipped to the screen rather than required to sit inside it.
+    private func stopItemRegion(on screen: NSScreen) -> [String: Double]? {
+        guard let itemFrame = stopItem?.button?.window?.frame else { return nil }
+        let frame = itemFrame.intersection(screen.frame)
+        guard !frame.isEmpty else { return nil }
+        return [
+            "x": (frame.minX - screen.frame.minX) / screen.frame.width * 1000,
+            "y": (screen.frame.maxY - frame.maxY) / screen.frame.height * 1000,
+            "width": frame.width / screen.frame.width * 1000,
+            "height": frame.height / screen.frame.height * 1000,
         ]
-        stopPanel = panel
     }
 
     private func registerStopHotKey() -> Bool {
@@ -159,10 +201,6 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         ) == noErr
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        requestStop(source: "button")
-    }
-
     private func requestStop(source: String) {
         guard !stopped else { return }
         stopped = true
@@ -179,11 +217,19 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "height": Int(webView.bounds.height.rounded()),
             "backing_scale": screen.backingScaleFactor,
             "hotkey": hotkeyAvailable,
-            "capabilities": ["capture", "encode", "background_tasks", "stop"],
+            "capabilities": ["capture", "encode", "shell_commands", "stop"],
         ]
-        if let stopRegion { ready["stop_region"] = stopRegion }
-        writeJSON(ready)
-        readCommands()
+        if stopItem != nil {
+            ready["stop_control"] = "menu_bar"
+            if let region = stopItemRegion(on: screen) { ready["stop_region"] = region }
+        }
+        let railStyle =
+            "document.documentElement.style.setProperty('--n2-rail-top', '\(railTop)px');"
+            + "document.documentElement.style.setProperty('--n2-rail-right', '\(railRight)px');"
+        webView.evaluateJavaScript(railStyle) { _, _ in
+            writeJSON(ready)
+            self.readCommands()
+        }
     }
 
     private func readCommands() {
@@ -250,15 +296,15 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 let quality = command["quality"] as? Double
             else { return fail(id, "Invalid encode request.") }
             encodeObservation(id: id, data: data, maxLongSide: maxLongSide, quality: quality)
-        case "backgroundTasks":
+        case "shellCommands":
             guard
-                let tasks = command["tasks"] as? [[String: Any]],
+                let commands = command["commands"] as? [[String: Any]],
                 let overflow = command["overflow"] as? Int
-            else { return fail(id, "Invalid background task request.") }
+            else { return fail(id, "Invalid shell command request.") }
             callJavaScript(
                 id: id,
-                body: "return window.__n2BackgroundTasks(payload)",
-                arguments: ["payload": ["tasks": tasks, "overflow": overflow]],
+                body: "return window.__n2ShellCommands(payload)",
+                arguments: ["payload": ["commands": commands, "overflow": overflow]],
                 validateReply: true
             )
         case "retire":
@@ -343,7 +389,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         transitionToken += 1
         let token = transitionToken
         state = "hiding"
-        animate(visible: false, duration: 0.06, framesAfter: 2, includeStopPanel: false) {
+        animate(visible: false, duration: 0.06, framesAfter: 2) {
             guard token == self.transitionToken else { return self.reply(id, state: "stale", captureID: requestedID) }
             self.state = "hidden"
             self.reply(id, state: self.state, captureID: requestedID)
@@ -357,7 +403,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         state = "revealing"
         waitForDisplayFrames(1) {
             guard token == self.transitionToken else { return self.reply(id, state: "stale", captureID: requestedID) }
-            self.animate(visible: true, duration: 0.12, framesAfter: 0, includeStopPanel: false) {
+            self.animate(visible: true, duration: 0.12, framesAfter: 0) {
                 guard token == self.transitionToken else { return self.reply(id, state: "stale", captureID: requestedID) }
                 self.state = "visible"
                 self.reply(id, state: self.state, captureID: requestedID)
@@ -369,10 +415,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         visible: Bool,
         duration: TimeInterval,
         framesAfter: Int,
-        includeStopPanel: Bool = true,
         completion: @escaping () -> Void
     ) {
-        let windows = includeStopPanel ? [panel, stopPanel].compactMap { $0 } : [panel].compactMap { $0 }
+        let windows = [panel].compactMap { $0 }
         if visible { windows.forEach { $0.orderFrontRegardless() } }
         let effectiveDuration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
         NSAnimationContext.runAnimationGroup { context in
@@ -430,7 +475,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         transitionToken += 1
         displayLinks.values.forEach { CVDisplayLinkStop($0) }
         displayLinks.removeAll()
-        [panel, stopPanel].compactMap { $0 }.forEach {
+        if let stopItem { NSStatusBar.system.removeStatusItem(stopItem) }
+        stopItem = nil
+        [panel].compactMap { $0 }.forEach {
             $0.alphaValue = 0
             $0.orderOut(nil)
             $0.close()

@@ -27,69 +27,128 @@ body {
   animation: n2ClickPulse 250ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-#n2-background-rail {
+/*
+ * The shell rail sits at the top-right, just under the menu bar's Stop item, and
+ * lists the commands the model is running on this Mac. The host sets
+ * --n2-rail-top/--n2-rail-right once the page loads, because only it knows the
+ * menu bar height and which side the Dock is on. It borrows the phosphor
+ * "run command" panel the playground pins to its live view: translucent black,
+ * green CRT text with a soft bloom, a tracked-out header, and a `$` prompt.
+ */
+#n2-shell-rail {
   position: fixed;
-  top: 58px;
-  right: 16px;
+  top: var(--n2-rail-top, 58px);
+  right: var(--n2-rail-right, 16px);
   width: 310px;
   display: grid;
   gap: 6px;
   pointer-events: none;
+  color: #33ff33;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-shadow: 0 0 6px rgba(51, 255, 51, 0.55);
 }
 
-.n2-background-row,
-.n2-background-overflow {
-  min-height: 38px;
-  padding: 8px 10px;
-  border: 1px solid rgba(208, 252, 235, 0.42);
-  border-radius: 12px;
-  color: rgba(240, 255, 250, 0.96);
-  background:
-    radial-gradient(circle at 24% 12%, rgba(236, 255, 248, 0.2), transparent 48%),
-    linear-gradient(145deg, rgba(24, 170, 126, 0.76), rgba(8, 70, 53, 0.7));
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  backdrop-filter: blur(16px) saturate(150%);
+.n2-shell-panel,
+.n2-shell-overflow {
+  overflow: hidden;
+  border: 1px solid rgba(51, 255, 51, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   box-shadow:
-    inset 3px 4px 9px rgba(255, 255, 255, 0.07),
-    inset -5px -6px 11px rgba(3, 22, 17, 0.16),
-    0 8px 24px rgba(3, 22, 17, 0.18);
-  animation: n2RailIn 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    0 0 24px rgba(51, 255, 51, 0.1),
+    inset 0 0 48px rgba(0, 0, 0, 0.55);
+  animation: n2ShellRise 180ms ease-out both;
 }
 
-.n2-background-title {
+.n2-shell-header {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 11px;
-  font-weight: 650;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(51, 255, 51, 0.2);
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 
-.n2-background-id {
+.n2-shell-caret,
+.n2-shell-state {
   flex: none;
-  opacity: 0.72;
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.n2-background-state {
-  margin-left: auto;
-  text-transform: capitalize;
-}
-
-.n2-background-command {
-  margin-top: 3px;
+/* The state is what the operator scans for, so the label gives way first. */
+.n2-shell-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
-  color: rgba(240, 255, 250, 0.8);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.n2-background-overflow {
-  min-height: auto;
-  padding: 7px 10px;
-  font-size: 11px;
-  font-weight: 600;
+.n2-shell-state {
+  margin-left: auto;
+  text-align: right;
+}
+
+.n2-shell-panel[data-state="failed"] .n2-shell-state,
+.n2-shell-panel[data-state="timed_out"] .n2-shell-state {
+  color: #ffb454;
+  text-shadow: 0 0 6px rgba(255, 180, 84, 0.55);
+}
+
+.n2-shell-panel[data-state="cancelled"] {
+  color: rgba(51, 255, 51, 0.55);
+  text-shadow: none;
+}
+
+.n2-shell-body {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.n2-shell-prompt {
+  flex: none;
+  opacity: 0.7;
+}
+
+.n2-shell-command {
+  display: -webkit-box;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  font: inherit;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.n2-shell-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.12em;
+  background: currentColor;
+  animation: n2ShellBlink 1.06s step-end infinite;
+}
+
+.n2-shell-overflow {
+  padding: 5px 10px;
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 
 .yutori-overlay-cursor {
@@ -168,20 +227,35 @@ body {
   }
 }
 
-@keyframes n2RailIn {
+@keyframes n2ShellRise {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes n2ShellBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .yutori-overlay-badge,
-  .n2-background-row,
-  .n2-background-overflow {
+  .yutori-overlay-badge {
     background: rgba(8, 70, 53, 0.96) !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
+  }
+  .n2-shell-panel,
+  .n2-shell-overflow {
+    background: rgba(0, 0, 0, 0.92);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -189,11 +263,19 @@ body {
   .yutori-overlay-rim {
     background: rgba(240, 255, 250, 0.94) !important;
   }
-  .yutori-overlay-thought-inner,
-  .n2-background-row,
-  .n2-background-overflow {
+  .yutori-overlay-thought-inner {
     color: white !important;
     border-color: white;
+  }
+  .n2-shell-panel,
+  .n2-shell-overflow {
+    border-color: rgba(51, 255, 51, 0.8);
+    background: rgba(0, 0, 0, 0.92);
+  }
+  .n2-shell-header,
+  .n2-shell-prompt,
+  .n2-shell-overflow {
+    opacity: 1;
   }
 }
 
@@ -204,9 +286,13 @@ body {
   .yutori-overlay-thought,
   .yutori-overlay-logo,
   .n2-overlay-click-pulse,
-  .n2-background-row,
-  .n2-background-overflow {
+  .n2-shell-panel,
+  .n2-shell-overflow,
+  .n2-shell-cursor {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  .n2-shell-cursor {
+    animation: none;
   }
 }
