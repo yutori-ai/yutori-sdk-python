@@ -32,6 +32,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from yutori.navigator import ShellFileToolsMixin
+from yutori.navigator.sandbox_tools import PointerKeyLifecycleMixin
 from yutori.navigator.sandbox_tools import (
     append_stream as _append_stream,
 )
@@ -70,7 +71,7 @@ from yutori.navigator.sandbox_tools import (
 )
 
 
-class CuaSandboxComputer(ShellFileToolsMixin):
+class CuaSandboxComputer(ShellFileToolsMixin, PointerKeyLifecycleMixin):
     """N2 computer-handler adapter built only on the public cua-sandbox API."""
 
     def __init__(self, sandbox: Any) -> None:
@@ -170,16 +171,6 @@ class CuaSandboxComputer(ShellFileToolsMixin):
     async def key_up(self, key: str) -> None:
         await self.sandbox.keyboard.key_up(key)
 
-    async def hold_key(self, key: str, ms: int = 1_000) -> None:
-        await self.key_down(key)
-        try:
-            await asyncio.sleep(ms / 1_000)
-        finally:
-            await self.key_up(key)
-
-    async def wait(self, ms: int = 1_000) -> None:
-        await asyncio.sleep(ms / 1_000)
-
     def _resolve_and_set_pointer(self, x: int | None, y: int | None, *, action: str) -> tuple[int, int]:
         if (x is None) != (y is None):
             raise ValueError(f"{action} coordinates must include both x and y")
@@ -200,10 +191,6 @@ class CuaSandboxComputer(ShellFileToolsMixin):
             await self.sandbox.mouse.mouse_up(*point)
         finally:
             self._left_mouse_down = False
-
-    async def release_held_mouse_button(self) -> None:
-        if self._left_mouse_down:
-            await self.left_mouse_up()
 
     async def run_shell_command(
         self,

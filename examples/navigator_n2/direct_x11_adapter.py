@@ -44,6 +44,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from yutori.navigator import ShellFileToolsMixin
+from yutori.navigator.sandbox_tools import PointerKeyLifecycleMixin
 from yutori.navigator.sandbox_tools import (
     append_stream as _append_stream,
 )
@@ -107,7 +108,7 @@ def _is_directly_typeable(gui: Any, character: str) -> bool:
     )
 
 
-class LocalX11Computer(ShellFileToolsMixin):
+class LocalX11Computer(ShellFileToolsMixin, PointerKeyLifecycleMixin):
     """N2 computer handler with direct access to an X11 display and local shell.
 
     ``gui`` exists for tests: any object with pyautogui's surface (``click``,
@@ -269,16 +270,6 @@ class LocalX11Computer(ShellFileToolsMixin):
     async def key_up(self, key: str) -> None:
         await self._run_gui(lambda: self._gui().keyUp(_map_key(key)))
 
-    async def hold_key(self, key: str, ms: int = 1_000) -> None:
-        await self.key_down(key)
-        try:
-            await asyncio.sleep(ms / 1_000)
-        finally:
-            await self.key_up(key)
-
-    async def wait(self, ms: int = 1_000) -> None:
-        await asyncio.sleep(ms / 1_000)
-
     async def left_mouse_down(self, x: int | None = None, y: int | None = None) -> None:
         def run() -> None:
             gui = self._gui()
@@ -302,10 +293,6 @@ class LocalX11Computer(ShellFileToolsMixin):
             await self._run_gui(run)
         finally:
             self._left_mouse_down = False
-
-    async def release_held_mouse_button(self) -> None:
-        if self._left_mouse_down:
-            await self.left_mouse_up()
 
     # -- shell / file tools --------------------------------------------------
 

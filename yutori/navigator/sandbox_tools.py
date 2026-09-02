@@ -537,6 +537,40 @@ def python_file_tool_command(script: str, *arguments: str) -> str:
     return "python3 -c " + shlex.quote(script) + "".join(f" {shlex.quote(argument)}" for argument in arguments)
 
 
+class PointerKeyLifecycleMixin:
+    """Shared ``hold_key``/``wait``/``release_held_mouse_button`` n2 tool handlers.
+
+    Mix into a computer adapter that already implements ``key_down``, ``key_up``,
+    and ``left_mouse_up``, and tracks a ``_left_mouse_down`` bool set by its own
+    ``left_mouse_down``/``left_mouse_up``.
+    """
+
+    async def key_down(self, key: str) -> None:
+        raise NotImplementedError
+
+    async def key_up(self, key: str) -> None:
+        raise NotImplementedError
+
+    async def left_mouse_up(self, x: int | None = None, y: int | None = None) -> None:
+        raise NotImplementedError
+
+    _left_mouse_down: bool = False
+
+    async def hold_key(self, key: str, ms: int = 1_000) -> None:
+        await self.key_down(key)
+        try:
+            await asyncio.sleep(ms / 1_000)
+        finally:
+            await self.key_up(key)
+
+    async def wait(self, ms: int = 1_000) -> None:
+        await asyncio.sleep(ms / 1_000)
+
+    async def release_held_mouse_button(self) -> None:
+        if self._left_mouse_down:
+            await self.left_mouse_up()
+
+
 class ShellFileToolsMixin:
     """The five n2 file-tool handlers over any sandbox shell.
 
