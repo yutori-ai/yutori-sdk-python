@@ -136,8 +136,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
 
 def parse_common_args(description: str | None, argv: list[str] | None = None) -> argparse.Namespace:
     """Build the shared cookbook parser and parse it -- the ``parse_args()`` body every
-    local-desktop entrypoint (``local_docker.py``, ``local_macos.py``) repeated verbatim
-    apart from its module ``description``."""
+    local-desktop entrypoint (``local_docker.py``, ``local_macos.py``, ``local_x11.py``)
+    repeated verbatim apart from its module ``description``."""
     parser = argparse.ArgumentParser(description=description)
     add_common_arguments(parser)
     return parser.parse_args(argv)
