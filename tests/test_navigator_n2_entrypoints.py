@@ -162,10 +162,15 @@ def test_local_x11_docker_cli_accepts_documented_command() -> None:
 
 
 def test_local_x11_native_keeps_shell_auto_approval_internal() -> None:
-    assert local_x11.parse_args(["Open Calculator", "--auto-approve"]).auto_approve_shell is False
-    assert (
-        local_x11.parse_args(["Open Calculator", "--auto-approve", "--auto-approve-shell"]).auto_approve_shell is True
+    native_args = local_x11.parse_args(["Open Calculator", "--auto-approve"])
+    assert native_args.auto_approve_shell is False
+    assert native_args.workspace is None
+
+    docker_args = local_x11.parse_args(
+        ["Open Calculator", "--auto-approve", "--auto-approve-shell", "--workspace", "/work"]
     )
+    assert docker_args.auto_approve_shell is True
+    assert docker_args.workspace == "/work"
 
 
 async def test_local_x11_delegates_to_shared_agent_setup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,18 +191,23 @@ async def test_local_x11_delegates_to_shared_agent_setup(monkeypatch: pytest.Mon
     async def fake_run_computer_agent(**kwargs: object) -> None:
         seen["agent-args"] = kwargs
 
+    def fake_local_x11_computer(*, cwd: str | None) -> object:
+        seen["computer-cwd"] = cwd
+        return computer
+
     monkeypatch.setattr(local_x11, "_require_x11", lambda: None)
     monkeypatch.setattr(local_x11, "require_api_key", lambda: "test-yutori-key")
     monkeypatch.setattr(local_x11, "AsyncYutoriClient", FakeClient)
-    monkeypatch.setattr(local_x11, "LocalX11Computer", lambda: computer)
+    monkeypatch.setattr(local_x11, "LocalX11Computer", fake_local_x11_computer)
     monkeypatch.setattr(local_x11, "run_computer_agent", fake_run_computer_agent)
 
-    args = local_x11.parse_args(["Open Calculator", "--auto-approve"])
+    args = local_x11.parse_args(["Open Calculator", "--auto-approve", "--workspace", "/work"])
     await local_x11.main(args)
 
     agent_args = seen["agent-args"]
     assert isinstance(agent_args, dict)
     assert seen["api-key"] == "test-yutori-key"
+    assert seen["computer-cwd"] == "/work"
     assert agent_args["computer"] is computer
     assert agent_args["args"] is args
     assert agent_args["always_confirm_shell"] is True
@@ -249,6 +259,7 @@ def test_local_x11_docker_builds_image_and_delegates_to_local_x11(
     ]
     assert "/sdk/examples/navigator_n2/local_x11.py" in docker_run
     assert "Open Calculator" in docker_run
+    assert ["--workspace", "/work"] == docker_run[docker_run.index("--workspace") : docker_run.index("--workspace") + 2]
     assert docker_run[-2:] == ["--auto-approve", "--auto-approve-shell"]
     assert "Watch the desktop live: http://localhost:54321/vnc.html" in capsys.readouterr().out
 

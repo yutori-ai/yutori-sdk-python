@@ -19,6 +19,7 @@ except ImportError:
 
 IMAGE = "yutori-n2-direct-x11:local"
 CONTAINER_CONFIG_PATH = "/root/.yutori/config.json"
+CONTAINER_WORKDIR = "/work"
 CONTAINER_NOVNC_PORT = 6080
 
 
@@ -91,6 +92,8 @@ def main(args: argparse.Namespace) -> None:
         args.tool_set,
         "--max-steps",
         str(args.max_steps),
+        "--workspace",
+        CONTAINER_WORKDIR,
     ]
     if args.auto_approve:
         local_x11_command.extend(["--auto-approve", "--auto-approve-shell"])
@@ -113,7 +116,7 @@ def main(args: argparse.Namespace) -> None:
             "--mount",
             f"type=bind,source={repo_root},target=/sdk,readonly",
             "--workdir",
-            "/work",
+            CONTAINER_WORKDIR,
             "--env",
             "PYTHONPATH=/sdk",
             IMAGE,

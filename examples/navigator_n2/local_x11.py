@@ -37,7 +37,7 @@ def _require_x11() -> None:
 async def main(args: argparse.Namespace) -> None:
     _require_x11()
     tool_set = selected_tool_set(args.tool_set)
-    computer = LocalX11Computer()
+    computer = LocalX11Computer(cwd=args.workspace)
     async with AsyncYutoriClient(api_key=require_api_key()) as client:
         await run_computer_agent(
             client=client,
@@ -50,8 +50,9 @@ async def main(args: argparse.Namespace) -> None:
 
 
 def _add_internal_arguments(parser: argparse.ArgumentParser) -> None:
-    # Internal bridge for local_x11_docker.py. Native X11 keeps shell
-    # confirmation armed even with --auto-approve.
+    # Internal bridges for local_x11_docker.py. Native X11 keeps its home
+    # workspace and shell confirmation armed even with --auto-approve.
+    parser.add_argument("--workspace", help=argparse.SUPPRESS)
     parser.add_argument("--auto-approve-shell", action="store_true", help=argparse.SUPPRESS)
 
 
