@@ -12,6 +12,7 @@ from yutori.navigator.macos.presentation import MacOSPresentationController, Mac
 from yutori.navigator.macos.types import (
     MacOSPresentationCapabilities,
     MacOSPresentationStatus,
+    ShellPresentationEvent,
 )
 
 
@@ -59,6 +60,23 @@ def test_ready_handshake_validates_protocol_geometry_scale_hotkey_and_stop_regio
                 "hotkey": True,
             }
         )
+
+
+def test_menu_bar_stop_item_on_another_display_is_accepted_without_a_region():
+    controller = MacOSPresentationController(native_width=2000, native_height=1200)
+    capabilities = controller._validate_ready(
+        {
+            "protocol_version": 2,
+            "width": 1000,
+            "height": 600,
+            "backing_scale": 2,
+            "hotkey": True,
+            "stop_control": "menu_bar",
+        }
+    )
+    assert capabilities.stop_region is None
+    controller._status = MacOSPresentationStatus(True, True, "active", "yutori", capabilities)
+    assert not controller.blocks_point((990, 5))
 
 
 async def test_reasoning_action_and_batch_map_to_renderer_operations(monkeypatch):
@@ -245,3 +263,92 @@ async def test_cancelled_request_does_not_poison_the_next_overlay_reply(monkeypa
     host = asyncio.create_task(controller._read_host())
     assert await second == {"id": 2, "ok": True}
     await host
+
+
+def _shell(task_id: str, command: str, state: str, *, background: bool = False, exit_code: "int | None" = None):
+    return {"type": "shell", "event": ShellPresentationEvent(task_id, command, background, state, exit_code)}
+
+
+def _rail_controller(monkeypatch):
+    """An active controller whose renderer traffic and sleeps are recorded instead of sent."""
+    controller = _active_controller()
+    operations: list[dict] = []
+    commands: list[dict] = []
+    sleeps: list[float] = []
+
+    async def send_operation(operation, **_kwargs):
+        operations.append(operation)
+        return {"ok": True}
+
+    async def send_command(command, **_kwargs):
+        commands.append(command)
+        return {"ok": True}
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+        return True
+
+    monkeypatch.setattr(controller, "_send_operation", send_operation)
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    monkeypatch.setattr(controller, "_sleep", sleep)
+    return controller, operations, commands, sleeps
+
+
+def _rail_renders(commands: list[dict]) -> list[dict]:
+    return [command for command in commands if command.get("op") == "shellCommands"]
+
+
+async def test_foreground_shell_command_is_shown_in_the_rail_and_the_capsule(monkeypatch):
+    controller, operations, commands, sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "starting"))
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "running"))
+
+    rail = _rail_renders(commands)
+    assert [entry["state"] for render in rail for entry in render["commands"]] == ["starting", "running"]
+    assert rail[-1]["commands"][0]["command"] == "ls -la ~/Documents"
+    assert rail[-1]["commands"][0]["run_in_background"] is False
+    assert rail[-1]["overflow"] == 0
+    assert any(
+        operation.get("op") == "showThought" and "Run command · $ ls -la ~/Documents" in operation["markdown"]
+        for operation in operations
+    )
+
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "completed", exit_code=0))
+    finished = _rail_renders(commands)[-1]["commands"][0]
+    assert (finished["state"], finished["exit_code"]) == ("completed", 0)
+    assert controller._shell_rail_removals
+    await asyncio.gather(*controller._shell_rail_removals)
+    assert _rail_renders(commands)[-1] == {"op": "shellCommands", "commands": [], "overflow": 0}
+    assert 4.0 in sleeps
+
+
+async def test_shell_rail_lists_newest_first_with_overflow_and_keeps_background_commands(monkeypatch):
+    controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("bash-1", "sleep 30", "running", background=True))
+    await controller.present(_shell("shell-2", "pwd", "running"))
+    await controller.present(_shell("shell-3", "whoami", "running"))
+    await controller.present(_shell("shell-4", "date", "running"))
+
+    render = _rail_renders(commands)[-1]
+    assert [entry["task_id"] for entry in render["commands"]] == ["shell-4", "shell-3", "shell-2"]
+    assert render["overflow"] == 1
+    assert not controller._shell_rail_removals
+
+    await controller.present(_shell("shell-4", "date", "failed", exit_code=1))
+    await asyncio.gather(*controller._shell_rail_removals)
+    render = _rail_renders(commands)[-1]
+    assert [entry["task_id"] for entry in render["commands"]] == ["shell-3", "shell-2", "bash-1"]
+    assert render["commands"][-1]["run_in_background"] is True
+    assert render["overflow"] == 0
+    assert controller.background_counts == {"started": 1, "completed": 0, "failed": 0, "cancelled": 0}
+
+
+async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
+    controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("shell-1", "pwd", "running"))
+    await controller.present(_shell("shell-1", "pwd", "running"))
+
+    assert len(_rail_renders(commands)) == 1

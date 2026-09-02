@@ -67,31 +67,62 @@ window.__n2EncodeObservation = async ({ data, maxLongSide, quality }) => {
   return { data: encoded.slice(encoded.indexOf(",") + 1), format };
 };
 
-window.__n2BackgroundTasks = ({ tasks, overflow }) => {
-  const rail = document.getElementById("n2-background-rail");
+const SHELL_STATE_LABELS = {
+  starting: "starting",
+  running: "running",
+  completed: "done",
+  failed: "failed",
+  timed_out: "timed out",
+  cancelled: "cancelled",
+};
+
+// A finished command is labelled by its exit code alone; the failed/timed-out
+// states are coloured amber, so the label does not need to spell out "failed".
+const shellStateLabel = ({ state, exit_code: exitCode }) =>
+  exitCode != null && (state === "completed" || state === "failed")
+    ? `exit ${exitCode}`
+    : (SHELL_STATE_LABELS[state] ?? state);
+
+const shellSpan = (className, text) => {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
+};
+
+// One phosphor "run command" panel per shell the model is running, newest on
+// top, stacked under the menu bar so the operator can read what is being
+// sent to this Mac without following the cursor capsule.
+window.__n2ShellCommands = ({ commands, overflow }) => {
+  const rail = document.getElementById("n2-shell-rail");
   rail.replaceChildren();
-  for (const task of tasks.slice(0, 3)) {
-    const row = document.createElement("div");
-    row.className = "n2-background-row";
-    const title = document.createElement("div");
-    title.className = "n2-background-title";
-    const id = document.createElement("span");
-    id.className = "n2-background-id";
-    id.textContent = task.task_id;
-    const state = document.createElement("span");
-    state.className = "n2-background-state";
-    state.textContent = task.state;
-    const command = document.createElement("div");
-    command.className = "n2-background-command";
-    command.textContent = `$ ${task.command}`;
-    title.append(id, state);
-    row.append(title, command);
-    rail.appendChild(row);
+  for (const entry of commands) {
+    const panel = document.createElement("div");
+    panel.className = "n2-shell-panel";
+    panel.dataset.state = entry.state;
+    const header = document.createElement("div");
+    header.className = "n2-shell-header";
+    header.append(
+      shellSpan("n2-shell-caret", "▌"),
+      shellSpan("n2-shell-label", entry.run_in_background ? "run in background" : "run command"),
+      shellSpan("n2-shell-state", shellStateLabel(entry)),
+    );
+    const body = document.createElement("div");
+    body.className = "n2-shell-body";
+    const command = document.createElement("pre");
+    command.className = "n2-shell-command";
+    command.textContent = entry.command;
+    if (entry.state === "starting" || entry.state === "running") {
+      command.appendChild(shellSpan("n2-shell-cursor", ""));
+    }
+    body.append(shellSpan("n2-shell-prompt", "$"), command);
+    panel.append(header, body);
+    rail.appendChild(panel);
   }
   if (overflow > 0) {
     const more = document.createElement("div");
-    more.className = "n2-background-overflow";
-    more.textContent = `+${overflow} more background commands`;
+    more.className = "n2-shell-overflow";
+    more.textContent = `+${overflow} more command${overflow === 1 ? "" : "s"}`;
     rail.appendChild(more);
   }
   return { ok: true };

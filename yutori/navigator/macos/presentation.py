@@ -34,7 +34,12 @@ _PROCESS_EXIT_TIMEOUT_SECONDS = 1
 _OVERLAY_LEAD_SECONDS = 0.15
 _SHELL_MINIMUM_DWELL_SECONDS = 0.9
 _SHELL_TERMINAL_HOLD_SECONDS = 0.9
-_BACKGROUND_TERMINAL_HOLD_SECONDS = 1.5
+# The shell rail at the top-right keeps a finished command on screen long enough
+# to read: the capsule's 0.9s hold is tuned for a glance at the cursor, not for an
+# operator checking what just ran on their Mac.
+_SHELL_RAIL_TERMINAL_HOLD_SECONDS = 4.0
+_SHELL_RAIL_ROWS = 3
+_SHELL_TERMINAL_STATES = frozenset({"completed", "failed", "timed_out", "cancelled"})
 _NORMALIZED_SCALE = 1000
 
 _ACTION_STATUS = {
@@ -252,8 +257,8 @@ class MacOSPresentationController:
         self._batch_is_last = False
         self._capture_id = 0
         self._shell_started_at: dict[str, float] = {}
-        self._background: dict[str, ShellPresentationEvent] = {}
-        self._background_removals: set[asyncio.Task[None]] = set()
+        self._shell_rail: dict[str, ShellPresentationEvent] = {}
+        self._shell_rail_removals: set[asyncio.Task[None]] = set()
         self._telemetry: list[dict[str, Any]] = []
 
     @property
@@ -438,7 +443,7 @@ class MacOSPresentationController:
         if self._stopping:
             return
         self._stopping = True
-        await cancel_and_drain(*self._background_removals)
+        await cancel_and_drain(*self._shell_rail_removals)
         if self._process is not None and self._process.returncode is None and self._fatal_error is None:
             try:
                 await self._send_operation({"op": "destroy"}, allow_stopping=True)
@@ -647,13 +652,8 @@ class MacOSPresentationController:
                 **asdict(event),
             }
         )
+        await self._track_shell_rail(event)
         if event.run_in_background:
-            self._background[event.task_id] = event
-            await self._render_background_rail()
-            if event.state in {"completed", "failed", "timed_out", "cancelled"}:
-                task = asyncio.create_task(self._remove_background_after_hold(event.task_id, event))
-                self._background_removals.add(task)
-                task.add_done_callback(self._background_removals.discard)
             return
 
         if event.state in {"starting", "running"}:
@@ -690,21 +690,38 @@ class MacOSPresentationController:
         self._terminal_command = ""
         await self._render_capsule()
 
-    async def _render_background_rail(self) -> None:
-        events = list(self._background.values())
-        tasks = [asdict(event) for event in events[:3]]
-        signature = json.dumps([tasks, max(0, len(events) - 3)], separators=(",", ":"), sort_keys=True)
-        if self._last_render.get("backgroundTasks") == signature:
-            return
-        self._last_render["backgroundTasks"] = signature
-        await self._send_command({"op": "backgroundTasks", "tasks": tasks, "overflow": max(0, len(events) - 3)})
+    async def _track_shell_rail(self, event: ShellPresentationEvent) -> None:
+        """Mirror every shell lifecycle event, foreground or background, into the rail.
 
-    async def _remove_background_after_hold(self, task_id: str, terminal: ShellPresentationEvent) -> None:
-        if not await self._sleep(_BACKGROUND_TERMINAL_HOLD_SECONDS):
+        The capsule by the cursor only shows a foreground command for the ~1s it
+        takes to run, which is too brief for an operator to read; the rail under
+        the menu bar keeps each command visible while it runs and for a hold
+        after it finishes, so the operator can see what was sent to their Mac.
+        """
+        self._shell_rail[event.task_id] = event
+        await self._render_shell_rail()
+        if event.state in _SHELL_TERMINAL_STATES:
+            task = asyncio.create_task(self._remove_from_shell_rail_after_hold(event.task_id, event))
+            self._shell_rail_removals.add(task)
+            task.add_done_callback(self._shell_rail_removals.discard)
+
+    async def _render_shell_rail(self) -> None:
+        # Newest first: the most recent command lands at the top, just under the menu bar.
+        events = list(reversed(self._shell_rail.values()))
+        commands = [asdict(event) for event in events[:_SHELL_RAIL_ROWS]]
+        overflow = max(0, len(events) - _SHELL_RAIL_ROWS)
+        signature = json.dumps([commands, overflow], separators=(",", ":"), sort_keys=True)
+        if self._last_render.get("shellCommands") == signature:
             return
-        if self._background.get(task_id) == terminal:
-            self._background.pop(task_id, None)
-            await self._render_background_rail()
+        self._last_render["shellCommands"] = signature
+        await self._send_command({"op": "shellCommands", "commands": commands, "overflow": overflow})
+
+    async def _remove_from_shell_rail_after_hold(self, task_id: str, terminal: ShellPresentationEvent) -> None:
+        if not await self._sleep(_SHELL_RAIL_TERMINAL_HOLD_SECONDS):
+            return
+        if self._shell_rail.get(task_id) == terminal:
+            self._shell_rail.pop(task_id, None)
+            await self._render_shell_rail()
 
     async def _lead(self) -> bool:
         return await self._sleep(_OVERLAY_LEAD_SECONDS)
@@ -722,7 +739,10 @@ class MacOSPresentationController:
         stop_region = _valid_stop_region(reply.get("stop_region"))
         if not _positive_finite(width) or not _positive_finite(height) or not _positive_finite(scale):
             raise MacOSPresentationError("Overlay returned invalid viewport capabilities.")
-        if self._show_stop_button and stop_region is None:
+        # The Stop control is a menu bar status item. Its frame comes back as `stop_region` so
+        # model clicks on it are refused; a host whose menu bar sits on another display reports
+        # the control without a region, and then there is nothing on this screen to block.
+        if self._show_stop_button and stop_region is None and reply.get("stop_control") != "menu_bar":
             raise MacOSPresentationError("Overlay returned an invalid Stop region.")
         capabilities = MacOSPresentationCapabilities(
             protocol_version=OVERLAY_PROTOCOL_VERSION,
