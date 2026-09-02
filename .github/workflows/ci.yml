@@ -5,14 +5,26 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a PR makes the in-flight run for the previous commit
+# irrelevant, so stop paying for its 12 matrix jobs. Pushes to main are never
+# cancelled: every commit there keeps its own status.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      # No pip cache here on purpose. This job installs only ruff, but it
+      # would share the 3.12 cache key with test/package (setup-python keys on
+      # python version + pyproject.toml hash) and usually wins the race to
+      # write it, leaving those jobs to restore a cache with none of their
+      # dependencies in it.
       - run: pip install ruff
       - run: ruff check .
 
@@ -23,10 +35,12 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]"
       - run: pytest -m "not slow"
 
@@ -40,10 +54,12 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]" twine
       - name: Wheel content test
         run: pytest -m slow
@@ -55,7 +71,7 @@ jobs:
   install-sh:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Verify install.sh matches template + assets + version
         run: bash scripts/check_install_sh_fresh.sh
       - name: Syntax-check shell scripts
