@@ -53,6 +53,40 @@ class MacOSPresentationStatus:
     fallback: "str | None" = None
 
 
+@dataclass(frozen=True)
+class MacOSWindowTarget:
+    """One application window driven in window scope: pid plus WindowServer window id."""
+
+    pid: int
+    window_id: int
+    title: "str | None" = None
+    app_name: "str | None" = None
+
+    def describe(self) -> str:
+        name = self.app_name or "target application"
+        return f"{name} (pid {self.pid}, window {self.window_id})"
+
+
+@dataclass(frozen=True)
+class MacOSActionOutcome:
+    """What the driver reported about one window-scope input action; safe to serialize as telemetry."""
+
+    tool: str
+    requested_delivery: str
+    effect: "str | None"
+    route: "str | None"
+    reported_delivery: "str | None"
+    escalated: bool
+    refusal_code: "str | None"
+    recommended: "str | None" = None
+    escalation_reason: "str | None" = None
+
+    @property
+    def landed(self) -> bool:
+        """False when the driver says the action did not take effect or wants a foreground retry."""
+        return self.effect not in {"suspected_noop", "refused"} and self.recommended != "foreground"
+
+
 ShellLifecycleState = Literal[
     "starting",
     "running",

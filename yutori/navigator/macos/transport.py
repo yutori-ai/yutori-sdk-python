@@ -24,7 +24,24 @@ class CuaDriverConnectionError(CuaDriverError):
 
 
 class CuaDriverToolError(CuaDriverError):
-    pass
+    """The driver refused or failed one tool call.
+
+    ``structured`` is the refusal payload when the driver supplied one and ``code`` is the
+    refusal code it carried (``refusal.code`` or a top-level ``code``), so callers can
+    branch on the documented codes instead of parsing the message text.
+    """
+
+    def __init__(self, message: str, *, structured: "dict[str, Any] | None" = None) -> None:
+        super().__init__(message)
+        self.structured: dict[str, Any] = structured or {}
+
+    @property
+    def code(self) -> "str | None":
+        refusal = self.structured.get("refusal")
+        if isinstance(refusal, dict) and isinstance(refusal.get("code"), str):
+            return refusal["code"]
+        code = self.structured.get("code")
+        return code if isinstance(code, str) else None
 
 
 class CuaDriverUncertainActionError(CuaDriverError):
@@ -46,9 +63,7 @@ def find_cua_driver_binary() -> Path:
     discovered = shutil.which("cua-driver")
     if discovered:
         return Path(discovered)
-    raise CuaDriverError(
-        "cua-driver is not installed; install `yutori[macos]` or run `yutori-mcp computer-use setup`."
-    )
+    raise CuaDriverError("cua-driver is not installed; install `yutori[macos]` or run `yutori-mcp computer-use setup`.")
 
 
 class CuaDriverTransport:
@@ -152,7 +167,11 @@ class CuaDriverTransport:
                 for part in result.get("content") or []
                 if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
             )
-            raise CuaDriverToolError(f"Cua Driver {name} failed: {details or 'unknown error'}")
+            structured = result.get("structuredContent") or result.get("structured_content")
+            raise CuaDriverToolError(
+                f"Cua Driver {name} failed: {details or 'unknown error'}",
+                structured=structured if isinstance(structured, dict) else None,
+            )
         return result
 
     async def _notify(self, method: str, params: "dict[str, Any] | None" = None) -> None:

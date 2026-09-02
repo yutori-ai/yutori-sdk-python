@@ -24,7 +24,15 @@ from PIL import Image
 
 from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
-from .polling import FRAME_POLL_ACTION_MAX_MS, FramePollResult, frame_poll_wait_budget_ms, poll_until_frame_changes
+from .polling import (
+    FRAME_DIFF_TOLERANT_FRACTION,
+    FRAME_POLL_ACTION_MAX_MS,
+    FramePollResult,
+    frame_difference,
+    frame_poll_wait_budget_ms,
+    frame_signature,
+    poll_until_frame_changes,
+)
 from .presentation import MacOSPresentationController
 from .process_lifecycle import cancel_and_drain, race_sleep_against_cancellation
 from .sanitize import sanitize_command_preview
@@ -34,7 +42,16 @@ from .transport import (
     CuaDriverTransport,
     CuaDriverUncertainActionError,
 )
-from .types import CancellationLatch, MacOSPresentationStatus, N2Observation, ShellPresentationEvent
+from .types import (
+    CancellationLatch,
+    MacOSActionOutcome,
+    MacOSPresentationStatus,
+    MacOSWindowTarget,
+    N2Observation,
+    ShellPresentationEvent,
+)
+from .visibility import unhide_application
+from .windows import select_target_window, window_records
 
 _CAPTURE_ATTEMPTS = 3
 _CAPTURE_RETRY_SECONDS = 0.25
@@ -46,6 +63,20 @@ _OBSERVATION_QUALITY = 80
 _SHELL_ENV_BLOCKLIST = {"BASH_ENV", "ENV", "YUTORI_API_KEY"}
 _VCS_DIRECTORIES = {".git", ".hg", ".svn"}
 _GLOB_RESULT_LIMIT = 100
+_DELIVERY_BACKGROUND = "background"
+_DELIVERY_FOREGROUND = "foreground"
+# Driver refusal codes that mean the driven window is gone (or never belonged to the
+# target process) versus ones that only invalidate the frame the coordinates came from.
+_WINDOW_LOSS_CODES = frozenset({"window_id_not_found", "window_owner_pid_mismatch"})
+_STALE_FRAME_CODES = frozenset({"px_frame_mismatch", "px_capture_unavailable"})
+# The window is still listed by WindowServer but has no accessibility window: a closed
+# dialog that lingers as a zombie record, or a window on another Space. Input cannot reach
+# it; another window of the same app usually can be driven instead.
+_WINDOW_UNRESOLVED_CODES = frozenset({"off_space_or_ax_unresolved"})
+_UNRESOLVED_CAPTURE_REASON = "ax_window_unresolved"
+# Background delivery refused up front; fronting the window (the foreground rung) makes the
+# keystrokes unambiguous or un-minimizes the window, so these behave like "did not land".
+_ESCALATABLE_REFUSAL_CODES = frozenset({"same_pid_keyboard_ambiguity", "minimized_or_hidden_window"})
 
 
 class MacOSComputerError(RuntimeError):
@@ -72,6 +103,32 @@ class MacOSFocusChangedError(MacOSUncertainActionError):
     Desktop-scope keyboard delivery goes to whatever application is frontmost. When that is
     no longer the application the model was looking at, the safe outcome is to send nothing
     and hand the model a fresh frame; the attached observation is that frame.
+    """
+
+
+class MacOSBackgroundDeliveryError(MacOSUncertainActionError):
+    """A window-scope action was posted in the background but the driver reports it did not land.
+
+    Strict window scope never fronts the target on its own; the model gets the driver's
+    verdict, a fresh frame of the window, and can retry through a different control or
+    shortcut. ``outcome`` is the parsed driver envelope for that attempt.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        observation: "N2Observation | None" = None,
+        outcome: "MacOSActionOutcome | None" = None,
+    ) -> None:
+        super().__init__(message, observation)
+        self.outcome = outcome
+
+
+class MacOSTargetWindowChangedError(MacOSUncertainActionError):
+    """The driven window disappeared mid-action and the adapter rebound to another window of the app.
+
+    The model's coordinates were measured against a window that no longer exists, so the
+    action is not retried; the attached observation is the first frame of the new window.
     """
 
 
@@ -149,6 +206,84 @@ def _structured(result: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _text(value: Any) -> "str | None":
+    return value if isinstance(value, str) else None
+
+
+def _parse_action_outcome(
+    tool: str,
+    requested_delivery: str,
+    structured: dict[str, Any],
+    *,
+    escalated: bool = False,
+) -> MacOSActionOutcome:
+    """Read the driver's action envelope (effect/route/delivery/escalation) defensively.
+
+    Missing fields count as a landed action: pixel input on macOS is normally reported as
+    ``unverifiable`` and older payloads carry no envelope at all. The next rung is read from
+    ``escalation.target`` (cua-driver 0.23) or ``escalation.recommended`` (the documented name).
+    """
+    delivery = structured.get("delivery")
+    escalation = structured.get("escalation") if isinstance(structured.get("escalation"), dict) else {}
+    refusal = structured.get("refusal")
+    return MacOSActionOutcome(
+        tool=tool,
+        requested_delivery=requested_delivery,
+        effect=_text(structured.get("effect")),
+        route=_text(structured.get("route")),
+        reported_delivery=_text(delivery.get("mode")) if isinstance(delivery, dict) else _text(delivery),
+        escalated=escalated,
+        refusal_code=_text(refusal.get("code")) if isinstance(refusal, dict) else _text(structured.get("code")),
+        recommended=_text(escalation.get("recommended")) or _text(escalation.get("target")),
+        escalation_reason=_text(escalation.get("reason")),
+    )
+
+
+def _error_code(error: CuaDriverToolError) -> "str | None":
+    code = getattr(error, "code", None)
+    if isinstance(code, str):
+        return code
+    message = str(error)
+    known = (*_WINDOW_LOSS_CODES, *_STALE_FRAME_CODES, *_WINDOW_UNRESOLVED_CODES, *_ESCALATABLE_REFUSAL_CODES)
+    return next((candidate for candidate in known if candidate in message), None)
+
+
+def _capture_unresolved(structured: dict[str, Any]) -> bool:
+    """Whether a window capture came back for a window that no accessibility window backs."""
+    reason = structured.get("degraded_reason")
+    return isinstance(reason, str) and reason.startswith(_UNRESOLVED_CAPTURE_REASON)
+
+
+def _is_window_loss(error: CuaDriverToolError) -> bool:
+    return _error_code(error) in _WINDOW_LOSS_CODES
+
+
+def _decode_inline_frame(result: dict[str, Any], tool_name: str) -> tuple[bytes, int, int]:
+    """Return the inline PNG frame of a capture result, cross-checked against its reported size."""
+    structured = _structured(result)
+    width, height = structured.get("screenshot_width"), structured.get("screenshot_height")
+    image_data = next(
+        (
+            part.get("data")
+            for part in result.get("content") or []
+            if isinstance(part, dict) and part.get("type") == "image" and part.get("data")
+        ),
+        None,
+    )
+    if not isinstance(image_data, str):
+        raise MacOSComputerError(f"{tool_name} returned no inline pixel frame")
+    pixels = base64.b64decode(image_data, validate=True)
+    with Image.open(io.BytesIO(pixels)) as image:
+        decoded_width, decoded_height = image.size
+    if isinstance(width, int) and width != decoded_width:
+        raise ValueError(f"reported screenshot width {width} != decoded width {decoded_width}")
+    if isinstance(height, int) and height != decoded_height:
+        raise ValueError(f"reported screenshot height {height} != decoded height {decoded_height}")
+    if decoded_width <= 0 or decoded_height <= 0:
+        raise MacOSComputerError(f"{tool_name} returned an empty frame")
+    return pixels, decoded_width, decoded_height
+
+
 def _shell_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _SHELL_ENV_BLOCKLIST}
 
@@ -222,9 +357,16 @@ class MacOSComputer:
         known_secrets: "Sequence[str]" = (),
         verify_focus: bool = True,
         frontmost_probe: "Callable[[], Awaitable[FrontmostApp | None]] | None" = None,
+        scope: Literal["desktop", "window"] = "desktop",
+        target_window: "MacOSWindowTarget | None" = None,
+        allow_foreground_fallback: bool = False,
     ) -> None:
         if transport is not None and owns_transport is None:
             raise ValueError("owns_transport must be explicit when transport is injected")
+        if scope not in ("desktop", "window"):
+            raise ValueError("scope must be 'desktop' or 'window'")
+        if target_window is not None and scope != "window":
+            raise ValueError("target_window requires scope='window'")
         self.transport = transport or CuaDriverTransport()
         self.owns_transport = True if transport is None else bool(owns_transport)
         self.session = session or f"yutori-n2-{uuid.uuid4().hex[:12]}"
@@ -233,8 +375,20 @@ class MacOSComputer:
         self.allow_local_shell = allow_local_shell
         self.execution_deadline = execution_deadline
         self.cancellation = cancellation or CancellationLatch()
-        self.target_pid = target_pid
+        self.target_pid = target_window.pid if target_window is not None else target_pid
         self.recover_target = recover_target
+        self.scope = scope
+        self.allow_foreground_fallback = allow_foreground_fallback
+        self._target_window = target_window
+        self._window_capture: "tuple[int, int] | None" = None
+        self._action_outcomes: list[MacOSActionOutcome] = []
+        self._delivery_counts: dict[str, int] = {
+            "background_attempts": 0,
+            "foreground_escalations": 0,
+            "fallback_skips": 0,
+            "background_refusals": 0,
+            "window_rebinds": 0,
+        }
         self.overlay_cache_directory = overlay_cache_directory
         self.verify_focus = verify_focus
         self._frontmost_probe = frontmost_probe or frontmost_app
@@ -282,6 +436,18 @@ class MacOSComputer:
         try:
             self.cancellation.raise_if_cancelled()
             await self._await_with_cancellation(self.transport.start())
+            if self.window_mode:
+                # Window scope never grabs the desktop: the first frame is the target window,
+                # taken after set_window_target(). The user's pointer stays theirs, so the
+                # driver's synthetic cursor is switched off instead of themed, and the
+                # full-screen overlay is not started.
+                await self._call_tool("start_session", {"session": self.session})
+                self._session_started = True
+                self._native_cursor = "hidden"
+                with suppress(Exception):
+                    await self._configure_cursor(False)
+                self._presentation_failure = "window_mode"
+                return self
             await self._call_tool(
                 "start_session",
                 {"session": self.session, "capture_scope": "desktop"},
@@ -326,6 +492,96 @@ class MacOSComputer:
     @property
     def shell_events(self) -> tuple[ShellPresentationEvent, ...]:
         return tuple(self._shell_events)
+
+    @property
+    def window_mode(self) -> bool:
+        return self.scope == "window"
+
+    @property
+    def target_window(self) -> "MacOSWindowTarget | None":
+        return self._target_window
+
+    @property
+    def last_action_outcome(self) -> "MacOSActionOutcome | None":
+        return self._action_outcomes[-1] if self._action_outcomes else None
+
+    @property
+    def action_outcomes(self) -> tuple[MacOSActionOutcome, ...]:
+        return tuple(self._action_outcomes)
+
+    @property
+    def delivery_counts(self) -> dict[str, int]:
+        return dict(self._delivery_counts)
+
+    @property
+    def window_target_info(self) -> "dict[str, Any] | None":
+        target = self._target_window
+        if target is None:
+            return None
+        capture = self._window_capture
+        return {
+            "pid": target.pid,
+            "window_id": target.window_id,
+            "title": target.title,
+            "app_name": target.app_name,
+            "capture_width": capture[0] if capture else None,
+            "capture_height": capture[1] if capture else None,
+        }
+
+    async def set_window_target(self, target: "MacOSWindowTarget | None") -> None:
+        """Bind (or clear) the window this window-scope session captures and drives.
+
+        The next screenshot is the first frame of that window and the model's coordinates
+        are window-local from then on, so every frame-derived state is dropped here.
+        """
+        if not self.window_mode:
+            raise MacOSComputerError("set_window_target requires scope='window'.")
+        if self._left_mouse_down:
+            raise MacOSRecoverableActionError("Release the held mouse button before changing the target window.")
+        self.cancellation.raise_if_cancelled()
+        self._bind_window_target(target)
+
+    def _bind_window_target(self, target: "MacOSWindowTarget | None") -> None:
+        self._target_window = target
+        self._initial_png = None
+        self._native_size = None
+        self._current_observation = None
+        self._observed_frontmost = None
+        self._window_capture = None
+        self._no_progress.reset()
+        if target is not None:
+            self.target_pid = target.pid
+
+    async def unhide_app(self, pid: int) -> bool:
+        """Show a hidden app's windows behind the user's without activating it.
+
+        ``launch_app`` starts apps hidden, and the driver refuses raw keyboard input to a hidden
+        window; window-scope callers unhide the target before binding it. Returns whether the
+        app is now visible (advisory: a False leaves the driver to refuse keys itself).
+        """
+        return bool(await self._await_with_cancellation(unhide_application(pid)))
+
+    async def resolve_window_target(
+        self,
+        pid: int,
+        *,
+        prefer_window_id: "int | None" = None,
+        exclude_window_id: "int | None" = None,
+    ) -> "MacOSWindowTarget | None":
+        """Pick the window of ``pid`` to drive, or None while it has no usable window."""
+        record = select_target_window(
+            window_records(await self.list_windows(pid)),
+            prefer_window_id=prefer_window_id,
+            exclude_window_id=exclude_window_id,
+        )
+        if record is None:
+            return None
+        return MacOSWindowTarget(
+            pid=pid,
+            window_id=int(record["window_id"]),
+            title=_text(record.get("title")),
+            app_name=_text(record.get("app_name")),
+        )
 
     def record_model_action(self, name: str, arguments: dict[str, Any], *, refused: bool = False) -> None:
         self._no_progress.record_action(name, arguments, refused=refused)
@@ -396,7 +652,7 @@ class MacOSComputer:
         observation = await self._encode_observation(capture_id, png_bytes, width, height)
         self._current_observation = observation
         self._no_progress.record_frame(observation)
-        if self.verify_focus:
+        if self.verify_focus and not self.window_mode:
             self._observed_frontmost = await self._probe_frontmost()
         await self._ensure_target_alive()
         return observation
@@ -422,10 +678,19 @@ class MacOSComputer:
         modifier: "Sequence[str] | None" = None,
     ) -> None:
         self._refuse_stop_point(x, y)
-        arguments = self._desktop_args(x=x, y=y, button=button, count=count)
+        arguments = self._action_args(x=x, y=y, button=button, count=count)
         modifiers = self._merged_modifiers(modifier)
         if modifiers:
             arguments["modifier"] = modifiers
+            if self.window_mode:
+                # macOS only observes modifier state for a frontmost target, so the driver
+                # requires foreground delivery for modified clicks.
+                if not self.allow_foreground_fallback:
+                    raise MacOSRecoverableActionError(
+                        "Modified clicks need foreground delivery, which this window-scope session does not "
+                        "allow; use key_press for the shortcut or an unmodified click instead."
+                    )
+                arguments["delivery_mode"] = _DELIVERY_FOREGROUND
         await self._mutate("click", arguments)
         self._pointer = (x, y)
 
@@ -438,8 +703,12 @@ class MacOSComputer:
     async def move(self, x: int, y: int) -> None:
         self._refuse_stop_point(x, y)
         self._pointer = (x, y)
+        if self.window_mode:
+            # Window scope has no pointer to move: the real cursor stays with the user and the
+            # synthetic cursor is off, so a hover is recorded for a later drag but never posted.
+            return
         if not self._left_mouse_down:
-            await self._mutate("move_cursor", self._desktop_args(x=x, y=y))
+            await self._mutate("move_cursor", self._action_args(x=x, y=y))
 
     async def drag(self, path: list[dict[str, int]]) -> None:
         if len(path) < 2:
@@ -451,12 +720,11 @@ class MacOSComputer:
         self._refuse_stop_point(end["x"], end["y"])
         await self._mutate(
             "drag",
-            self._desktop_args(
+            self._action_args(
                 from_x=start["x"],
                 from_y=start["y"],
                 to_x=end["x"],
                 to_y=end["y"],
-                delivery_mode="foreground",
             ),
         )
         self._pointer = (end["x"], end["y"])
@@ -516,16 +784,14 @@ class MacOSComputer:
         amount = max(1, min(50, round(abs(delta) / max(1, dimension * 0.1))))
         await self._mutate(
             "scroll",
-            self._desktop_args(x=x, y=y, direction=direction, amount=amount, by="line"),
+            self._action_args(x=x, y=y, direction=direction, amount=amount, by="line"),
         )
 
     async def type(self, text: str) -> None:
         if self._emulated_held_keys:
-            raise MacOSRecoverableActionError(
-                "The pinned Cua Driver cannot hold a modifier while typing text."
-            )
+            raise MacOSRecoverableActionError("The pinned Cua Driver cannot hold a modifier while typing text.")
         await self._guard_frontmost("type_text")
-        await self._mutate("type_text", self._desktop_args(text=text, delay_ms=0))
+        await self._mutate("type_text", self._action_args(text=text, delay_ms=0))
 
     async def keypress(self, keys: "Sequence[str] | str") -> None:
         sequence = [keys] if isinstance(keys, str) else list(keys)
@@ -533,9 +799,9 @@ class MacOSComputer:
             sequence = self._merged_modifiers(sequence)
         await self._guard_frontmost("press_key" if len(sequence) == 1 else "hotkey")
         if len(sequence) == 1:
-            await self._mutate("press_key", self._desktop_args(key=sequence[0]))
+            await self._mutate("press_key", self._action_args(key=sequence[0]))
         else:
-            await self._mutate("hotkey", self._desktop_args(keys=sequence))
+            await self._mutate("hotkey", self._action_args(keys=sequence))
 
     async def key_down(self, key: str) -> None:
         """Emulate a single held modifier until the next n2 batch action.
@@ -973,6 +1239,11 @@ class MacOSComputer:
             await cancel_and_drain(operation, stopped)
 
     async def _capture_png(self) -> tuple[bytes, int, int]:
+        if self.window_mode:
+            return await self._capture_window_png()
+        return await self._capture_desktop_png()
+
+    async def _capture_desktop_png(self) -> tuple[bytes, int, int]:
         last_error: "Exception | None" = None
         for attempt in range(_CAPTURE_ATTEMPTS):
             if attempt:
@@ -982,32 +1253,60 @@ class MacOSComputer:
                 {"session": self.session},
                 read_only=True,
             )
-            structured = _structured(result)
-            width, height = structured.get("screenshot_width"), structured.get("screenshot_height")
-            image_data = next(
-                (
-                    part.get("data")
-                    for part in result.get("content") or []
-                    if isinstance(part, dict) and part.get("type") == "image" and part.get("data")
-                ),
-                None,
-            )
-            if isinstance(image_data, str):
-                try:
-                    pixels = base64.b64decode(image_data, validate=True)
-                    with Image.open(io.BytesIO(pixels)) as image:
-                        decoded_width, decoded_height = image.size
-                    if isinstance(width, int) and width != decoded_width:
-                        raise ValueError(f"reported screenshot width {width} != decoded width {decoded_width}")
-                    if isinstance(height, int) and height != decoded_height:
-                        raise ValueError(f"reported screenshot height {height} != decoded height {decoded_height}")
-                    if decoded_width > 0 and decoded_height > 0:
-                        return pixels, decoded_width, decoded_height
-                except (ValueError, OSError) as error:
-                    last_error = error
-            else:
-                last_error = MacOSComputerError("get_desktop_state returned no inline pixel frame")
+            try:
+                return _decode_inline_frame(result, "get_desktop_state")
+            except (ValueError, OSError, MacOSComputerError) as error:
+                last_error = error
         raise MacOSComputerError(f"get_desktop_state returned no usable frame after 3 attempts: {last_error}")
+
+    async def _capture_window_png(self) -> tuple[bytes, int, int]:
+        """Grab the driven window only, following it if the driver says the window went away."""
+        last_error: "Exception | None" = None
+        for attempt in range(_CAPTURE_ATTEMPTS):
+            if attempt:
+                await self._sleep(_CAPTURE_RETRY_SECONDS)
+            target = self._require_window_target()
+            try:
+                result = await self._call_tool(
+                    "get_window_state",
+                    {
+                        "session": self.session,
+                        "pid": target.pid,
+                        "window_id": target.window_id,
+                        "include_screenshot": True,
+                        # The tree is not consumed; the schema minimums bound the AX walk.
+                        "max_elements": 1,
+                        "max_depth": 1,
+                    },
+                    read_only=True,
+                )
+            except CuaDriverToolError as error:
+                last_error = error
+                if _is_window_loss(error):
+                    await self._rebind_window_target(_error_code(error) or "window_lost")
+                    continue
+                if _error_code(error) in _STALE_FRAME_CODES:
+                    continue
+                raise
+            if _capture_unresolved(_structured(result)) and await self._rebind_to_alternative_window() is not None:
+                # A zombie record of a closed dialog renders blank; the app's live window is next.
+                last_error = MacOSComputerError(f"window {target.window_id} has no accessibility window")
+                continue
+            try:
+                pixels, width, height = _decode_inline_frame(result, "get_window_state")
+            except (ValueError, OSError, MacOSComputerError) as error:
+                last_error = error
+                continue
+            self._window_capture = (width, height)
+            return pixels, width, height
+        raise MacOSComputerError(f"get_window_state returned no usable frame after 3 attempts: {last_error}")
+
+    def _require_window_target(self) -> MacOSWindowTarget:
+        if self._target_window is None:
+            raise MacOSComputerError(
+                "Window scope needs a target window: call set_window_target() before capturing or acting."
+            )
+        return self._target_window
 
     async def _encode_observation(self, capture_id: int, png_bytes: bytes, width: int, height: int) -> N2Observation:
         started_at = time.monotonic()
@@ -1049,15 +1348,144 @@ class MacOSComputer:
         self.cancellation.raise_if_cancelled()
         started_at = time.monotonic()
         try:
-            await self._call_tool(tool, arguments)
+            if self.window_mode:
+                await self._mutate_window(tool, arguments)
+            else:
+                await self._call_tool(tool, arguments)
         except CuaDriverUncertainActionError as error:
-            observation = None
-            with suppress(Exception):
-                observation = await self.screenshot()
+            observation = await self._fresh_observation()
             raise MacOSUncertainActionError(str(error), observation) from error
         finally:
             self._timings["action_ms"] += (time.monotonic() - started_at) * 1000
         await self._ensure_target_alive()
+
+    async def _mutate_window(self, tool: str, arguments: dict[str, Any]) -> None:
+        """Deliver one window-scope action, escalating to foreground only when allowed and needed.
+
+        ``unverifiable``/``partial`` count as landed: pixel input is normally unverifiable and a
+        partial effect has already changed the window, so re-sending would double-act. For the
+        same reason a foreground retry is skipped when the window already changed after the
+        background attempt: the driver's ``delivery_failed`` verdict can be wrong for part of a
+        keystroke sequence (typing "15*15" twice into Calculator was observed live), and the
+        model sees the actual state on its next frame either way.
+        """
+        requested = str(arguments.get("delivery_mode", _DELIVERY_BACKGROUND))
+        escalated = requested == _DELIVERY_FOREGROUND
+        self._delivery_counts["foreground_escalations" if escalated else "background_attempts"] += 1
+        reference = self._current_observation
+        outcome = await self._deliver_window_action(tool, arguments, requested, escalated=escalated)
+        if outcome.landed:
+            return
+        observation = await self._fresh_observation()
+        if not escalated and self.allow_foreground_fallback:
+            if self._frame_changed(reference, observation):
+                self._delivery_counts["fallback_skips"] += 1
+                return
+            self._delivery_counts["foreground_escalations"] += 1
+            outcome = await self._deliver_window_action(
+                tool,
+                {**arguments, "delivery_mode": _DELIVERY_FOREGROUND},
+                _DELIVERY_FOREGROUND,
+                escalated=True,
+            )
+            if outcome.landed:
+                return
+            observation = await self._fresh_observation()
+        self._delivery_counts["background_refusals"] += 1
+        target = self._target_window
+        where = target.describe() if target is not None else "the target window"
+        detail = f"effect={outcome.effect or 'unknown'}"
+        if outcome.recommended:
+            detail += f", recommended={outcome.recommended}"
+        if outcome.escalation_reason:
+            detail += f", reason={outcome.escalation_reason}"
+        raise MacOSBackgroundDeliveryError(
+            f"{tool} was posted to {where} with {outcome.requested_delivery} delivery but the driver reports it "
+            f"did not land ({detail}). Check the attached frame; try a keyboard shortcut or a different control.",
+            observation,
+            outcome,
+        )
+
+    async def _deliver_window_action(
+        self,
+        tool: str,
+        arguments: dict[str, Any],
+        requested: str,
+        *,
+        escalated: bool,
+    ) -> MacOSActionOutcome:
+        try:
+            result = await self._call_tool(tool, arguments)
+        except CuaDriverToolError as error:
+            code = _error_code(error)
+            if code in _ESCALATABLE_REFUSAL_CODES:
+                # Nothing was delivered; report it like a non-landing action so the fallback
+                # policy decides between a foreground retry and a recoverable refusal.
+                outcome = MacOSActionOutcome(
+                    tool=tool,
+                    requested_delivery=requested,
+                    effect="refused",
+                    route=None,
+                    reported_delivery=None,
+                    escalated=escalated,
+                    refusal_code=code,
+                    recommended=_DELIVERY_FOREGROUND,
+                    escalation_reason=code,
+                )
+                self._action_outcomes.append(outcome)
+                return outcome
+            if _is_window_loss(error):
+                previous = self._target_window
+                current = await self._rebind_window_target(code or "window_lost")
+                observation = await self._fresh_observation()
+                raise MacOSTargetWindowChangedError(
+                    f"{tool} was not delivered: {previous.describe() if previous else 'the target window'} is gone "
+                    f"({code or 'window lost'}); now driving {current.describe()}. Check the attached frame and "
+                    "retry against it.",
+                    observation,
+                ) from error
+            if code in _STALE_FRAME_CODES:
+                observation = await self._fresh_observation()
+                raise MacOSUncertainActionError(
+                    f"{tool} was refused ({code}); retry against the attached frame.", observation
+                ) from error
+            if code in _WINDOW_UNRESOLVED_CODES:
+                previous = self._target_window
+                where = previous.describe() if previous is not None else "the target window"
+                current = await self._rebind_to_alternative_window()
+                observation = await self._fresh_observation()
+                if current is not None:
+                    raise MacOSTargetWindowChangedError(
+                        f"{tool} was not delivered: {where} can no longer be driven ({code}); now driving "
+                        f"{current.describe()}. Check the attached frame and retry against it.",
+                        observation,
+                    ) from error
+                self._delivery_counts["background_refusals"] += 1
+                raise MacOSBackgroundDeliveryError(
+                    f"{tool} was refused ({code}): {where} is on another Space or has no accessibility "
+                    "surface, so background input cannot reach it and the app has no other window to drive. "
+                    "Check the attached frame.",
+                    observation,
+                ) from error
+            raise
+        outcome = _parse_action_outcome(tool, requested, _structured(result), escalated=escalated)
+        self._action_outcomes.append(outcome)
+        return outcome
+
+    async def _fresh_observation(self) -> "N2Observation | None":
+        with suppress(Exception):
+            return await self.screenshot()
+        return None
+
+    @staticmethod
+    def _frame_changed(reference: "N2Observation | None", current: "N2Observation | None") -> bool:
+        """Whether the window materially changed between two frames (unknown frames count as unchanged)."""
+        if reference is None or current is None:
+            return False
+        before, after = frame_signature(reference), frame_signature(current)
+        if before is None or after is None:
+            return False
+        return frame_difference(before, after) > FRAME_DIFF_TOLERANT_FRACTION
 
     @property
     def focus_guard_trips(self) -> int:
@@ -1080,7 +1508,7 @@ class MacOSComputer:
         or app switch that landed after the model decided what to type. On a mismatch the
         keys are not sent and the model receives the current frame instead.
         """
-        if not self.verify_focus or self._observed_frontmost is None:
+        if self.window_mode or not self.verify_focus or self._observed_frontmost is None:
             return
         current = await self._probe_frontmost()
         if current is None or current.pid == self._observed_frontmost.pid:
@@ -1097,16 +1525,31 @@ class MacOSComputer:
             observation,
         )
 
-    def _desktop_args(self, **arguments: Any) -> dict[str, Any]:
+    def _action_args(self, **arguments: Any) -> dict[str, Any]:
+        """Session, coordinate frame, and delivery for one input RPC.
+
+        Desktop scope is the legacy contract: screen-absolute pixels delivered to the
+        frontmost app. Window scope addresses one window through the ``target`` object (the
+        driver refuses it alongside the legacy scope/pid/window_id fields) with window-local
+        pixels and background delivery, so the user's focus is never taken.
+        """
+        if not self.window_mode:
+            return {
+                "session": self.session,
+                "scope": "desktop",
+                "delivery_mode": _DELIVERY_FOREGROUND,
+                **arguments,
+            }
+        target = self._require_window_target()
         return {
             "session": self.session,
-            "scope": "desktop",
-            "delivery_mode": "foreground",
+            "target": {"kind": "window", "pid": target.pid, "window_id": target.window_id},
+            "delivery_mode": _DELIVERY_BACKGROUND,
             **arguments,
         }
 
     def _refuse_stop_point(self, x: int, y: int) -> None:
-        if self.presentation is None or self._native_size is None:
+        if self.window_mode or self.presentation is None or self._native_size is None:
             return
         width, height = self._native_size
         normalized = (x / width * 1000, y / height * 1000)
@@ -1376,9 +1819,7 @@ class MacOSComputer:
             # The sleeper owns ordinary waits; an equal timeout races it and can falsely latch the deadline.
             if remaining <= seconds:
                 timeout = remaining
-        sleeper, cancellation, done = await race_sleep_against_cancellation(
-            seconds, self.cancellation, timeout=timeout
-        )
+        sleeper, cancellation, done = await race_sleep_against_cancellation(seconds, self.cancellation, timeout=timeout)
         if sleeper not in done:
             if cancellation not in done:
                 self.cancellation.request("deadline")
@@ -1395,15 +1836,67 @@ class MacOSComputer:
     async def _ensure_target_alive(self) -> None:
         if self.target_pid is None or self._pid_alive(self.target_pid):
             return
+        recovered = await self._recover_target_pid()
+        if recovered is None:
+            await self._fail_target_crash(f"Target application {self.target_pid} exited.")
+        self.target_pid = recovered
+        if self.window_mode and (self._target_window is None or self._target_window.pid != recovered):
+            # recover_target may already have bound a window of the relaunched process.
+            await self._rebind_window_target("target_recovered")
+
+    async def _recover_target_pid(self) -> "int | None":
         while self.recover_target is not None and self._target_recoveries < 2:
             self._target_recoveries += 1
             recovered = await self._await_with_cancellation(self.recover_target())
             if recovered is not None and self._pid_alive(recovered):
-                self.target_pid = recovered
-                return
+                return recovered
+        return None
+
+    async def _fail_target_crash(self, message: str) -> None:
         self.cancellation.request("target_crash")
         await asyncio.sleep(0)
-        raise MacOSTargetCrashedError(f"Target application {self.target_pid} exited.")
+        raise MacOSTargetCrashedError(message)
+
+    async def _rebind_to_alternative_window(self) -> "MacOSWindowTarget | None":
+        """Move to another live window of the target app, or None when it has no other window."""
+        previous = self._target_window
+        pid = self.target_pid if self.target_pid is not None else (previous.pid if previous is not None else None)
+        if pid is None or not self._pid_alive(pid):
+            return None
+        target = await self.resolve_window_target(
+            pid, exclude_window_id=previous.window_id if previous is not None else None
+        )
+        if target is None:
+            return None
+        self._delivery_counts["window_rebinds"] += 1
+        self._bind_window_target(target)
+        return target
+
+    async def _rebind_window_target(self, reason: str) -> MacOSWindowTarget:
+        """Follow the target app to another of its windows after the driver reported ours gone."""
+        self._delivery_counts["window_rebinds"] += 1
+        previous = self._target_window
+        pid = self.target_pid if self.target_pid is not None else (previous.pid if previous is not None else None)
+        if pid is None:
+            raise MacOSComputerError(f"Cannot rebind the target window ({reason}): no target process is known.")
+        if not self._pid_alive(pid):
+            recovered = await self._recover_target_pid()
+            if recovered is None:
+                await self._fail_target_crash(f"Target application {pid} exited.")
+            assert recovered is not None
+            self.target_pid = pid = recovered
+            if self._target_window is not None and self._target_window.pid == recovered:
+                return self._target_window
+        prefer = previous.window_id if previous is not None else None
+        target = await self.resolve_window_target(pid, prefer_window_id=prefer)
+        if target is None:
+            await self._sleep(_CAPTURE_RETRY_SECONDS)
+            target = await self.resolve_window_target(pid, prefer_window_id=prefer)
+        if target is None:
+            await self._fail_target_crash(f"Target application {pid} has no window left to drive ({reason}).")
+        assert target is not None
+        self._bind_window_target(target)
+        return target
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
