@@ -69,14 +69,15 @@ already-published release:
    runs `bash scripts/build_install.sh` to regenerate `install.sh`, and updates the pinned
    `yutori==` versions under `examples/navigator_n2/` (`pyproject.toml`, `README.md`,
    `Dockerfile.direct_x11`).
-2. Merge it. The "Publish yutori to PyPI" workflow runs on the version change: it runs the
-   tests, builds and uploads the package, tags the merge commit `vX.Y.Z`, and creates the
-   GitHub release with generated notes and the installer assets.
+2. Merge it. The "Publish yutori to PyPI" workflow runs on the version change: it creates
+   the annotated `vX.Y.Z` tag on the merge commit, runs the tests, builds and verifies the
+   exact distributions, publishes them with PyPI Trusted Publishing, and only then creates
+   the GitHub release with the checksums, provenance, and installer assets.
 
-Do not create the tag or the release by hand. An existing `vX.Y.Z` tag tells the workflow
-that version already shipped, so it skips. If a run fails after PyPI accepted the upload,
-fix the cause and re-run it from the Actions tab; the upload step skips files PyPI already
-has, and the tag and release steps pick up where it stopped.
+Do not create the tag by hand. A `vX.Y.Z` tag that points at an older commit tells the
+workflow that version already shipped, so it skips. If a run fails after tagging, re-run it
+from the Actions tab: the tag job reuses a tag that points at the same commit, the PyPI step
+skips distributions PyPI already holds, and a published release is never overwritten.
 
 ## Reporting Issues
 
