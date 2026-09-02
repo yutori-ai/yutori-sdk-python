@@ -38,11 +38,16 @@ def _authentication_args() -> list[str]:
     raise RuntimeError(f"unsupported Yutori authentication source: {status.source!r}")
 
 
-def _run_checked(command: list[str], description: str, **kwargs: object) -> None:
+def _run_docker(command: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    """Run a docker subprocess, translating a missing binary into a clear error."""
     try:
-        result = subprocess.run(command, **kwargs)
+        return subprocess.run(command, **kwargs)
     except FileNotFoundError as error:
         raise SystemExit("docker is not installed") from error
+
+
+def _run_checked(command: list[str], description: str, **kwargs: object) -> None:
+    result = _run_docker(command, **kwargs)
     if result.returncode != 0:
         raise SystemExit(f"{description} failed with exit code {result.returncode}")
 
@@ -125,10 +130,7 @@ def main(args: argparse.Namespace) -> None:
     )
 
     print(f"Watch the desktop live: http://localhost:{novnc_port}/vnc.html", flush=True)
-    try:
-        result = subprocess.run(docker_command)
-    except FileNotFoundError as error:
-        raise SystemExit("docker is not installed") from error
+    result = _run_docker(docker_command)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
