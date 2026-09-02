@@ -10,10 +10,13 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 VNC_PORT = 5900
 NOVNC_PORT = 6080
+_READY_ATTEMPTS = 40
+_READY_INTERVAL_SECONDS = 0.25
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:
@@ -39,46 +42,61 @@ def _start(command: list[str], environment: dict[str, str]) -> subprocess.Popen[
     )
 
 
+def _wait_until_ready(
+    is_ready: Callable[[], bool],
+    *,
+    name: str,
+    process: subprocess.Popen[bytes] | None = None,
+) -> None:
+    """Poll ``is_ready`` for up to ``_READY_ATTEMPTS`` tries, ``_READY_INTERVAL_SECONDS`` apart.
+
+    When ``process`` is given, an early exit is reported immediately instead of being
+    retried until the attempt budget runs out.
+    """
+    for _ in range(_READY_ATTEMPTS):
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(f"{name} exited with status {process.returncode}")
+        if is_ready():
+            return
+        time.sleep(_READY_INTERVAL_SECONDS)
+    raise RuntimeError(f"{name} did not become ready")
+
+
 def _wait_for_display(environment: dict[str, str]) -> None:
-    for _ in range(40):
-        ready = subprocess.run(
+    def is_ready() -> bool:
+        result = subprocess.run(
             ["xdpyinfo", "-display", environment["DISPLAY"]],
             env=environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        if ready.returncode == 0:
-            return
-        time.sleep(0.25)
-    raise RuntimeError("Xvfb did not become ready")
+        return result.returncode == 0
+
+    _wait_until_ready(is_ready, name="Xvfb")
 
 
 def _wait_for_port(port: int, process: subprocess.Popen[bytes], name: str) -> None:
-    for _ in range(40):
-        if process.poll() is not None:
-            raise RuntimeError(f"{name} exited with status {process.returncode}")
+    def is_ready() -> bool:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.25):
-                return
+            with socket.create_connection(("127.0.0.1", port), timeout=_READY_INTERVAL_SECONDS):
+                return True
         except OSError:
-            time.sleep(0.25)
-    raise RuntimeError(f"{name} did not become ready")
+            return False
+
+    _wait_until_ready(is_ready, name=name, process=process)
 
 
 def _wait_for_window_manager(environment: dict[str, str], process: subprocess.Popen[bytes]) -> None:
-    for _ in range(40):
-        if process.poll() is not None:
-            raise RuntimeError(f"Openbox exited with status {process.returncode}")
-        ready = subprocess.run(
+    def is_ready() -> bool:
+        result = subprocess.run(
             ["xprop", "-root", "_NET_SUPPORTING_WM_CHECK"],
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        if ready.returncode == 0 and b"_NET_SUPPORTING_WM_CHECK(WINDOW)" in ready.stdout:
-            return
-        time.sleep(0.25)
-    raise RuntimeError("Openbox did not become ready")
+        return result.returncode == 0 and b"_NET_SUPPORTING_WM_CHECK(WINDOW)" in result.stdout
+
+    _wait_until_ready(is_ready, name="Openbox", process=process)
 
 
 def main(command: list[str]) -> int:
