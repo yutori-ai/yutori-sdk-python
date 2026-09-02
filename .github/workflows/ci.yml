@@ -20,8 +20,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      # No pip cache here on purpose. This job installs only ruff, but it
+      # would share the 3.12 cache key with test/package (setup-python keys on
+      # python version + pyproject.toml hash) and usually wins the race to
+      # write it, leaving those jobs to restore a cache with none of their
+      # dependencies in it.
       - run: pip install ruff
       - run: ruff check .
 
