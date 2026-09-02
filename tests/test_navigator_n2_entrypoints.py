@@ -269,6 +269,49 @@ def test_local_x11_docker_builds_image_and_delegates_to_local_x11(
     assert "view-only noVNC session" in documentation
 
 
+def test_run_docker_translates_missing_binary_into_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(local_x11_docker.subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit, match="docker is not installed"):
+        local_x11_docker._run_docker(["docker", "info"])
+
+
+def test_local_x11_docker_reports_missing_binary_when_the_final_docker_run_vanishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # shutil.which and the earlier `docker info`/`docker build` checks can only prove
+    # docker existed at that moment -- this pins that a docker binary removed in between
+    # (e.g. a race, or another process uninstalling it) still surfaces the SDK's one clear
+    # "docker is not installed" message, not a raw traceback, from the *final* `docker run`.
+    call_count = 0
+
+    def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        nonlocal call_count
+        call_count += 1
+        if command[0:2] == ["docker", "run"]:
+            raise FileNotFoundError("docker")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setenv("YUTORI_API_KEY", "test-yutori-key")
+    monkeypatch.setattr(
+        local_x11_docker,
+        "get_auth_status",
+        lambda: SimpleNamespace(authenticated=True, source="env_var", config_path=None),
+    )
+    monkeypatch.setattr(local_x11_docker.shutil, "which", lambda _command: "/usr/local/bin/docker")
+    monkeypatch.setattr(local_x11_docker, "_available_local_port", lambda: 54321)
+    monkeypatch.setattr(local_x11_docker.subprocess, "run", fake_run)
+    args = argparse.Namespace(max_steps=7, task="Open Calculator", tool_set="latest", auto_approve=False)
+
+    with pytest.raises(SystemExit, match="docker is not installed"):
+        local_x11_docker.main(args)
+
+    assert call_count == 3  # docker info, docker build, docker run
+
+
 def test_local_x11_docker_uses_sdk_config_path_for_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         local_x11_docker,
