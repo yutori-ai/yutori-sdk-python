@@ -846,11 +846,10 @@ def maybe_install_mcp_server(
     success_detail = "Configured Yutori MCP server. Restart your AI tool to load it."
 
     if not interactive:
-        client = os.environ.get("YUTORI_INSTALL_CLIENT", "").strip()
         clients = _resolve_noninteractive_clients()
         base = ("npx", "add-mcp", "-y", "-g", "-n", "yutori")
         noninteractive_command = (*base, *_client_agent_flags(clients), "uvx yutori-mcp")
-        if not client:
+        if clients == DEFAULT_NONINTERACTIVE_MCP_CLIENTS:
             default_list = ", ".join(DEFAULT_NONINTERACTIVE_MCP_CLIENTS)
             success_detail = (
                 f"Registered Yutori MCP for the default client set ({default_list}). "
