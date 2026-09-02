@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from yutori.navigator import (
+    NAVIGATOR_N2_MODEL,
     TOOL_SET_COMPUTER_USE,
     TOOL_SET_COMPUTER_USE_20260825,
     TOOL_SET_COMPUTER_USE_BASH_BATCH,
@@ -22,6 +23,7 @@ from yutori.navigator import (
     TOOL_SET_COMPUTER_USE_HYBRID,
     TOOL_SET_COMPUTER_USE_HYBRID_BATCH,
     TOOL_SET_COMPUTER_USE_LATEST,
+    N2ComputerAgent,
     format_stop_and_summarize,
 )
 from yutori.navigator.n2_compaction import response_message
@@ -107,7 +109,32 @@ def build_confirmation_callback(auto_approve: bool, *, always_confirm_shell: boo
     return confirm
 
 
-def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+async def run_computer_agent(
+    *,
+    client: Any,
+    computer: Any,
+    args: argparse.Namespace,
+    tool_set: str,
+    always_confirm_shell: bool,
+    supports_click_modifiers: bool,
+) -> None:
+    """Configure and run the common n2 computer-agent loop for local cookbooks."""
+    async with N2ComputerAgent(
+        computer=computer,
+        completions=client.chat.completions,
+        model=NAVIGATOR_N2_MODEL,
+        tool_set=tool_set,
+        max_steps=args.max_steps,
+        action_confirmation_callback=build_confirmation_callback(
+            args.auto_approve,
+            always_confirm_shell=always_confirm_shell,
+        ),
+        supports_click_modifiers=supports_click_modifiers,
+    ) as agent:
+        await run_agent(agent, args.task, completions=client.chat.completions)
+
+
+def add_common_arguments(parser: argparse.ArgumentParser, *, auto_approve_default: bool = False) -> None:
     parser.add_argument("task", help="Task for stable Navigator n2")
     parser.add_argument(
         "--tool-set",
@@ -118,11 +145,20 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
             + ") or dated id. Default: latest (computer_use_tools-20260830)."
         ),
     )
-    parser.add_argument(
-        "--auto-approve",
-        action="store_true",
-        help="Approve environment actions without prompting. Host shell commands may still require confirmation.",
-    )
+    if auto_approve_default:
+        parser.add_argument(
+            "--confirm-actions",
+            dest="auto_approve",
+            action="store_false",
+            default=True,
+            help="Prompt before each action instead of approving actions in the disposable environment.",
+        )
+    else:
+        parser.add_argument(
+            "--auto-approve",
+            action="store_true",
+            help="Approve environment actions without prompting. Host shell commands may still require confirmation.",
+        )
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -134,12 +170,20 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def parse_common_args(description: str | None, argv: list[str] | None = None) -> argparse.Namespace:
+def parse_common_args(
+    description: str | None,
+    argv: list[str] | None = None,
+    *,
+    auto_approve_default: bool = False,
+    configure_parser: Callable[[argparse.ArgumentParser], None] | None = None,
+) -> argparse.Namespace:
     """Build the shared cookbook parser and parse it -- the ``parse_args()`` body every
     local-desktop entrypoint (``local_docker.py``, ``local_macos.py``, ``local_x11.py``)
     repeated verbatim apart from its module ``description``."""
     parser = argparse.ArgumentParser(description=description)
-    add_common_arguments(parser)
+    add_common_arguments(parser, auto_approve_default=auto_approve_default)
+    if configure_parser is not None:
+        configure_parser(parser)
     return parser.parse_args(argv)
 
 

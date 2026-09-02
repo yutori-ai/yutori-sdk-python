@@ -8,15 +8,14 @@ import sys
 
 from yutori import AsyncYutoriClient
 from yutori.auth import require_api_key
-from yutori.navigator import NAVIGATOR_N2_MODEL, N2ComputerAgent
 from yutori.navigator.n2_actions import TOOL_SETS_WITH_CLICK_MODIFIERS
 
 try:
     from .direct_x11_adapter import LocalX11Computer
-    from .shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
+    from .shared import parse_common_args, run_cli_main, run_computer_agent, selected_tool_set
 except ImportError:
     from direct_x11_adapter import LocalX11Computer
-    from shared import build_confirmation_callback, parse_common_args, run_agent, run_cli_main, selected_tool_set
+    from shared import parse_common_args, run_cli_main, run_computer_agent, selected_tool_set
 
 
 def _require_x11() -> None:
@@ -40,20 +39,24 @@ async def main(args: argparse.Namespace) -> None:
     tool_set = selected_tool_set(args.tool_set)
     computer = LocalX11Computer()
     async with AsyncYutoriClient(api_key=require_api_key()) as client:
-        async with N2ComputerAgent(
+        await run_computer_agent(
+            client=client,
             computer=computer,
-            completions=client.chat.completions,
-            model=NAVIGATOR_N2_MODEL,
+            args=args,
             tool_set=tool_set,
-            max_steps=args.max_steps,
-            action_confirmation_callback=build_confirmation_callback(args.auto_approve, always_confirm_shell=True),
+            always_confirm_shell=not getattr(args, "auto_approve_shell", False),
             supports_click_modifiers=tool_set in TOOL_SETS_WITH_CLICK_MODIFIERS,
-        ) as agent:
-            await run_agent(agent, args.task, completions=client.chat.completions)
+        )
 
 
-def parse_args() -> argparse.Namespace:
-    return parse_common_args(__doc__)
+def _add_internal_arguments(parser: argparse.ArgumentParser) -> None:
+    # Internal bridge for local_x11_docker.py. Native X11 keeps shell
+    # confirmation armed even with --auto-approve.
+    parser.add_argument("--auto-approve-shell", action="store_true", help=argparse.SUPPRESS)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return parse_common_args(__doc__, argv, configure_parser=_add_internal_arguments)
 
 
 if __name__ == "__main__":
