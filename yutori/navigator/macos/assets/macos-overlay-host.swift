@@ -6,43 +6,52 @@ import WebKit
 
 private let overlayProtocolVersion = 2
 
-private let mousePointerIconViewBox: CGFloat = 24
+// The Yutori mark, from the platform dashboard's yutori-mark.svg (viewBox -2 -2 117 114),
+// with its two filled subpaths emitted as CGPath calls because AppKit has no SVG parser.
+private let yutoriMarkViewBox = CGRect(x: -2, y: -2, width: 117, height: 114)
 private let menuBarIconPoints: CGFloat = 18
 
-/// Lucide `mouse-pointer-2` (https://lucide.dev, ISC license) on its 24-unit box, the cursor
-/// glyph the rest of the Yutori UI uses. Generated from lucide-react 0.546.0 with the SVG
-/// arcs pre-converted to cubic curves, because AppKit has no SVG path parser.
-private func mousePointerGlyph() -> CGPath {
+private func yutoriMarkGlyph() -> CGPath {
     let path = CGMutablePath()
-    path.move(to: CGPoint(x: 4.037, y: 4.688))
-    path.addCurve(to: CGPoint(x: 4.141, y: 4.141), control1: CGPoint(x: 3.956, y: 4.502), control2: CGPoint(x: 3.998, y: 4.285))
-    path.addCurve(to: CGPoint(x: 4.688, y: 4.037), control1: CGPoint(x: 4.285, y: 3.998), control2: CGPoint(x: 4.502, y: 3.956))
-    path.addLine(to: CGPoint(x: 20.688, y: 10.537))
-    path.addCurve(to: CGPoint(x: 20.998, y: 11.033), control1: CGPoint(x: 20.888, y: 10.618), control2: CGPoint(x: 21.013, y: 10.818))
-    path.addCurve(to: CGPoint(x: 20.625, y: 11.484), control1: CGPoint(x: 20.984, y: 11.248), control2: CGPoint(x: 20.834, y: 11.43))
-    path.addLine(to: CGPoint(x: 14.501, y: 13.064))
-    path.addCurve(to: CGPoint(x: 13.063, y: 14.499), control1: CGPoint(x: 13.796, y: 13.245), control2: CGPoint(x: 13.246, y: 13.795))
-    path.addLine(to: CGPoint(x: 11.484, y: 20.625))
-    path.addCurve(to: CGPoint(x: 11.033, y: 20.998), control1: CGPoint(x: 11.43, y: 20.834), control2: CGPoint(x: 11.248, y: 20.984))
-    path.addCurve(to: CGPoint(x: 10.537, y: 20.688), control1: CGPoint(x: 10.818, y: 21.013), control2: CGPoint(x: 10.618, y: 20.888))
+    path.move(to: CGPoint(x: 101.976, y: 0.821))
+    path.addCurve(to: CGPoint(x: 112.792, y: 4.268), control1: CGPoint(x: 106.955, y: -1.13), control2: CGPoint(x: 111.542, y: 0.545))
+    path.addCurve(to: CGPoint(x: 107.458, y: 13.782), control1: CGPoint(x: 114.212, y: 8.495), control2: CGPoint(x: 111.387, y: 11.998))
+    path.addCurve(to: CGPoint(x: 41.788, y: 75.917), control1: CGPoint(x: 74.847, y: 28.593), control2: CGPoint(x: 41.789, y: 54.809))
+    path.addCurve(to: CGPoint(x: 56.307, y: 94.026), control1: CGPoint(x: 41.788, y: 89.734), control2: CGPoint(x: 49.874, y: 94.026))
+    path.addCurve(to: CGPoint(x: 70.874, y: 75.917), control1: CGPoint(x: 62.74, y: 94.026), control2: CGPoint(x: 70.874, y: 89.735))
+    path.addCurve(to: CGPoint(x: 61.224, y: 53.963), control1: CGPoint(x: 70.874, y: 67.866), control2: CGPoint(x: 65.997, y: 59.825))
+    path.addCurve(to: CGPoint(x: 72.341, y: 43.538), control1: CGPoint(x: 61.248, y: 53.934), control2: CGPoint(x: 66.374, y: 47.82))
+    path.addCurve(to: CGPoint(x: 86.633, y: 75.917), control1: CGPoint(x: 81.107, y: 53.662), control2: CGPoint(x: 86.633, y: 63.68))
+    path.addCurve(to: CGPoint(x: 56.307, y: 110), control1: CGPoint(x: 86.633, y: 95.549), control2: CGPoint(x: 73.925, y: 110))
+    path.addCurve(to: CGPoint(x: 25.982, y: 75.917), control1: CGPoint(x: 38.688, y: 110), control2: CGPoint(x: 25.982, y: 95.549))
+    path.addCurve(to: CGPoint(x: 101.976, y: 0.821), control1: CGPoint(x: 25.982, y: 44.34), control2: CGPoint(x: 73.673, y: 11.912))
+    path.closeSubpath()
+    path.move(to: CGPoint(x: 0.372, y: 4.272))
+    path.addCurve(to: CGPoint(x: 11.19, y: 0.826), control1: CGPoint(x: 1.623, y: 0.549), control2: CGPoint(x: 6.21, y: -1.125))
+    path.addCurve(to: CGPoint(x: 51.019, y: 23.596), control1: CGPoint(x: 22.754, y: 5.358), control2: CGPoint(x: 37.556, y: 13.453))
+    path.addCurve(to: CGPoint(x: 39.908, y: 33.718), control1: CGPoint(x: 44.765, y: 28.489), control2: CGPoint(x: 39.924, y: 33.701))
+    path.addCurve(to: CGPoint(x: 5.706, y: 13.786), control1: CGPoint(x: 29.529, y: 26.092), control2: CGPoint(x: 17.588, y: 19.182))
+    path.addCurve(to: CGPoint(x: 0.372, y: 4.272), control1: CGPoint(x: 1.777, y: 12.001), control2: CGPoint(x: -1.047, y: 8.499))
     path.closeSubpath()
     return path
 }
 
-/// A template image of the Lucide cursor, stroked the way Lucide draws it (2 units on a
-/// 24-unit box, round caps and joins), so it takes the menu bar's light or dark tint.
+/// A template image of the Yutori mark, filled, so it takes the menu bar's light or dark tint
+/// like the system status items around it.
 private func stopMenuBarIcon() -> NSImage {
-    let glyph = mousePointerGlyph()
+    let glyph = yutoriMarkGlyph()
     let image = NSImage(size: NSSize(width: menuBarIconPoints, height: menuBarIconPoints), flipped: true) { rect in
         guard let context = NSGraphicsContext.current?.cgContext else { return false }
-        let scale = rect.width / mousePointerIconViewBox
+        let scale = min(rect.width / yutoriMarkViewBox.width, rect.height / yutoriMarkViewBox.height)
+        context.translateBy(
+            x: (rect.width - yutoriMarkViewBox.width * scale) / 2,
+            y: (rect.height - yutoriMarkViewBox.height * scale) / 2
+        )
         context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -yutoriMarkViewBox.minX, y: -yutoriMarkViewBox.minY)
         context.addPath(glyph)
-        context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(2)
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.strokePath()
+        context.setFillColor(NSColor.black.cgColor)
+        context.fillPath()
         return true
     }
     image.isTemplate = true
