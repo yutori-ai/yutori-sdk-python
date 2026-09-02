@@ -26,7 +26,7 @@ from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
 from .polling import FRAME_POLL_ACTION_MAX_MS, FramePollResult, frame_poll_wait_budget_ms, poll_until_frame_changes
 from .presentation import MacOSPresentationController
-from .process_lifecycle import cancel_and_drain
+from .process_lifecycle import cancel_and_drain, race_sleep_against_cancellation
 from .sanitize import sanitize_command_preview
 from .transport import (
     CuaDriverConnectionError,
@@ -1370,18 +1370,15 @@ class MacOSComputer:
         if seconds <= 0:
             self.cancellation.raise_if_cancelled()
             return
-        sleeper = asyncio.create_task(asyncio.sleep(seconds))
-        cancellation = asyncio.create_task(self.cancellation.wait())
         timeout: float | None = None
         if self.execution_deadline is not None:
             remaining = max(0.0, self.execution_deadline - time.monotonic())
             # The sleeper owns ordinary waits; an equal timeout races it and can falsely latch the deadline.
             if remaining <= seconds:
                 timeout = remaining
-        done, pending = await asyncio.wait(
-            {sleeper, cancellation}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+        sleeper, cancellation, done = await race_sleep_against_cancellation(
+            seconds, self.cancellation, timeout=timeout
         )
-        await cancel_and_drain(*pending)
         if sleeper not in done:
             if cancellation not in done:
                 self.cancellation.request("deadline")
