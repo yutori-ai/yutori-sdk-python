@@ -8,11 +8,11 @@ dependencies = [
     # drops the image); 0.1.17 keeps the local Docker runtime working. The
     # sandbox package alone is all the cookbook needs — no cua meta-package.
     "cua-sandbox==0.1.17",
-    "yutori==0.9.9",
+    "yutori==0.9.10",
 ]
 
 [project.optional-dependencies]
-macos = ["yutori[macos]==0.9.9"]
+macos = ["yutori[macos]==0.9.10"]
 linux = [
     # pyautogui executes n2's GUI actions in their native X11 units (wheel
     # notches, key events); mss captures X11 screenshots without scrot.
