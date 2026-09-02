@@ -1,11 +1,22 @@
 name: Publish yutori to PyPI
 
+# A release is cut by merging a version bump: a PR that raises `version` in
+# pyproject.toml and regenerates install.sh. When that lands on main, the tag
+# job creates the annotated vX.Y.Z tag on the merge commit and the rest of this
+# workflow publishes it. Do not create the tag by hand; a tag that already
+# points at an older commit is the signal that the version has shipped.
 on:
+  push:
+    branches: [main]
+    paths:
+      - pyproject.toml
   workflow_dispatch:
     inputs:
       tag:
-        description: "Annotated release tag to publish (vX.Y.Z or X.Y.Z)"
-        required: true
+        description: >-
+          Existing annotated release tag to publish (vX.Y.Z or X.Y.Z). Leave
+          empty to release the version pyproject.toml declares on this ref.
+        required: false
         type: string
 
 # A GitHub Release becomes "latest" as soon as it is published. Build, test,
@@ -16,28 +27,64 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  normalize_tag:
-    name: Normalize release tag
+  tag:
+    name: Resolve or create the release tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
-      tag: ${{ steps.normalize.outputs.tag }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      release: ${{ steps.resolve.outputs.release }}
     steps:
-      - id: normalize
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - id: resolve
         env:
           INPUT_TAG: ${{ inputs.tag }}
+        # An explicit tag input publishes that tag as before. Otherwise the tag
+        # is derived from pyproject.toml: create it when it does not exist yet,
+        # reuse it when it already points at this commit (a retry of a run that
+        # failed after tagging), and skip when it points anywhere else because
+        # that version has already shipped.
         run: |
-          version="${INPUT_TAG#v}"
-          test -n "$version"
-          printf 'tag=v%s\n' "$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_TAG" ]; then
+            printf 'tag=v%s\nrelease=true\n' "${INPUT_TAG#v}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            if [ "$(git rev-parse "${tag}^{commit}")" = "$GITHUB_SHA" ]; then
+              echo "${tag} already points at this commit; resuming its release."
+              printf 'tag=%s\nrelease=true\n' "$tag" >> "$GITHUB_OUTPUT"
+            else
+              echo "${tag} already points at another commit; yutori ${version} has shipped."
+              printf 'tag=%s\nrelease=false\n' "$tag" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "yutori ${version}" "$GITHUB_SHA"
+          git push origin "refs/tags/${tag}"
+          echo "Created ${tag} on ${GITHUB_SHA}."
+          printf 'tag=%s\nrelease=true\n' "$tag" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build release artifacts
-    needs: normalize_tag
+    needs: tag
+    if: needs.tag.outputs.release == 'true'
     runs-on: ubuntu-latest
     outputs:
-      release_tag: ${{ needs.normalize_tag.outputs.tag }}
+      release_tag: ${{ needs.tag.outputs.tag }}
     env:
-      RELEASE_TAG: ${{ needs.normalize_tag.outputs.tag }}
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     permissions:
       contents: read
     steps:
