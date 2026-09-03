@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from yutori.navigator import FILE_TOOL_SCRIPT, ShellFileToolsMixin, format_shell_output
 from yutori.navigator.sandbox_tools import (
+    clamp_bash_timeout_or_expired,
     format_shell_result,
     result_returncode,
     result_stderr,
@@ -64,6 +65,14 @@ def test_shared_helpers_render_the_bash_contract() -> None:
     assert format_shell_output("", 0) == "(Bash completed with no output)"
     assert format_shell_output("boom", 7) == "Exit code 7\nboom"
     assert "def done(text):" in FILE_TOOL_SCRIPT  # in-VM script is exported intact
+
+
+def test_clamp_bash_timeout_or_expired_flags_a_zero_clamp() -> None:
+    assert clamp_bash_timeout_or_expired(30) == (30.0, None)
+    assert clamp_bash_timeout_or_expired(None) == (120.0, None)  # missing -> the 120s default
+    assert clamp_bash_timeout_or_expired(9999) == (600.0, None)  # clamped to the 600s max
+    assert clamp_bash_timeout_or_expired(0) == (0.0, "Command timed out after 0s")
+    assert clamp_bash_timeout_or_expired(-5) == (0.0, "Command timed out after 0s")  # clamped to 0
 
 
 def test_result_accessors_tolerate_missing_and_none_fields() -> None:
