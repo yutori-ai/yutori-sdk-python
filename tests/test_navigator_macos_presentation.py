@@ -397,11 +397,22 @@ async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypat
     await controller.present({"type": "final"})
     await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
     assert await controller.show_thumbnail(b"jpeg-bytes", caption="Frame 3") is True
+    # The thumbnail caption replaced the shell status, so that same status must be sent again.
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
     assert await controller.before_capture(1) is False
     assert await controller.encode_observation(b"png") is None
     assert not controller.blocks_point((5, 5))
 
-    assert [command["op"] for command in commands] == ["status", "status", "status", "status", "status", "thumbnail"]
+    assert [command["op"] for command in commands] == [
+        "status",
+        "status",
+        "status",
+        "status",
+        "status",
+        "thumbnail",
+        "status",
+    ]
     assert [command["text"] for command in commands[:5]] == [
         "Driving Calculator (pid 4, window 7)",
         "Thinking: Clear the display",
@@ -411,6 +422,7 @@ async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypat
     ]
     assert commands[5]["caption"] == "Frame 3"
     assert base64.b64decode(commands[5]["data"]) == b"jpeg-bytes"
+    assert commands[6]["text"] == "Shell (running): ls -la"
 
 
 async def test_status_mode_thumbnail_rejection_degrades_fail_soft(monkeypatch):

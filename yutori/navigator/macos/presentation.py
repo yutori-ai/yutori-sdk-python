@@ -390,6 +390,8 @@ class MacOSPresentationController:
             reply = await self._send_command(command)
             if reply.get("state") != "shown":
                 raise MacOSPresentationError("Status item did not show the thumbnail.")
+            if caption is not None:
+                self._last_render["status"] = caption
             return True
         except Exception as error:  # noqa: BLE001 - presentation is fail-soft
             await self._degrade("thumbnail_failed", error)
