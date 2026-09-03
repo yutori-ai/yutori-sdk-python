@@ -1,7 +1,7 @@
 """Live view of the driven window for window-scope runs.
 
 The status item shows the model's frames, which arrive only when the model looks. While the
-user has the menu open or the floating live view shown, this streamer captures the driven
+user has the menu open or the activity window shown, this streamer captures the driven
 window itself, over its own driver connection so the model's actions and captures never queue
 behind it, and hands each frame to the presentation. cua-driver already holds the Screen
 Recording grant, so no new permission is involved; the driver's per-frame cost bounds the rate

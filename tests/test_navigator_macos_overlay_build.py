@@ -72,6 +72,18 @@ def test_integrity_tampering_fails_closed(tmp_path, monkeypatch):
     assert checked.available is False
 
 
+def test_activity_page_is_prepared_and_covered_by_the_integrity_check(tmp_path, monkeypatch):
+    """The status-mode activity window loads a second page, so it is hashed like the first."""
+    _install_fake_toolchain(monkeypatch)
+    prepared = prepare_macos_overlay(tmp_path)
+    assert prepared.activity_html.name == "navigator-activity.html"
+    assert prepared.activity_html.parent == prepared.html.parent
+    assert 'id="n2-activity-transcript"' in prepared.activity_html.read_text(encoding="utf-8")
+    prepared.activity_html.write_text("tampered", encoding="utf-8")
+    with pytest.raises(MacOSOverlayPreparationError, match="integrity"):
+        load_prepared_macos_overlay(tmp_path)
+
+
 def test_cache_symlink_is_rejected_before_toolchain_execution(tmp_path, monkeypatch):
     monkeypatch.setattr(overlay_build.platform, "system", lambda: "Darwin")
     target = tmp_path / "target"

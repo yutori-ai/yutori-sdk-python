@@ -14,9 +14,16 @@ private let menuBarIconPoints: CGFloat = 18
 private let thumbnailWidthPoints: CGFloat = 360
 private let thumbnailMaxHeightPoints: CGFloat = 420
 private let thumbnailInsetPoints: CGFloat = 12
-// Status mode: the floating live view mirrors the driven window at this width.
-private let liveViewWidthPoints: CGFloat = 480
-private let liveViewMaxHeightPoints: CGFloat = 640
+// Status mode: the floating activity window -- the driven window's live frame above the
+// conversation with the model -- opens at this size and is resizable from there.
+private let activityWidthPoints: CGFloat = 520
+private let activityHeightPoints: CGFloat = 720
+// How many recent captions the menu keeps, so a glance at the menu bar shows the last few
+// steps rather than only the newest one.
+private let menuCaptionLines = 4
+// A dropped activity row costs nothing; this only bounds what the host buffers while the
+// activity page is still loading.
+private let pendingActivityCallLimit = 500
 
 private func yutoriMarkGlyph() -> CGPath {
     let path = CGMutablePath()
@@ -75,10 +82,14 @@ private func writeJSON(_ value: [String: Any]) {
 private struct OverlayConfig: Decodable {
     let showStopButton: Bool
     let enableHotkey: Bool
-    // "overlay" (default): the full-screen reasoning overlay. "status": only a menu bar item that
-    // shows the latest captured frame and Stop, for window-scope runs the user keeps working next to.
+    // "overlay" (default): the full-screen reasoning overlay. "status": a menu bar item that
+    // shows the latest captured frame and Stop, plus the shell rail and the activity window,
+    // for window-scope runs the user keeps working next to.
     let mode: String?
     let title: String?
+    // Status mode: the page the activity window loads. Absent means the caller shipped no
+    // activity page, and the run falls back to the menu bar item alone.
+    let activityHtml: String?
 }
 
 private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSMenuDelegate, NSWindowDelegate {
@@ -89,20 +100,31 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // the Stop action. Its on-screen frame is reported as `stop_region` so the Python
     // side keeps refusing model clicks on it.
     private var stopItem: NSStatusItem?
-    // Status mode only: the menu's caption line and the live thumbnail of the driven window.
+    // Status mode only: the menu's recent caption lines and the live thumbnail of the driven window.
     private var statusMode = false
-    private var statusCaptionItem: NSMenuItem?
+    private var captionItems: [NSMenuItem] = []
+    private var captionLines: [String] = []
     private var thumbnailItem: NSMenuItem?
     private var thumbnailView: NSImageView?
-    // Status mode only: the floating live view, and the demand signal the Python side streams
-    // frames for (the menu is open, or the live view is shown).
+    // Status mode only: the floating activity window, and the demand signal the Python side
+    // streams frames for (the menu is open, or the activity window is shown).
     private var statusMenu: NSMenu?
-    private var liveViewItem: NSMenuItem?
-    private var livePanel: NSPanel?
-    private var liveImageView: NSImageView?
+    private var activityItem: NSMenuItem?
+    private var activityPanel: NSPanel?
+    private var activityWebView: WKWebView?
+    private var activityReady = false
+    // Rows and frames that arrived while the activity page was still loading, replayed in
+    // order once it is; the window is opened lazily but the transcript starts at step one.
+    private var pendingActivity: [(String, [String: Any])] = []
     private var latestFrame: NSImage?
     private var menuOpen = false
-    private var liveViewShown = false
+    private var activityShown = false
+    // Status mode only: the click-through shell rail, in its own borderless panel because
+    // there is no full-screen overlay page to hang it on.
+    private var railPanel: NSPanel?
+    private var railWebView: WKWebView?
+    private var railReady = false
+    private var pendingRail: [String: Any]?
     // Where the shell rail starts, in overlay page points: a 16pt inset below the menu
     // bar, right-aligned with the Stop item above it. The page cannot see the menu bar.
     private var railTop: CGFloat = 0
@@ -212,10 +234,18 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         let titleItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
-        let caption = NSMenuItem(title: "Waiting for the first frame", action: nil, keyEquivalent: "")
-        caption.isEnabled = false
-        menu.addItem(caption)
-        statusCaptionItem = caption
+        // The last few steps, oldest first, so the newest sits closest to the frame below it.
+        for index in 0..<menuCaptionLines {
+            let caption = NSMenuItem(
+                title: index == 0 ? "Waiting for the first step" : "",
+                action: nil,
+                keyEquivalent: ""
+            )
+            caption.isEnabled = false
+            caption.isHidden = index > 0
+            menu.addItem(caption)
+            captionItems.append(caption)
+        }
         let imageView = NSImageView(
             frame: NSRect(x: 0, y: 0, width: thumbnailWidthPoints + 2 * thumbnailInsetPoints, height: 1)
         )
@@ -227,10 +257,10 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         menu.addItem(thumbnail)
         thumbnailItem = thumbnail
         thumbnailView = imageView
-        let live = NSMenuItem(title: "Show live view", action: #selector(toggleLiveView), keyEquivalent: "")
+        let live = NSMenuItem(title: "Show activity", action: #selector(toggleActivity), keyEquivalent: "")
         live.target = self
         menu.addItem(live)
-        liveViewItem = live
+        activityItem = live
         menu.delegate = self
         statusMenu = menu
         if config.showStopButton {
@@ -242,8 +272,17 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         }
         item.menu = menu
         stopItem = item
+        if let screen = NSScreen.main {
+            self.screen = screen
+            createRailPanel(on: screen)
+        }
+        createActivityPanel()
+        activityItem?.isHidden = activityWebView == nil
         let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
         state = "armed"
+        var capabilities = ["thumbnail", "status", "stop", "preview"]
+        if railWebView != nil { capabilities.append("shell_commands") }
+        if activityWebView != nil { capabilities.append("transcript") }
         writeJSON([
             "ready": true,
             "protocol_version": overlayProtocolVersion,
@@ -253,12 +292,95 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "backing_scale": NSScreen.main?.backingScaleFactor ?? 1,
             "hotkey": hotkeyAvailable,
             "stop_control": "menu_bar",
-            "capabilities": ["thumbnail", "status", "stop", "preview"],
+            "capabilities": capabilities,
         ])
         readCommands()
     }
 
-    // MARK: Live view (status mode)
+    /// The click-through shell rail a background run gets, in its own borderless panel.
+    ///
+    /// A window-scope run drives one window and paints nothing on the desktop, but it still
+    /// runs commands on this Mac -- and those should be visible without opening a window, the
+    /// same way a foreground run shows them under the menu bar. The panel ignores mouse events
+    /// and never takes focus, and window-scope capture sees only the target window, so neither
+    /// the operator's work nor the model's view is disturbed.
+    private func createRailPanel(on screen: NSScreen) {
+        let panel = NSPanel(
+            contentRect: screen.frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
+        panel.isOpaque = false
+        panel.isReleasedWhenClosed = false
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
+        let webView = WKWebView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        webView.setValue(false, forKey: "drawsBackground")
+        panel.contentView = webView
+        panel.orderFrontRegardless()
+        railPanel = panel
+        railWebView = webView
+        railTop = screen.frame.maxY - screen.visibleFrame.maxY + 16
+        railRight = screen.frame.maxX - screen.visibleFrame.maxX + 16
+        webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+    }
+
+    /// The activity window: the live frame of the driven window above the conversation with
+    /// the model. It is built up front, hidden, so the transcript starts at the first step
+    /// no matter when the operator opens it.
+    private func createActivityPanel() {
+        guard let activityHtml = config.activityHtml else { return }
+        let url = URL(fileURLWithPath: activityHtml).standardizedFileURL
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: activityWidthPoints, height: activityHeightPoints),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        // Its own short title: the menu's sentence-length one is for the menu bar item.
+        panel.title = "Yutori n2 activity"
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        // The transcript scrolls, so dragging inside it must not drag the window.
+        panel.isMovableByWindowBackground = false
+        panel.isReleasedWhenClosed = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.delegate = self
+        let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        panel.contentView = webView
+        if let screen = NSScreen.main {
+            // Top-left, because the shell rail owns the top-right corner and floats above this.
+            let visible = screen.visibleFrame
+            panel.setFrameTopLeftPoint(NSPoint(x: visible.minX + 16, y: visible.maxY - 16))
+        }
+        activityPanel = panel
+        activityWebView = webView
+        webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+    }
+
+    /// Push one caption onto the menu's recent lines, dropping the oldest.
+    private func showCaption(_ text: String) {
+        captionLines.append(text)
+        if captionLines.count > menuCaptionLines { captionLines.removeFirst(captionLines.count - menuCaptionLines) }
+        for (index, item) in captionItems.enumerated() {
+            let line = index < captionLines.count ? captionLines[index] : nil
+            item.title = line ?? ""
+            item.isHidden = line == nil
+        }
+        stopItem?.button?.toolTip = text
+    }
+
+    // MARK: Activity window (status mode)
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusMenu else { return }
@@ -274,89 +396,67 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
 
     /// Tells the Python side whether anyone is looking, so it streams frames only then.
     private func emitPreviewDemand() {
-        writeJSON(["event": "previewDemand", "menuOpen": menuOpen, "liveView": liveViewShown])
+        writeJSON(["event": "previewDemand", "menuOpen": menuOpen, "activityOpen": activityShown])
     }
 
-    @objc private func toggleLiveView() {
-        if liveViewShown { hideLiveView() } else { showLiveView() }
+    @objc private func toggleActivity() {
+        if activityShown { hideActivity() } else { showActivity() }
     }
 
-    private func showLiveView() {
-        let panel = livePanel ?? makeLivePanel()
-        livePanel = panel
-        if let latestFrame { updateLivePanel(with: latestFrame) }
+    private func showActivity() {
+        guard let panel = activityPanel else { return }
         panel.orderFrontRegardless()
-        liveViewShown = true
-        liveViewItem?.title = "Hide live view"
+        activityShown = true
+        activityItem?.title = "Hide activity"
         emitPreviewDemand()
     }
 
-    private func hideLiveView() {
-        livePanel?.orderOut(nil)
-        liveViewShown = false
-        liveViewItem?.title = "Show live view"
+    private func hideActivity() {
+        activityPanel?.orderOut(nil)
+        activityShown = false
+        activityItem?.title = "Show activity"
         emitPreviewDemand()
     }
 
-    /// A small always-on-top utility panel that never takes key focus, so the user keeps
-    /// working while watching the driven window; closing it is the same as Hide live view.
-    private func makeLivePanel() -> NSPanel {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: liveViewWidthPoints, height: liveViewWidthPoints * 0.75),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+    /// Send one call to the activity page, or hold it until the page finishes loading.
+    private func callActivity(_ function: String, _ payload: [String: Any]) {
+        guard let activityWebView else { return }
+        guard activityReady else {
+            if pendingActivity.count >= pendingActivityCallLimit { pendingActivity.removeFirst() }
+            pendingActivity.append((function, payload))
+            return
+        }
+        activityWebView.callAsyncJavaScript(
+            "return window.\(function)(payload)",
+            arguments: ["payload": payload],
+            in: nil,
+            in: .page,
+            completionHandler: nil
         )
-        panel.title = config.title ?? "Yutori n2 live view"
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = true
-        panel.isReleasedWhenClosed = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.delegate = self
-        let imageView = NSImageView(frame: panel.contentView?.bounds ?? .zero)
-        imageView.autoresizingMask = [.width, .height]
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.imageAlignment = .alignCenter
-        panel.contentView = imageView
-        liveImageView = imageView
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - liveViewWidthPoints - 16, y: visible.maxY - 16))
-        }
-        return panel
     }
 
-    private func updateLivePanel(with image: NSImage) {
-        guard let panel = livePanel, let liveImageView else { return }
-        liveImageView.image = image
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return }
-        let height = min(liveViewMaxHeightPoints, liveViewWidthPoints * size.height / size.width)
-        let contentHeight = panel.contentView?.frame.height ?? 0
-        if abs(contentHeight - height) > 1 {
-            let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
-            panel.setContentSize(NSSize(width: liveViewWidthPoints, height: height))
-            panel.setFrameTopLeftPoint(topLeft)
-        }
+    private func flushPendingActivity() {
+        let calls = pendingActivity
+        pendingActivity = []
+        for (function, payload) in calls { callActivity(function, payload) }
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let closing = notification.object as? NSPanel, closing === livePanel else { return }
-        liveViewShown = false
-        liveViewItem?.title = "Show live view"
+        guard let closing = notification.object as? NSPanel, closing === activityPanel else { return }
+        activityShown = false
+        activityItem?.title = "Show activity"
         emitPreviewDemand()
     }
 
-    /// A streamed frame: refresh the menu thumbnail and the live view, leave the caption alone.
-    private func showPreviewFrame(_ image: NSImage) {
+    /// A streamed frame: refresh the menu thumbnail and the activity window, leave the caption alone.
+    private func showPreviewFrame(_ image: NSImage, data: String) {
         latestFrame = image
-        showThumbnail(image, caption: nil)
-        if liveViewShown { updateLivePanel(with: image) }
+        showThumbnail(image, caption: nil, data: data)
     }
 
-    private func showThumbnail(_ image: NSImage, caption: String?) {
+    private func showThumbnail(_ image: NSImage, caption: String?, data: String) {
+        // Both the model's frames and the streamed preview frames reach the host as JPEG.
+        callActivity("__n2ActivityFrame", ["data": data, "mediaType": "image/jpeg"])
         guard let thumbnailView, let thumbnailItem else { return }
         let size = image.size
         var height = thumbnailWidthPoints
@@ -372,10 +472,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         thumbnailView.image = image
         thumbnailItem.isHidden = false
         if let caption {
-            statusCaptionItem?.title = caption
-            // A model frame: keep the live view current even between streamed frames.
+            showCaption(caption)
+            // A model frame: keep the activity window current even between streamed frames.
             latestFrame = image
-            if liveViewShown { updateLivePanel(with: image) }
         }
     }
 
@@ -429,6 +528,23 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        if webView === railWebView {
+            // The rail is the only thing this page draws in status mode, and only the host
+            // knows the menu bar height and which side the Dock is on.
+            webView.evaluateJavaScript(railStyleScript()) { _, _ in
+                self.railReady = true
+                if let pending = self.pendingRail {
+                    self.pendingRail = nil
+                    self.renderShellCommands(pending)
+                }
+            }
+            return
+        }
+        if webView === activityWebView {
+            activityReady = true
+            flushPendingActivity()
+            return
+        }
         guard let screen else { return }
         let hotkeyAvailable = panel?.identifier?.rawValue == "n2-overlay-hotkey"
         var ready: [String: Any] = [
@@ -444,13 +560,31 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             ready["stop_control"] = "menu_bar"
             if let region = stopItemRegion(on: screen) { ready["stop_region"] = region }
         }
-        let railStyle =
-            "document.documentElement.style.setProperty('--n2-rail-top', '\(railTop)px');"
-            + "document.documentElement.style.setProperty('--n2-rail-right', '\(railRight)px');"
-        webView.evaluateJavaScript(railStyle) { _, _ in
+        webView.evaluateJavaScript(railStyleScript()) { _, _ in
             writeJSON(ready)
             self.readCommands()
         }
+    }
+
+    private func railStyleScript() -> String {
+        "document.documentElement.style.setProperty('--n2-rail-top', '\(railTop)px');"
+            + "document.documentElement.style.setProperty('--n2-rail-right', '\(railRight)px');"
+    }
+
+    /// Hand the shell rail its commands, holding them while the rail page loads.
+    private func renderShellCommands(_ payload: [String: Any]) {
+        guard let railWebView else { return }
+        guard railReady else {
+            pendingRail = payload
+            return
+        }
+        railWebView.callAsyncJavaScript(
+            "return window.__n2ShellCommands(payload)",
+            arguments: ["payload": payload],
+            in: nil,
+            in: .page,
+            completionHandler: nil
+        )
     }
 
     private func readCommands() {
@@ -513,7 +647,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 let bytes = Data(base64Encoded: data),
                 let image = NSImage(data: bytes)
             else { return fail(id, "Invalid thumbnail.") }
-            showThumbnail(image, caption: command["caption"] as? String)
+            showThumbnail(image, caption: command["caption"] as? String, data: data)
             reply(id, state: "shown")
         case "previewFrame":
             guard
@@ -522,12 +656,19 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 let bytes = Data(base64Encoded: data),
                 let image = NSImage(data: bytes)
             else { return fail(id, "Invalid preview frame.") }
-            showPreviewFrame(image)
+            showPreviewFrame(image, data: data)
             reply(id, state: "shown")
         case "status":
             guard statusMode, let text = command["text"] as? String else { return fail(id, "Invalid status text.") }
-            statusCaptionItem?.title = text
-            stopItem?.button?.toolTip = text
+            showCaption(text)
+            reply(id, state: "shown")
+        case "transcript":
+            // The transcript is advisory: a row that the page rejects must not fail a run,
+            // so the reply lands as soon as the row is dispatched or buffered.
+            guard statusMode, let entry = command["entry"] as? [String: Any] else {
+                return fail(id, "Invalid transcript entry.")
+            }
+            callActivity("__n2ActivityEntry", entry)
             reply(id, state: "shown")
         case "captureHide":
             guard let requestedID = command["capture_id"] as? Int else { return fail(id, "Missing capture id.") }
@@ -550,10 +691,16 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 let commands = command["commands"] as? [[String: Any]],
                 let overflow = command["overflow"] as? Int
             else { return fail(id, "Invalid shell command request.") }
+            let payload: [String: Any] = ["commands": commands, "overflow": overflow]
+            if statusMode {
+                renderShellCommands(payload)
+                reply(id, state: "shown")
+                return
+            }
             callJavaScript(
                 id: id,
                 body: "return window.__n2ShellCommands(payload)",
-                arguments: ["payload": ["commands": commands, "overflow": overflow]],
+                arguments: ["payload": payload],
                 validateReply: true
             )
         case "retire":
@@ -726,26 +873,48 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         displayLinks.removeAll()
         if let stopItem { NSStatusBar.system.removeStatusItem(stopItem) }
         stopItem = nil
-        if let livePanel {
-            livePanel.delegate = nil
-            livePanel.orderOut(nil)
-            livePanel.close()
+        if let activityPanel {
+            activityPanel.delegate = nil
+            activityPanel.orderOut(nil)
+            activityPanel.close()
         }
-        livePanel = nil
-        [panel].compactMap { $0 }.forEach {
+        activityPanel = nil
+        activityWebView = nil
+        railWebView = nil
+        [panel, railPanel].compactMap { $0 }.forEach {
             $0.alphaValue = 0
             $0.orderOut(nil)
             $0.close()
         }
+        railPanel = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NSApp.terminate(nil) }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
-        writeJSON(["error": "Overlay page failed to load."])
-        NSApp.terminate(nil)
+        pageFailed(webView)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+        pageFailed(webView)
+    }
+
+    /// The overlay page is the run's only surface, so losing it is fatal. The status-mode
+    /// pages are extras next to a menu bar item that still carries Stop, so one that fails
+    /// to load is simply dropped: the run keeps going without its rail or its transcript.
+    private func pageFailed(_ webView: WKWebView) {
+        if webView === railWebView {
+            railWebView = nil
+            pendingRail = nil
+            railPanel?.orderOut(nil)
+            return
+        }
+        if webView === activityWebView {
+            activityWebView = nil
+            pendingActivity = []
+            activityItem?.isHidden = true
+            hideActivity()
+            return
+        }
         writeJSON(["error": "Overlay page failed to load."])
         NSApp.terminate(nil)
     }
