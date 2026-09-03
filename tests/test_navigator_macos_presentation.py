@@ -352,3 +352,31 @@ async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
     await controller.present(_shell("shell-1", "pwd", "running"))
 
     assert len(_rail_renders(commands)) == 1
+
+
+async def test_send_operation_skips_unchanged_dedupe_eligible_renders_but_not_others(monkeypatch):
+    controller = _active_controller()
+    envelopes: list[dict] = []
+
+    async def send_envelope(envelope, **_kwargs):
+        envelopes.append(envelope)
+        return {"ok": True}
+
+    monkeypatch.setattr(controller, "_send_envelope", send_envelope)
+
+    first = await controller._send_operation({"op": "showThought", "markdown": "a"})
+    repeat = await controller._send_operation({"op": "showThought", "markdown": "a"})
+    changed = await controller._send_operation({"op": "showThought", "markdown": "b"})
+    # "mount" is not in the dedupe-eligible op set, so it is always sent even when unchanged.
+    await controller._send_operation({"op": "mount", "snapshot": {}})
+    await controller._send_operation({"op": "mount", "snapshot": {}})
+
+    assert first == {"ok": True}
+    assert repeat == {"ok": True}
+    assert changed == {"ok": True}
+    assert envelopes == [
+        {"operation": {"op": "showThought", "markdown": "a"}},
+        {"operation": {"op": "showThought", "markdown": "b"}},
+        {"operation": {"op": "mount", "snapshot": {}}},
+        {"operation": {"op": "mount", "snapshot": {}}},
+    ]

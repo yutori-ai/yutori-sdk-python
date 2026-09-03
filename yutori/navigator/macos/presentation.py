@@ -536,13 +536,25 @@ class MacOSPresentationController:
                 future.cancel()
 
     async def _send_operation(self, operation: dict[str, Any], *, allow_stopping: bool = False) -> dict[str, Any]:
-        signature = json.dumps(operation, separators=(",", ":"), sort_keys=True)
         dedupe_key = str(operation.get("op"))
-        if dedupe_key in {"showThought", "clearThought", "previewAction", "moveCursor"}:
-            if self._last_render.get(dedupe_key) == signature:
-                return {"ok": True}
-            self._last_render[dedupe_key] = signature
+        if dedupe_key in {"showThought", "clearThought", "previewAction", "moveCursor"} and not self._render_changed(
+            dedupe_key, operation
+        ):
+            return {"ok": True}
         return await self._send_envelope({"operation": operation}, allow_stopping=allow_stopping)
+
+    def _render_changed(self, key: str, payload: Any) -> bool:
+        """Return whether `payload` differs from the last render cached under `key`, updating the cache.
+
+        Shared by `_send_operation` (deduping showThought/clearThought/previewAction/moveCursor) and
+        `_render_shell_rail` (deduping the shell rail's commands/overflow payload) -- both compare a
+        canonical JSON signature against `self._last_render` before sending.
+        """
+        signature = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        if self._last_render.get(key) == signature:
+            return False
+        self._last_render[key] = signature
+        return True
 
     async def _send_command(
         self,
@@ -710,10 +722,8 @@ class MacOSPresentationController:
         events = list(reversed(self._shell_rail.values()))
         commands = [asdict(event) for event in events[:_SHELL_RAIL_ROWS]]
         overflow = max(0, len(events) - _SHELL_RAIL_ROWS)
-        signature = json.dumps([commands, overflow], separators=(",", ":"), sort_keys=True)
-        if self._last_render.get("shellCommands") == signature:
+        if not self._render_changed("shellCommands", [commands, overflow]):
             return
-        self._last_render["shellCommands"] = signature
         await self._send_command({"op": "shellCommands", "commands": commands, "overflow": overflow})
 
     async def _remove_from_shell_rail_after_hold(self, task_id: str, terminal: ShellPresentationEvent) -> None:
