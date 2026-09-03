@@ -34,6 +34,7 @@ from .polling import (
     poll_until_frame_changes,
 )
 from .presentation import MacOSPresentationController
+from .preview import WindowPreviewStreamer
 from .process_lifecycle import cancel_and_drain, race_sleep_against_cancellation
 from .sanitize import sanitize_command_preview
 from .transport import (
@@ -386,6 +387,7 @@ class MacOSComputer:
         self._target_window = target_window
         self._window_capture: "tuple[int, int] | None" = None
         self._action_outcomes: list[MacOSActionOutcome] = []
+        self._preview: "WindowPreviewStreamer | None" = None
         self._delivery_counts: dict[str, int] = {
             "background_attempts": 0,
             "foreground_escalations": 0,
@@ -521,6 +523,11 @@ class MacOSComputer:
         return dict(self._delivery_counts)
 
     @property
+    def preview_frames_sent(self) -> int:
+        """Frames streamed to the live view (status-item runs), for telemetry."""
+        return self._preview.frames_sent if self._preview is not None else 0
+
+    @property
     def window_target_info(self) -> "dict[str, Any] | None":
         target = self._target_window
         if target is None:
@@ -644,6 +651,9 @@ class MacOSComputer:
             await asyncio.gather(self._deadline_task, return_exceptions=True)
             self._deadline_task = None
         await self._cancel_shell_processes()
+        if self._preview is not None:
+            await self._preview.aclose()
+            self._preview = None
         if self.presentation is not None:
             await self.presentation.stop()
             if not self.window_mode:
@@ -1238,6 +1248,17 @@ class MacOSComputer:
         except Exception as error:
             self._presentation_failure = f"status_item_start_failed:{type(error).__name__}"
             await controller.stop()
+            return
+        # The live view: while the menu is open or the floating panel is shown, stream the
+        # driven window over a dedicated driver connection so the model's own captures and
+        # actions never wait behind it.
+        self._preview = WindowPreviewStreamer(
+            target=lambda: self._target_window,
+            sink=controller.show_preview_frame,
+            transport_factory=lambda: CuaDriverTransport(binary=getattr(self.transport, "binary", None)),
+            cancellation=self.cancellation,
+        )
+        controller.on_preview_demand = self._preview.set_active
 
     async def _start_presentation(self, width: int, height: int) -> None:
         controller = MacOSPresentationController(

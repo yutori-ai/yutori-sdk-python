@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
@@ -475,3 +476,56 @@ async def test_send_operation_skips_unchanged_dedupe_eligible_renders_but_not_ot
         {"operation": {"op": "mount", "snapshot": {}}},
         {"operation": {"op": "mount", "snapshot": {}}},
     ]
+
+
+async def test_status_mode_preview_demand_events_drive_the_owner_callback():
+    controller = _status_controller()
+    demands: list[bool] = []
+    controller.on_preview_demand = demands.append
+    stream = asyncio.StreamReader()
+    for event in (
+        {"event": "previewDemand", "menuOpen": True, "liveView": False},
+        {"event": "previewDemand", "menuOpen": False, "liveView": False},
+        {"event": "previewDemand", "menuOpen": False, "liveView": True},
+    ):
+        stream.feed_data(json.dumps(event).encode() + b"\n")
+    stream.feed_eof()
+    controller._process = SimpleNamespace(stdout=stream, stderr=None, returncode=None)
+    controller._stopping = True  # an EOF while stopping is not a host failure
+    await controller._read_host()
+    assert demands == [True, False, True]
+    assert controller.preview_demand is True
+    assert [event["active"] for event in controller.telemetry if event["type"] == "preview_demand"] == [
+        True,
+        False,
+        True,
+    ]
+
+
+async def test_status_mode_preview_frames_reach_the_host_and_never_degrade(monkeypatch):
+    controller = _status_controller()
+    commands: list[dict] = []
+    replies = iter([{"ok": True, "state": "shown"}, {"ok": True, "state": "stale"}])
+
+    async def send_command(command, **_kwargs):
+        commands.append(command)
+        return next(replies)
+
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    assert await controller.show_preview_frame(b"jpeg-bytes") is True
+    assert await controller.show_preview_frame(b"jpeg-bytes") is False
+    assert controller.status.available
+
+    async def failing(_command, **_kwargs):
+        raise MacOSPresentationError("Overlay host is not running.")
+
+    monkeypatch.setattr(controller, "_send_command", failing)
+    assert await controller.show_preview_frame(b"jpeg-bytes") is False
+    assert controller.status.available
+    assert [command["op"] for command in commands] == ["previewFrame", "previewFrame"]
+    assert base64.b64decode(commands[0]["data"]) == b"jpeg-bytes"
+
+
+async def test_overlay_mode_has_no_preview_frames():
+    controller = MacOSPresentationController(native_width=100, native_height=100)
+    assert await controller.show_preview_frame(b"jpeg-bytes") is False

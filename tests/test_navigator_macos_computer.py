@@ -1089,6 +1089,8 @@ class _FakeStatusController:
     def __init__(self, **kwargs: Any):
         self.kwargs = kwargs
         self.thumbnails: list[tuple[bytes, str | None]] = []
+        self.previews: list[bytes] = []
+        self.on_preview_demand = None
         self.events: list[dict[str, Any]] = []
         self.stopped = False
         self.status = MacOSPresentationStatus(True, True, "active", "hidden")
@@ -1104,6 +1106,10 @@ class _FakeStatusController:
 
     async def show_thumbnail(self, image_bytes: bytes, *, caption: str | None = None) -> bool:
         self.thumbnails.append((image_bytes, caption))
+        return True
+
+    async def show_preview_frame(self, image_bytes: bytes) -> bool:
+        self.previews.append(image_bytes)
         return True
 
     async def present(self, event: dict[str, Any]) -> None:
@@ -1627,3 +1633,59 @@ async def test_upfront_keyboard_refusals_are_recoverable_in_strict_window_scope(
         assert raised.value.outcome is not None and raised.value.outcome.refusal_code == code
     assert _names(transport).count("hotkey") == 1
     assert computer.delivery_counts["background_refusals"] == 1
+
+
+class _FakeStreamer:
+    instances: list[_FakeStreamer] = []
+
+    def __init__(self, **kwargs: Any):
+        self.kwargs = kwargs
+        self.active_states: list[bool] = []
+        self.closed = False
+        self.frames_sent = 4
+        self.__class__.instances.append(self)
+
+    def set_active(self, active: bool) -> None:
+        self.active_states.append(active)
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_window_scope_wires_the_live_view_streamer_to_the_status_item(monkeypatch):
+    _FakeStatusController.instances.clear()
+    _FakeStreamer.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    monkeypatch.setattr(computer_module, "WindowPreviewStreamer", _FakeStreamer)
+    transport = WindowFakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=True, scope="window") as computer:
+        (controller,) = _FakeStatusController.instances
+        (streamer,) = _FakeStreamer.instances
+        assert controller.on_preview_demand == streamer.set_active
+        assert streamer.kwargs["sink"] == controller.show_preview_frame
+        assert streamer.kwargs["cancellation"] is computer.cancellation
+        assert streamer.kwargs["target"]() is None
+        target = MacOSWindowTarget(PID, 7, app_name="Calculator")
+        await computer.set_window_target(target)
+        assert streamer.kwargs["target"]() == target
+        controller.on_preview_demand(True)
+        controller.on_preview_demand(False)
+        assert streamer.active_states == [True, False]
+        assert computer.preview_frames_sent == 4
+        assert not streamer.closed
+    assert streamer.closed
+
+
+async def test_window_scope_without_a_status_item_has_no_streamer(monkeypatch):
+    _FakeStreamer.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    monkeypatch.setattr(_FakeStatusController, "fail_start", True)
+    monkeypatch.setattr(computer_module, "WindowPreviewStreamer", _FakeStreamer)
+    async with MacOSComputer(
+        WindowFakeTransport(), owns_transport=False, presentation=True, scope="window"
+    ) as computer:
+        assert computer.preview_frames_sent == 0
+    assert not _FakeStreamer.instances
+    async with _bound_window_computer(WindowFakeTransport()) as computer:
+        assert computer.preview_frames_sent == 0
+    assert not _FakeStreamer.instances

@@ -14,6 +14,9 @@ private let menuBarIconPoints: CGFloat = 18
 private let thumbnailWidthPoints: CGFloat = 360
 private let thumbnailMaxHeightPoints: CGFloat = 420
 private let thumbnailInsetPoints: CGFloat = 12
+// Status mode: the floating live view mirrors the driven window at this width.
+private let liveViewWidthPoints: CGFloat = 480
+private let liveViewMaxHeightPoints: CGFloat = 640
 
 private func yutoriMarkGlyph() -> CGPath {
     let path = CGMutablePath()
@@ -78,7 +81,7 @@ private struct OverlayConfig: Decodable {
     let title: String?
 }
 
-private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let htmlURL: URL
     private let config: OverlayConfig
     private var panel: NSPanel?
@@ -91,6 +94,15 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private var statusCaptionItem: NSMenuItem?
     private var thumbnailItem: NSMenuItem?
     private var thumbnailView: NSImageView?
+    // Status mode only: the floating live view, and the demand signal the Python side streams
+    // frames for (the menu is open, or the live view is shown).
+    private var statusMenu: NSMenu?
+    private var liveViewItem: NSMenuItem?
+    private var livePanel: NSPanel?
+    private var liveImageView: NSImageView?
+    private var latestFrame: NSImage?
+    private var menuOpen = false
+    private var liveViewShown = false
     // Where the shell rail starts, in overlay page points: a 16pt inset below the menu
     // bar, right-aligned with the Stop item above it. The page cannot see the menu bar.
     private var railTop: CGFloat = 0
@@ -215,6 +227,12 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         menu.addItem(thumbnail)
         thumbnailItem = thumbnail
         thumbnailView = imageView
+        let live = NSMenuItem(title: "Show live view", action: #selector(toggleLiveView), keyEquivalent: "")
+        live.target = self
+        menu.addItem(live)
+        liveViewItem = live
+        menu.delegate = self
+        statusMenu = menu
         if config.showStopButton {
             menu.addItem(.separator())
             let stop = NSMenuItem(title: "Stop", action: #selector(stopFromMenu), keyEquivalent: "\u{1B}")
@@ -235,9 +253,107 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "backing_scale": NSScreen.main?.backingScaleFactor ?? 1,
             "hotkey": hotkeyAvailable,
             "stop_control": "menu_bar",
-            "capabilities": ["thumbnail", "status", "stop"],
+            "capabilities": ["thumbnail", "status", "stop", "preview"],
         ])
         readCommands()
+    }
+
+    // MARK: Live view (status mode)
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusMenu else { return }
+        menuOpen = true
+        emitPreviewDemand()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === statusMenu else { return }
+        menuOpen = false
+        emitPreviewDemand()
+    }
+
+    /// Tells the Python side whether anyone is looking, so it streams frames only then.
+    private func emitPreviewDemand() {
+        writeJSON(["event": "previewDemand", "menuOpen": menuOpen, "liveView": liveViewShown])
+    }
+
+    @objc private func toggleLiveView() {
+        if liveViewShown { hideLiveView() } else { showLiveView() }
+    }
+
+    private func showLiveView() {
+        let panel = livePanel ?? makeLivePanel()
+        livePanel = panel
+        if let latestFrame { updateLivePanel(with: latestFrame) }
+        panel.orderFrontRegardless()
+        liveViewShown = true
+        liveViewItem?.title = "Hide live view"
+        emitPreviewDemand()
+    }
+
+    private func hideLiveView() {
+        livePanel?.orderOut(nil)
+        liveViewShown = false
+        liveViewItem?.title = "Show live view"
+        emitPreviewDemand()
+    }
+
+    /// A small always-on-top utility panel that never takes key focus, so the user keeps
+    /// working while watching the driven window; closing it is the same as Hide live view.
+    private func makeLivePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: liveViewWidthPoints, height: liveViewWidthPoints * 0.75),
+            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = config.title ?? "Yutori n2 live view"
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true
+        panel.isReleasedWhenClosed = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.delegate = self
+        let imageView = NSImageView(frame: panel.contentView?.bounds ?? .zero)
+        imageView.autoresizingMask = [.width, .height]
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        panel.contentView = imageView
+        liveImageView = imageView
+        if let screen = NSScreen.main {
+            let visible = screen.visibleFrame
+            panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - liveViewWidthPoints - 16, y: visible.maxY - 16))
+        }
+        return panel
+    }
+
+    private func updateLivePanel(with image: NSImage) {
+        guard let panel = livePanel, let liveImageView else { return }
+        liveImageView.image = image
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return }
+        let height = min(liveViewMaxHeightPoints, liveViewWidthPoints * size.height / size.width)
+        let contentHeight = panel.contentView?.frame.height ?? 0
+        if abs(contentHeight - height) > 1 {
+            let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+            panel.setContentSize(NSSize(width: liveViewWidthPoints, height: height))
+            panel.setFrameTopLeftPoint(topLeft)
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSPanel, closing === livePanel else { return }
+        liveViewShown = false
+        liveViewItem?.title = "Show live view"
+        emitPreviewDemand()
+    }
+
+    /// A streamed frame: refresh the menu thumbnail and the live view, leave the caption alone.
+    private func showPreviewFrame(_ image: NSImage) {
+        latestFrame = image
+        showThumbnail(image, caption: nil)
+        if liveViewShown { updateLivePanel(with: image) }
     }
 
     private func showThumbnail(_ image: NSImage, caption: String?) {
@@ -257,6 +373,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         thumbnailItem.isHidden = false
         if let caption {
             statusCaptionItem?.title = caption
+            // A model frame: keep the live view current even between streamed frames.
+            latestFrame = image
+            if liveViewShown { updateLivePanel(with: image) }
         }
     }
 
@@ -395,6 +514,15 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 let image = NSImage(data: bytes)
             else { return fail(id, "Invalid thumbnail.") }
             showThumbnail(image, caption: command["caption"] as? String)
+            reply(id, state: "shown")
+        case "previewFrame":
+            guard
+                statusMode,
+                let data = command["data"] as? String,
+                let bytes = Data(base64Encoded: data),
+                let image = NSImage(data: bytes)
+            else { return fail(id, "Invalid preview frame.") }
+            showPreviewFrame(image)
             reply(id, state: "shown")
         case "status":
             guard statusMode, let text = command["text"] as? String else { return fail(id, "Invalid status text.") }
@@ -598,6 +726,12 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         displayLinks.removeAll()
         if let stopItem { NSStatusBar.system.removeStatusItem(stopItem) }
         stopItem = nil
+        if let livePanel {
+            livePanel.delegate = nil
+            livePanel.orderOut(nil)
+            livePanel.close()
+        }
+        livePanel = nil
         [panel].compactMap { $0 }.forEach {
             $0.alphaValue = 0
             $0.orderOut(nil)
