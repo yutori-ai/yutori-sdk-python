@@ -113,6 +113,10 @@ FILE_ACTION_HANDLERS = {
     "glob_files": "glob_files",
 }
 BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
+# Tools the caller declared via ``tools=``. One action type covers all of them: the name
+# travels in the action, so a handler map entry per custom tool is unnecessary.
+CUSTOM_TOOL_ACTION = "run_custom_tool"
+CUSTOM_ACTION_HANDLERS = {CUSTOM_TOOL_ACTION: "run_custom_tool"}
 
 ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
 
@@ -484,6 +488,11 @@ def _browser_not_supported_error(action_type: str) -> str:
     return f"{action_type} is only supported by a browser computer environment."
 
 
+def _custom_tool_not_supported_error(action: dict[str, Any]) -> str:
+    name = action.get("tool_name") or "custom tool"
+    return f"{name} was declared in tools= but this computer environment implements no run_custom_tool."
+
+
 @functools.lru_cache(maxsize=None)
 def _function_accepts_kwarg(func: Any, name: str) -> bool:
     try:
@@ -533,6 +542,7 @@ def parse_n2_tool_calls(
     execution_deadline: "float | None" = None,
     allow_click_modifiers: bool = False,
     allow_scroll_modifiers: "bool | None" = None,
+    custom_tool_names: "frozenset[str] | None" = None,
 ) -> list[dict[str, Any]]:
     """Turn one model message into trajectory items with attached executions.
 
@@ -544,6 +554,7 @@ def parse_n2_tool_calls(
     """
     if tool_set not in SUPPORTED_N2_TOOL_SETS:
         raise ValueError(f"Unsupported n2 tool_set: {tool_set}")
+    custom_tool_names = custom_tool_names or frozenset()
 
     content_text = message.get("content") or ""
     reasoning_text = message.get("reasoning_content") or message.get("reasoning") or ""
@@ -574,6 +585,19 @@ def parse_n2_tool_calls(
             args = json.loads(arguments) if isinstance(arguments, str) else arguments
             if not isinstance(args, dict):
                 raise N2ActionValidationError(f"{name} arguments must be an object")
+
+            if name in custom_tool_names:
+                # The name travels with the action: one action type serves every custom
+                # tool, and the adapter dispatches on the name it is handed.
+                call_item = _function_call_with_execution(
+                    name,
+                    args,
+                    call_id,
+                    [{"type": CUSTOM_TOOL_ACTION, "tool_name": name, "tool_arguments": args}],
+                    execution_deadline=execution_deadline,
+                )
+                output.append(call_item)
+                continue
 
             def finish(
                 translated: list[dict[str, Any]], *, batch_actions: "list[dict[str, Any]] | None" = None
@@ -791,6 +815,7 @@ async def execute_n2_computer_call(
             SHELL_ACTION_HANDLERS.get(action_type)
             or FILE_ACTION_HANDLERS.get(action_type)
             or BROWSER_ACTION_HANDLERS.get(action_type)
+            or CUSTOM_ACTION_HANDLERS.get(action_type)
         )
         if handler_name is not None and not callable(getattr(computer, handler_name, None)):
             message = (
@@ -799,7 +824,11 @@ async def execute_n2_computer_call(
                 else (
                     _file_not_supported_error(action_type)
                     if action_type in FILE_ACTION_HANDLERS
-                    else _browser_not_supported_error(action_type)
+                    else (
+                        _browser_not_supported_error(action_type)
+                        if action_type in BROWSER_ACTION_HANDLERS
+                        else _custom_tool_not_supported_error(action)
+                    )
                 )
             )
             return await finish_with_error(message)
@@ -967,6 +996,11 @@ async def execute_n2_computer_call(
                     file_output_image = file_result.get("image_url")
                     file_result = file_result.get("text") or ""
                 file_output_text = _backstop_result_text("" if file_result is None else str(file_result))
+            elif action_type == CUSTOM_TOOL_ACTION:
+                custom_result = await computer.run_custom_tool(
+                    str(action.get("tool_name") or ""), dict(action.get("tool_arguments") or {})
+                )
+                shell_output_text = _backstop_result_text("" if custom_result is None else str(custom_result))
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -1086,7 +1120,7 @@ async def execute_n2_computer_call(
         await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
 
-    # Shell and browser-navigation results carry no frame: their tools return text.
+    # Shell, custom-tool and browser-navigation results carry no frame: they return text.
     if not isinstance(batch_actions, list) and (shell_output_text is not None or item.get("name") == "goto_url"):
         result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
         await callbacks.fire("on_computer_call_end", item, result)
@@ -1202,6 +1236,12 @@ class N2ComputerAgent:
       ``computer_batch``); on expiry the model sees ``ERROR_TIMEOUT: …``.
     - ``completion_kwargs``: extra fields merged into every chat-completions
       request (e.g. ``top_p``) for callers who want explicit sampling settings.
+    - ``tools``: caller-owned tool definitions, in the standard OpenAI shape,
+      served alongside the tool set. The loop dispatches a call to one of them
+      to the computer's ``run_custom_tool(name, arguments)``, whose returned
+      text becomes the tool result — no frame rides with it, as for ``bash``.
+      A computer that does not implement the hook answers with a recoverable
+      "not supported" result instead of failing the run.
     """
 
     def __init__(
@@ -1209,6 +1249,7 @@ class N2ComputerAgent:
         *,
         computer: Any,
         tool_set: str = TOOL_SET_COMPUTER_USE_LATEST,
+        tools: "list[dict[str, Any]] | None" = None,
         completions: "SupportsN2ChatCompletionsCreate | None" = None,
         api_key: "str | None" = None,
         base_url: "str | None" = None,
@@ -1247,6 +1288,13 @@ class N2ComputerAgent:
             raise ValueError(f"Click modifiers require a modifier-capable n2 tool set, not {tool_set}")
         self.computer = computer
         self.tool_set = tool_set
+        # Caller-declared tools are served alongside the set and dispatched to the adapter's
+        # run_custom_tool. The server refuses a definition that shadows a served name, so
+        # there is nothing to re-validate here.
+        self.tools = [copy.deepcopy(tool) for tool in tools] if tools else None
+        self._custom_tool_names = frozenset(
+            str((tool.get("function") or {}).get("name") or "") for tool in (tools or [])
+        ) - {""}
         self.model = model
         self.instructions = instructions
         self.temperature = temperature
@@ -1389,6 +1437,8 @@ class N2ComputerAgent:
             "max_completion_tokens": self.max_completion_tokens,
             "parallel_tool_calls": True,
         }
+        if self.tools:
+            request_kwargs["tools"] = copy.deepcopy(self.tools)
         if self.temperature is not None:
             request_kwargs["temperature"] = self.temperature
         if self.reasoning_effort is not None:
@@ -1469,6 +1519,7 @@ class N2ComputerAgent:
             execution_deadline=self.execution_deadline,
             allow_click_modifiers=self.supports_click_modifiers,
             allow_scroll_modifiers=self.supports_scroll_modifiers,
+            custom_tool_names=self._custom_tool_names,
         )
         turn_id = _random_id()
         for output_item in output:
