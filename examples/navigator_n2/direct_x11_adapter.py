@@ -58,7 +58,7 @@ from yutori.navigator.sandbox_tools import (
     build_cwd_tracking_bash_script as _build_cwd_tracking_bash_script,
 )
 from yutori.navigator.sandbox_tools import (
-    clamp_bash_timeout as _clamp_bash_timeout,
+    clamp_bash_timeout_or_expired as _clamp_bash_timeout_or_expired,
 )
 from yutori.navigator.sandbox_tools import (
     format_background_task_started as _format_background_task_started,
@@ -325,11 +325,9 @@ class LocalX11Computer(ShellFileToolsMixin, PointerKeyLifecycleMixin):
                 )
             return _format_background_task_started(log_path, process.pid)
 
-        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
-        # NORMAL result the model can react to, never a raised failure envelope.
-        timeout_s = _clamp_bash_timeout(timeout)
-        if timeout_s == 0:
-            return "Command timed out after 0s"
+        timeout_s, expired = _clamp_bash_timeout_or_expired(timeout)
+        if expired is not None:
+            return expired
 
         # Output goes to files rather than pipes: a command that leaves a
         # descendant alive (``xcalc &``) holds a pipe open past bash's own exit,
