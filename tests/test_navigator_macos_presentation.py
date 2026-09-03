@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
@@ -352,6 +353,100 @@ async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
     await controller.present(_shell("shell-1", "pwd", "running"))
 
     assert len(_rail_renders(commands)) == 1
+
+
+def _status_controller() -> MacOSPresentationController:
+    controller = MacOSPresentationController(native_width=0, native_height=0, mode="status", title="Yutori n2 test")
+    capabilities = MacOSPresentationCapabilities(2, 0, 0, 2.0, True, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (0, 0)
+    return controller
+
+
+def test_status_mode_handshake_skips_geometry_and_never_has_a_stop_region():
+    controller = MacOSPresentationController(native_width=0, native_height=0, mode="status")
+    capabilities = controller._validate_status_ready(
+        {"protocol_version": 2, "mode": "status", "stop_control": "menu_bar", "backing_scale": 2, "hotkey": True}
+    )
+    assert (capabilities.viewport_width, capabilities.viewport_height) == (0, 0)
+    assert capabilities.backing_scale == 2.0 and capabilities.hotkey is True and capabilities.stop_region is None
+    with pytest.raises(MacOSPresentationError, match="status mode"):
+        controller._validate_status_ready({"protocol_version": 2, "width": 1000, "height": 600, "backing_scale": 2})
+    with pytest.raises(ValueError, match="mode"):
+        MacOSPresentationController(native_width=0, native_height=0, mode="pill")
+
+
+async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypatch):
+    controller = _status_controller()
+    commands: list[dict] = []
+
+    async def send_command(command, **_kwargs):
+        commands.append(command)
+        return {"ok": True, "state": "shown"}
+
+    async def unexpected_operation(operation, **_kwargs):
+        raise AssertionError(f"status mode must not send page operations: {operation}")
+
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    monkeypatch.setattr(controller, "_send_operation", unexpected_operation)
+
+    await controller.present({"type": "status", "text": "Driving Calculator (pid 4, window 7)"})
+    await controller.present({"type": "reasoning", "text": "  Clear the display  "})
+    await controller.present({"type": "action", "name": "left_click", "arguments": {"coordinates": [100.4, 20]}})
+    await controller.present({"type": "action", "name": "left_click", "arguments": {"coordinates": [100.4, 20]}})
+    await controller.present({"type": "final"})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
+    assert await controller.show_thumbnail(b"jpeg-bytes", caption="Frame 3") is True
+    # The thumbnail caption replaced the shell status, so that same status must be sent again.
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "ls -la", False, "running")})
+    assert await controller.before_capture(1) is False
+    assert await controller.encode_observation(b"png") is None
+    assert not controller.blocks_point((5, 5))
+
+    assert [command["op"] for command in commands] == [
+        "status",
+        "status",
+        "status",
+        "status",
+        "status",
+        "thumbnail",
+        "status",
+    ]
+    assert [command["text"] for command in commands[:5]] == [
+        "Driving Calculator (pid 4, window 7)",
+        "Thinking: Clear the display",
+        "left click at (100, 20)",
+        "Finished",
+        "Shell (running): ls -la",
+    ]
+    assert commands[5]["caption"] == "Frame 3"
+    assert base64.b64decode(commands[5]["data"]) == b"jpeg-bytes"
+    assert commands[6]["text"] == "Shell (running): ls -la"
+
+
+async def test_status_mode_thumbnail_rejection_degrades_fail_soft(monkeypatch):
+    controller = _status_controller()
+
+    async def send_command(_command, **_kwargs):
+        return {"ok": True, "state": "stale"}
+
+    async def restore() -> str:
+        return "hidden"
+
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    controller._restore_native_cursor = restore
+    assert await controller.show_thumbnail(b"jpeg-bytes") is False
+    assert not controller.status.available
+    assert controller.status.degradation_reason == "thumbnail_failed"
+
+
+def test_status_line_truncates_long_captions():
+    from yutori.navigator.macos.presentation import _status_line
+
+    assert _status_line({"type": "reasoning", "text": "x" * 200}) == "Thinking: " + "x" * 79 + "\u2026"
+    assert _status_line({"type": "action_done"}) is None
+    assert _status_line({"type": "status", "text": "   "}) is None
 
 
 async def test_send_operation_skips_unchanged_dedupe_eligible_renders_but_not_others(monkeypatch):

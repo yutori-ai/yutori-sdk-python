@@ -77,6 +77,10 @@ _UNRESOLVED_CAPTURE_REASON = "ax_window_unresolved"
 # Background delivery refused up front; fronting the window (the foreground rung) makes the
 # keystrokes unambiguous or un-minimizes the window, so these behave like "did not land".
 _ESCALATABLE_REFUSAL_CODES = frozenset({"same_pid_keyboard_ambiguity", "minimized_or_hidden_window"})
+# Window scope shows its progress in a menu bar item instead of the full-screen overlay.
+_STATUS_TITLE = "Yutori n2 is working in a window in the background"
+_THUMBNAIL_LONG_SIDE = 720  # 360pt in the menu, rendered at 2x for Retina menu bars
+_THUMBNAIL_QUALITY = 70
 
 
 class MacOSComputerError(RuntimeError):
@@ -446,7 +450,10 @@ class MacOSComputer:
                 self._native_cursor = "hidden"
                 with suppress(Exception):
                     await self._configure_cursor(False)
-                self._presentation_failure = "window_mode"
+                if self.presentation_requested:
+                    await self._start_status_presentation()
+                else:
+                    self._presentation_failure = "window_mode"
                 return self
             await self._call_tool(
                 "start_session",
@@ -540,6 +547,33 @@ class MacOSComputer:
             raise MacOSRecoverableActionError("Release the held mouse button before changing the target window.")
         self.cancellation.raise_if_cancelled()
         self._bind_window_target(target)
+        await self._announce_target()
+
+    async def _announce_target(self) -> None:
+        target = self._target_window
+        if self.presentation is not None and target is not None:
+            await self.presentation.present({"type": "status", "text": f"Driving {target.describe()}"})
+
+    async def _push_thumbnail(self, observation: N2Observation) -> None:
+        """Status mode: hand the menu bar item a small copy of the frame the model just received."""
+        if self.presentation is None:
+            return
+        target = self._target_window
+        caption = f"Frame {observation.capture_id}" + (f" of {target.describe()}" if target is not None else "")
+        try:
+            thumbnail = await asyncio.to_thread(self._thumbnail_jpeg, observation.encoded_bytes)
+        except (OSError, ValueError):
+            return
+        await self.presentation.show_thumbnail(thumbnail, caption=caption)
+
+    @staticmethod
+    def _thumbnail_jpeg(image_bytes: bytes) -> bytes:
+        with Image.open(io.BytesIO(image_bytes)) as source:
+            image = source.convert("RGB")
+            image.thumbnail((_THUMBNAIL_LONG_SIDE, _THUMBNAIL_LONG_SIDE), Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=_THUMBNAIL_QUALITY)
+            return output.getvalue()
 
     def _bind_window_target(self, target: "MacOSWindowTarget | None") -> None:
         self._target_window = target
@@ -612,7 +646,9 @@ class MacOSComputer:
         await self._cancel_shell_processes()
         if self.presentation is not None:
             await self.presentation.stop()
-            await self._restore_native_cursor()
+            if not self.window_mode:
+                # Window scope never showed the agent cursor; leave the user's pointer alone.
+                await self._restore_native_cursor()
         if self._session_started:
             with suppress(Exception):
                 await self.transport.call_tool("end_session", {"session": self.session})
@@ -652,6 +688,8 @@ class MacOSComputer:
         observation = await self._encode_observation(capture_id, png_bytes, width, height)
         self._current_observation = observation
         self._no_progress.record_frame(observation)
+        if self.window_mode:
+            await self._push_thumbnail(observation)
         if self.verify_focus and not self.window_mode:
             self._observed_frontmost = await self._probe_frontmost()
         await self._ensure_target_alive()
@@ -1181,6 +1219,25 @@ class MacOSComputer:
 
     def add_polling_time(self, milliseconds: float) -> None:
         self._timings["polling_ms"] += milliseconds
+
+    async def _start_status_presentation(self) -> None:
+        """Window scope: a menu bar item with the run title, the latest frame, and Stop."""
+        controller = MacOSPresentationController(
+            native_width=0,
+            native_height=0,
+            cancellation=self.cancellation,
+            cache_directory=self.overlay_cache_directory,
+            show_stop_button=self.show_stop_button,
+            mode="status",
+            title=_STATUS_TITLE,
+        )
+        try:
+            await controller.start()
+            await controller.reveal()
+            self.presentation = controller
+        except Exception as error:
+            self._presentation_failure = f"status_item_start_failed:{type(error).__name__}"
+            await controller.stop()
 
     async def _start_presentation(self, width: int, height: int) -> None:
         controller = MacOSPresentationController(
@@ -1870,6 +1927,7 @@ class MacOSComputer:
             return None
         self._delivery_counts["window_rebinds"] += 1
         self._bind_window_target(target)
+        await self._announce_target()
         return target
 
     async def _rebind_window_target(self, reason: str) -> MacOSWindowTarget:
@@ -1896,6 +1954,7 @@ class MacOSComputer:
             await self._fail_target_crash(f"Target application {pid} has no window left to drive ({reason}).")
         assert target is not None
         self._bind_window_target(target)
+        await self._announce_target()
         return target
 
     @staticmethod
