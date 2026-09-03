@@ -877,6 +877,9 @@ async def execute_n2_computer_call(
     stopped_reason: "str | None" = None
     screenshot_observation: Any = None
     shell_output_text: "str | None" = None
+    # Kept apart from shell output: a custom tool acts on the machine like a GUI call, so
+    # its result carries the post-action frame rather than taking the text-only exit below.
+    custom_output_text: "str | None" = None
     file_output_text: "str | None" = None
     file_output_image: "str | None" = None
     presented_member: "int | None" = None
@@ -1000,7 +1003,7 @@ async def execute_n2_computer_call(
                 custom_result = await computer.run_custom_tool(
                     str(action.get("tool_name") or ""), dict(action.get("tool_arguments") or {})
                 )
-                shell_output_text = _backstop_result_text("" if custom_result is None else str(custom_result))
+                custom_output_text = _backstop_result_text("" if custom_result is None else str(custom_result))
             elif action_type in BROWSER_ACTION_HANDLERS:
                 browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
                 if browser_method is None:
@@ -1094,6 +1097,8 @@ async def execute_n2_computer_call(
 
     def result_text() -> str:
         """The text part of this call's result."""
+        if custom_output_text is not None:
+            return custom_output_text
         if shell_output_text is not None:
             return shell_output_text
         if isinstance(batch_actions, list):
@@ -1120,8 +1125,11 @@ async def execute_n2_computer_call(
         await _present(presentation, {"type": "action_done", "call_id": call_id})
         return result
 
-    # Shell, custom-tool and browser-navigation results carry no frame: they return text.
-    if not isinstance(batch_actions, list) and (shell_output_text is not None or item.get("name") == "goto_url"):
+    # Shell and file results carry no frame: their tools return text and change nothing on
+    # screen. Browser tools do change the screen -- a navigation replaces the page -- so they
+    # fall through to the post-action screenshot below, as a GUI batch does. Without that the
+    # model spends a whole extra turn asking for a frame it should already have.
+    if not isinstance(batch_actions, list) and shell_output_text is not None:
         result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
         await callbacks.fire("on_computer_call_end", item, result)
         await _present(presentation, {"type": "action_done", "call_id": call_id})

@@ -231,7 +231,8 @@ first. `computer_batch` cannot be redefined at all.
 
 `N2ComputerAgent` takes the same `tools` and serves them alongside the set. A call to one is
 dispatched to the computer's `run_custom_tool(name, arguments)`, and the text it returns
-becomes the tool result — no frame rides with it, as for `bash`:
+becomes the tool result — carried **with the post-action frame**, as for `computer_batch`,
+since a custom tool acts on the machine and the model needs to see what it did:
 
 ```python
 agent = N2ComputerAgent(
@@ -246,6 +247,9 @@ An adapter that does not implement the hook answers with a recoverable `[ERROR] 
 declared in tools= but this computer environment implements no run_custom_tool.`, and a name
 the caller did not declare still fails as `[ERROR] Invalid <name> call: ... does not expose
 <name>` — so a typo in a definition surfaces rather than silently doing nothing.
+
+`bash` and the file tools stay text-only: they change nothing on screen, so a frame would be
+pure token cost. `goto_url` on the browser-navigation tool sets now also carries its frame.
 
 `N2ComputerAgent` runs this loop against any computer adapter — see [Navigator n2 loop](#navigator-n2-loop). The [Cua cookbook](examples/navigator_n2/README.md) runs the full current tool set in local Docker. [`examples/navigator_n2_daytona.py`](examples/navigator_n2_daytona.py) is a compact agent using third-party Daytona infrastructure; [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) drives a local Mac (`uvx yutori-mcp computer-use setup`). Model reference: [docs.yutori.com/reference/n2](https://docs.yutori.com/reference/n2).
 

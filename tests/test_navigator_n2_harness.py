@@ -753,7 +753,7 @@ def test_declared_custom_tool_routes_to_the_adapter_hook():
 
 
 @pytest.mark.asyncio
-async def test_custom_tool_is_served_and_its_text_becomes_the_result():
+async def test_custom_tool_is_served_and_returns_its_text_with_a_frame():
     class BrowserDesktop(Desktop):
         def __init__(self):
             super().__init__()
@@ -786,8 +786,13 @@ async def test_custom_tool_is_served_and_its_text_becomes_the_result():
 
     assert [tool["function"]["name"] for tool in completions.requests[0]["tools"]] == ["goto_url"]
     assert desktop.custom == [("goto_url", {"url": "https://x.test"})]
-    # Text result, no frame -- a custom tool renders like bash, not like a GUI batch.
-    assert outputs == ["navigated to https://x.test"]
+    # A custom tool acts on the machine like a GUI call, so its result carries the
+    # post-action frame alongside the tool's own text. Without the frame the model spends a
+    # whole extra turn asking for one -- measured at 42% of navigations before this.
+    assert len(outputs) == 1
+    assert outputs[0]["type"] == "input_image"
+    assert outputs[0]["result"] == "navigated to https://x.test"
+    assert outputs[0]["image_url"].startswith("data:image/")
 
 
 @pytest.mark.asyncio
