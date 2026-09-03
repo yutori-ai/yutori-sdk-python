@@ -299,6 +299,10 @@ class MacOSPresentationController:
         self._shell_rail: dict[str, ShellPresentationEvent] = {}
         self._shell_rail_removals: set[asyncio.Task[None]] = set()
         self._telemetry: list[dict[str, Any]] = []
+        # Status mode: the host reports whether anyone is looking (menu open or live view shown);
+        # the owner streams preview frames only while that is true.
+        self._preview_demand = False
+        self.on_preview_demand: "Callable[[bool], None] | None" = None
 
     @property
     def status(self) -> MacOSPresentationStatus:
@@ -307,6 +311,10 @@ class MacOSPresentationController:
     @property
     def mode(self) -> str:
         return self._mode
+
+    @property
+    def preview_demand(self) -> bool:
+        return self._preview_demand
 
     @property
     def telemetry(self) -> tuple[dict[str, Any], ...]:
@@ -454,6 +462,22 @@ class MacOSPresentationController:
         except Exception as error:  # noqa: BLE001 - presentation is fail-soft
             await self._degrade(f"presentation_failed:{type(error).__name__}", error)
 
+    async def show_preview_frame(self, image_bytes: bytes) -> bool:
+        """Status mode: refresh the live view (menu thumbnail and floating panel) with a streamed frame.
+
+        Unlike ``show_thumbnail`` this never degrades the status item: a dropped preview frame
+        costs nothing, and the host reader degrades on its own when the host is gone.
+        """
+        if self._mode != "status" or not self._status.available or self._stopping:
+            return False
+        try:
+            reply = await self._send_command(
+                {"op": "previewFrame", "data": base64.b64encode(image_bytes).decode("ascii")}
+            )
+        except (MacOSPresentationError, asyncio.TimeoutError):
+            return False
+        return reply.get("state") == "shown"
+
     async def _present_status(self, event: dict[str, Any]) -> None:
         """Status mode: one caption line in the menu per event; nothing is drawn on screen."""
         text = _status_line(event)
@@ -557,6 +581,12 @@ class MacOSPresentationController:
                     return
                 if reply.get("event") == "stop":
                     self.cancellation.request("operator_stop")
+                    continue
+                if reply.get("event") == "previewDemand":
+                    self._preview_demand = bool(reply.get("menuOpen")) or bool(reply.get("liveView"))
+                    self._telemetry.append({"type": "preview_demand", "active": self._preview_demand})
+                    if self.on_preview_demand is not None:
+                        self.on_preview_demand(self._preview_demand)
                     continue
                 if reply.get("ready") is True and self._ready is not None and not self._ready.done():
                     self._ready.set_result(reply)
