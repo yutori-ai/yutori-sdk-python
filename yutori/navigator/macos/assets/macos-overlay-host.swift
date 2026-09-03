@@ -10,6 +10,10 @@ private let overlayProtocolVersion = 2
 // with its two filled subpaths emitted as CGPath calls because AppKit has no SVG parser.
 private let yutoriMarkViewBox = CGRect(x: -2, y: -2, width: 117, height: 114)
 private let menuBarIconPoints: CGFloat = 18
+// Status mode (background window-scope runs): the menu shows the latest frame at this width.
+private let thumbnailWidthPoints: CGFloat = 360
+private let thumbnailMaxHeightPoints: CGFloat = 420
+private let thumbnailInsetPoints: CGFloat = 12
 
 private func yutoriMarkGlyph() -> CGPath {
     let path = CGMutablePath()
@@ -68,6 +72,10 @@ private func writeJSON(_ value: [String: Any]) {
 private struct OverlayConfig: Decodable {
     let showStopButton: Bool
     let enableHotkey: Bool
+    // "overlay" (default): the full-screen reasoning overlay. "status": only a menu bar item that
+    // shows the latest captured frame and Stop, for window-scope runs the user keeps working next to.
+    let mode: String?
+    let title: String?
 }
 
 private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
@@ -78,6 +86,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // the Stop action. Its on-screen frame is reported as `stop_region` so the Python
     // side keeps refusing model clicks on it.
     private var stopItem: NSStatusItem?
+    // Status mode only: the menu's caption line and the live thumbnail of the driven window.
+    private var statusMode = false
+    private var statusCaptionItem: NSMenuItem?
+    private var thumbnailItem: NSMenuItem?
+    private var thumbnailView: NSImageView?
     // Where the shell rail starts, in overlay page points: a 16pt inset below the menu
     // bar, right-aligned with the Stop item above it. The page cannot see the menu bar.
     private var railTop: CGFloat = 0
@@ -103,6 +116,10 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if config.mode == "status" {
+            startStatusMode()
+            return
+        }
         guard let screen = NSScreen.main else {
             writeJSON(["error": "No main display is available."])
             NSApp.terminate(nil)
@@ -165,6 +182,82 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
 
     @objc private func stopFromMenu() {
         requestStop(source: "menu")
+    }
+
+    /// Status mode: no panel and no page, just a menu bar item that stays for the whole run.
+    /// Its menu carries the run title, a caption with the latest action, the latest frame of
+    /// the driven window, and Stop (also on the ⇧⌘Esc hotkey).
+    private func startStatusMode() {
+        statusMode = true
+        let title = config.title ?? "Yutori n2 is working in the background"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            button.image = stopMenuBarIcon()
+            button.toolTip = title
+        }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let titleItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        titleItem.isEnabled = false
+        menu.addItem(titleItem)
+        let caption = NSMenuItem(title: "Waiting for the first frame", action: nil, keyEquivalent: "")
+        caption.isEnabled = false
+        menu.addItem(caption)
+        statusCaptionItem = caption
+        let imageView = NSImageView(
+            frame: NSRect(x: 0, y: 0, width: thumbnailWidthPoints + 2 * thumbnailInsetPoints, height: 1)
+        )
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        let thumbnail = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        thumbnail.view = imageView
+        thumbnail.isHidden = true
+        menu.addItem(thumbnail)
+        thumbnailItem = thumbnail
+        thumbnailView = imageView
+        if config.showStopButton {
+            menu.addItem(.separator())
+            let stop = NSMenuItem(title: "Stop", action: #selector(stopFromMenu), keyEquivalent: "\u{1B}")
+            stop.keyEquivalentModifierMask = [.command, .shift]
+            stop.target = self
+            menu.addItem(stop)
+        }
+        item.menu = menu
+        stopItem = item
+        let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
+        state = "armed"
+        writeJSON([
+            "ready": true,
+            "protocol_version": overlayProtocolVersion,
+            "mode": "status",
+            "width": 0,
+            "height": 0,
+            "backing_scale": NSScreen.main?.backingScaleFactor ?? 1,
+            "hotkey": hotkeyAvailable,
+            "stop_control": "menu_bar",
+            "capabilities": ["thumbnail", "status", "stop"],
+        ])
+        readCommands()
+    }
+
+    private func showThumbnail(_ image: NSImage, caption: String?) {
+        guard let thumbnailView, let thumbnailItem else { return }
+        let size = image.size
+        var height = thumbnailWidthPoints
+        if size.width > 0, size.height > 0 {
+            height = min(thumbnailMaxHeightPoints, thumbnailWidthPoints * size.height / size.width)
+        }
+        thumbnailView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: thumbnailWidthPoints + 2 * thumbnailInsetPoints,
+            height: height + thumbnailInsetPoints
+        )
+        thumbnailView.image = image
+        thumbnailItem.isHidden = false
+        if let caption {
+            statusCaptionItem?.title = caption
+        }
     }
 
     /// The Stop item's frame in the overlay's normalized 0-1000 space, or nil when the
@@ -280,6 +373,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             return
         }
         switch op {
+        case "arm" where statusMode:
+            reply(id, state: "armed")
         case "arm":
             state = "arming"
             CATransaction.flush()
@@ -287,8 +382,25 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
                 self.state = "armed"
                 self.reply(id, state: self.state)
             }
+        case "reveal" where statusMode:
+            state = "visible"
+            reply(id, state: state)
         case "reveal":
             reveal(id: id)
+        case "thumbnail":
+            guard
+                statusMode,
+                let data = command["data"] as? String,
+                let bytes = Data(base64Encoded: data),
+                let image = NSImage(data: bytes)
+            else { return fail(id, "Invalid thumbnail.") }
+            showThumbnail(image, caption: command["caption"] as? String)
+            reply(id, state: "shown")
+        case "status":
+            guard statusMode, let text = command["text"] as? String else { return fail(id, "Invalid status text.") }
+            statusCaptionItem?.title = text
+            stopItem?.button?.toolTip = text
+            reply(id, state: "shown")
         case "captureHide":
             guard let requestedID = command["capture_id"] as? Int else { return fail(id, "Missing capture id.") }
             hideForCapture(id: id, captureID: requestedID)

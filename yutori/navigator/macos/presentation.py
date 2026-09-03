@@ -197,6 +197,37 @@ def _action_visual(name: str, arguments: dict[str, Any]) -> "dict[str, Any] | No
     return None
 
 
+_STATUS_LINE_MAX_CHARACTERS = 90
+
+
+def _status_line(event: dict[str, Any]) -> "str | None":
+    """The one-line caption a status-mode menu shows for a presentation event."""
+    event_type = event.get("type")
+    text: "str | None" = None
+    if event_type == "status":
+        value = event.get("text")
+        text = value.strip() if isinstance(value, str) and value.strip() else None
+    elif event_type == "reasoning":
+        value = event.get("text")
+        text = f"Thinking: {value.strip()}" if isinstance(value, str) and value.strip() else None
+    elif event_type in {"action", "batch_member"}:
+        name = str(event.get("name") or "action").replace("_", " ")
+        arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+        point = _point(arguments, "coordinates", "coordinate", "start_coordinate")
+        text = f"{name} at ({round(point[0])}, {round(point[1])})" if point else name
+    elif event_type == "final":
+        text = "Finished"
+    elif event_type == "shell":
+        shell_event = event.get("event")
+        if isinstance(shell_event, ShellPresentationEvent):
+            text = f"Shell ({shell_event.state}): {shell_event.command}"
+    if text is None:
+        return None
+    if len(text) > _STATUS_LINE_MAX_CHARACTERS:
+        text = text[: _STATUS_LINE_MAX_CHARACTERS - 1] + "\u2026"
+    return text
+
+
 def _queue_item(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     action = name.lower()
     if action == "scroll":
@@ -229,13 +260,21 @@ class MacOSPresentationController:
         requested: bool = True,
         show_stop_button: bool = True,
         restore_native_cursor: "Callable[[], Awaitable[str]] | None" = None,
+        mode: str = "overlay",
+        title: "str | None" = None,
     ) -> None:
+        if mode not in {"overlay", "status"}:
+            raise ValueError("mode must be 'overlay' or 'status'")
         self.native_width = native_width
         self.native_height = native_height
         self.cancellation = cancellation or CancellationLatch()
         self._prepared = prepared
         self._cache_directory = cache_directory
         self._show_stop_button = show_stop_button
+        # "status": a menu bar item with the latest frame and Stop, no full-screen page. Used for
+        # window-scope runs, where the model's frame is one window and the user keeps working.
+        self._mode = mode
+        self._title = title
         self._restore_native_cursor = restore_native_cursor
         self._status = MacOSPresentationStatus(requested, False, "unavailable", "current")
         self._process: "asyncio.subprocess.Process | None" = None
@@ -266,6 +305,10 @@ class MacOSPresentationController:
         return self._status
 
     @property
+    def mode(self) -> str:
+        return self._mode
+
+    @property
     def telemetry(self) -> tuple[dict[str, Any], ...]:
         return tuple(dict(event) for event in self._telemetry)
 
@@ -289,14 +332,17 @@ class MacOSPresentationController:
             return
         self._status = replace(self._status, state="starting")
         prepared = self._prepared or load_prepared_macos_overlay(self._cache_directory)
-        config = json.dumps({"showStopButton": self._show_stop_button, "enableHotkey": True}, separators=(",", ":"))
+        settings: dict[str, Any] = {"showStopButton": self._show_stop_button, "enableHotkey": True, "mode": self._mode}
+        if self._title is not None:
+            settings["title"] = self._title
+        config = json.dumps(settings, separators=(",", ":"))
         try:
             self._process = await spawn_rpc_subprocess(str(prepared.binary), str(prepared.html), config)
             self._ready = asyncio.get_running_loop().create_future()
             self._reader_task = asyncio.create_task(self._read_host())
             self._stderr_task = asyncio.create_task(self._drain_stderr())
             reply = await asyncio.wait_for(self._ready, timeout=_READY_TIMEOUT_SECONDS)
-            capabilities = self._validate_ready(reply)
+            capabilities = self._validate_status_ready(reply) if self._mode == "status" else self._validate_ready(reply)
             self._viewport = (capabilities.viewport_width, capabilities.viewport_height)
             self._status = MacOSPresentationStatus(
                 requested=True,
@@ -306,17 +352,18 @@ class MacOSPresentationController:
                 capabilities=capabilities,
                 degradation_reason=None if capabilities.hotkey else "hotkey_unavailable",
             )
-            await self._send_operation(
-                {
-                    "op": "mount",
-                    "snapshot": {
-                        "cursor": {"x": capabilities.viewport_width / 2, "y": capabilities.viewport_height / 2},
-                        "thought": None,
-                        "badge": {"type": "loop"},
-                        "hidden": False,
-                    },
-                }
-            )
+            if self._mode == "overlay":
+                await self._send_operation(
+                    {
+                        "op": "mount",
+                        "snapshot": {
+                            "cursor": {"x": capabilities.viewport_width / 2, "y": capabilities.viewport_height / 2},
+                            "thought": None,
+                            "badge": {"type": "loop"},
+                            "hidden": False,
+                        },
+                    }
+                )
             armed = await self._send_command({"op": "arm"})
             if armed.get("state") != "armed":
                 raise MacOSPresentationError("Overlay did not arm.")
@@ -329,7 +376,24 @@ class MacOSPresentationController:
         reply = await self._send_command({"op": "reveal"})
         if reply.get("state") != "visible":
             raise MacOSPresentationError("Overlay did not reveal.")
-        self._status = replace(self._status, available=True, state="active", cursor="yutori")
+        cursor = "hidden" if self._mode == "status" else "yutori"
+        self._status = replace(self._status, available=True, state="active", cursor=cursor)
+
+    async def show_thumbnail(self, image_bytes: bytes, *, caption: "str | None" = None) -> bool:
+        """Status mode: put the latest frame of the driven window in the menu bar item's menu."""
+        if self._mode != "status" or not self._status.available or self._stopping:
+            return False
+        try:
+            command: dict[str, Any] = {"op": "thumbnail", "data": base64.b64encode(image_bytes).decode("ascii")}
+            if caption is not None:
+                command["caption"] = caption
+            reply = await self._send_command(command)
+            if reply.get("state") != "shown":
+                raise MacOSPresentationError("Status item did not show the thumbnail.")
+            return True
+        except Exception as error:  # noqa: BLE001 - presentation is fail-soft
+            await self._degrade("thumbnail_failed", error)
+            return False
 
     def blocks_point(self, point: tuple[float, float]) -> bool:
         if not self._status.available:
@@ -355,6 +419,9 @@ class MacOSPresentationController:
 
     async def present(self, event: dict[str, Any]) -> None:
         if not self._status.available or self._stopping:
+            return
+        if self._mode == "status":
+            await self._present_status(event)
             return
         try:
             event_type = event.get("type")
@@ -385,8 +452,25 @@ class MacOSPresentationController:
         except Exception as error:  # noqa: BLE001 - presentation is fail-soft
             await self._degrade(f"presentation_failed:{type(error).__name__}", error)
 
+    async def _present_status(self, event: dict[str, Any]) -> None:
+        """Status mode: one caption line in the menu per event; nothing is drawn on screen."""
+        text = _status_line(event)
+        if text is None:
+            return
+        try:
+            if self._last_render.get("status") == text:
+                return
+            self._last_render["status"] = text
+            reply = await self._send_command({"op": "status", "text": text})
+            if reply.get("state") != "shown":
+                raise MacOSPresentationError("Status item did not accept the caption.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - presentation is fail-soft
+            await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+
     async def before_capture(self, capture_id: int) -> bool:
-        if not self._status.available:
+        if not self._status.available or self._mode == "status":
             return False
         try:
             if capture_id <= self._capture_id:
@@ -414,7 +498,7 @@ class MacOSPresentationController:
             return False
 
     async def encode_observation(self, png_bytes: bytes) -> "tuple[bytes, str] | None":
-        if not self._status.available:
+        if not self._status.available or self._mode == "status":
             return None
         try:
             reply = await self._send_command(
@@ -446,7 +530,8 @@ class MacOSPresentationController:
         await cancel_and_drain(*self._shell_rail_removals)
         if self._process is not None and self._process.returncode is None and self._fatal_error is None:
             try:
-                await self._send_operation({"op": "destroy"}, allow_stopping=True)
+                if self._mode == "overlay":
+                    await self._send_operation({"op": "destroy"}, allow_stopping=True)
                 await self._send_command({"op": "retire"}, allow_stopping=True)
             except Exception:
                 pass
@@ -731,6 +816,22 @@ class MacOSPresentationController:
             return False
         sleeper, _cancelled, done = await race_sleep_against_cancellation(seconds, self.cancellation)
         return sleeper in done
+
+    def _validate_status_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
+        """The status-mode handshake: no page, so no viewport geometry and never a Stop region."""
+        if reply.get("protocol_version") != OVERLAY_PROTOCOL_VERSION:
+            raise MacOSPresentationError("Overlay returned an incompatible protocol version.")
+        if reply.get("mode") != "status" or reply.get("stop_control") != "menu_bar":
+            raise MacOSPresentationError("Overlay host did not start in status mode.")
+        scale = reply.get("backing_scale")
+        return MacOSPresentationCapabilities(
+            protocol_version=OVERLAY_PROTOCOL_VERSION,
+            viewport_width=0,
+            viewport_height=0,
+            backing_scale=float(scale) if _positive_finite(scale) else 1.0,
+            hotkey=reply.get("hotkey") is True,
+            stop_region=None,
+        )
 
     def _validate_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
         if reply.get("protocol_version") != OVERLAY_PROTOCOL_VERSION:

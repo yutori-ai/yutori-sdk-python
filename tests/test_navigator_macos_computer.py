@@ -1082,23 +1082,96 @@ async def test_window_scope_captures_only_the_target_window():
     ]
 
 
-async def test_window_scope_leaves_the_overlay_off_and_disables_the_agent_cursor(monkeypatch):
-    started: list[object] = []
+class _FakeStatusController:
+    instances: list[_FakeStatusController] = []
+    fail_start = False
 
-    async def unexpected_start(controller):
-        started.append(controller)
+    def __init__(self, **kwargs: Any):
+        self.kwargs = kwargs
+        self.thumbnails: list[tuple[bytes, str | None]] = []
+        self.events: list[dict[str, Any]] = []
+        self.stopped = False
+        self.status = MacOSPresentationStatus(True, True, "active", "hidden")
+        self.telemetry: tuple[dict[str, Any], ...] = ()
+        self.__class__.instances.append(self)
 
-    monkeypatch.setattr("yutori.navigator.macos.computer.MacOSPresentationController.start", unexpected_start)
-    transport = WindowFakeTransport()
+    async def start(self) -> None:
+        if self.fail_start:
+            raise RuntimeError("no status item")
+
+    async def reveal(self) -> None:
+        pass
+
+    async def show_thumbnail(self, image_bytes: bytes, *, caption: str | None = None) -> bool:
+        self.thumbnails.append((image_bytes, caption))
+        return True
+
+    async def present(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+
+    async def before_capture(self, _capture_id: int) -> bool:
+        return False
+
+    async def after_capture(self, *_args: Any) -> bool:
+        return False
+
+    async def encode_observation(self, _png: bytes) -> None:
+        return None
+
+    def blocks_point(self, _point: tuple[float, float]) -> bool:
+        return False
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+async def test_window_scope_shows_a_menu_bar_status_item_with_the_latest_frame(monkeypatch):
+    _FakeStatusController.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    transport = WindowFakeTransport([_png(400, 300)])
     async with MacOSComputer(transport, owns_transport=False, presentation=True, scope="window") as computer:
-        status = computer.presentation_status
-        assert computer.presentation is None
-        assert status.requested and not status.available
-        assert status.degradation_reason == "window_mode"
-        assert status.cursor == "hidden"
-    assert not started
+        (controller,) = _FakeStatusController.instances
+        assert computer.presentation is controller
+        assert controller.kwargs["mode"] == "status" and controller.kwargs["title"]
+        assert controller.kwargs["show_stop_button"] is True
+        await computer.set_window_target(MacOSWindowTarget(PID, 7, title="Calculator", app_name="Calculator"))
+        assert controller.events == [{"type": "status", "text": f"Driving Calculator (pid {PID}, window 7)"}]
+        observation = await computer.screenshot()
+        assert observation.native_width == 400
+        ((thumbnail, caption),) = controller.thumbnails
+        with Image.open(io.BytesIO(thumbnail)) as image:
+            assert image.format == "JPEG" and image.size == (400, 300)
+        assert caption == f"Frame 1 of Calculator (pid {PID}, window 7)"
+        assert computer.presentation_status.state == "active" and computer.presentation_status.cursor == "hidden"
+    assert controller.stopped
     assert _arguments(transport, "set_agent_cursor_enabled") == [{"session": computer.session, "enabled": False}]
     assert "set_agent_cursor_theme" not in _names(transport)
+    assert "get_desktop_state" not in _names(transport)
+
+
+async def test_window_scope_status_item_failure_is_fail_soft(monkeypatch):
+    _FakeStatusController.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    monkeypatch.setattr(_FakeStatusController, "fail_start", True)
+    transport = WindowFakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=True, scope="window") as computer:
+        assert computer.presentation is None
+        status = computer.presentation_status
+        assert status.requested and not status.available
+        assert status.degradation_reason == "status_item_start_failed:RuntimeError"
+        assert status.cursor == "hidden"
+    assert _FakeStatusController.instances[0].stopped
+
+
+async def test_window_scope_without_presentation_reports_window_mode(monkeypatch):
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    _FakeStatusController.instances.clear()
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        assert computer.presentation is None
+        assert computer.presentation_status.degradation_reason is None  # not requested
+    assert not _FakeStatusController.instances
 
 
 async def test_window_scope_actions_carry_the_window_target_and_background_delivery():
