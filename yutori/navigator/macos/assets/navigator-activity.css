@@ -1,9 +1,10 @@
 /*
- * The activity window a background (window-scope) run shows: the live frame of the
- * driven window on top, and under it the conversation with the model -- its thinking,
- * every action, and every shell command. A foreground run puts all of this on the
- * desktop itself (capsule, cursor, shell rail); a background run has no desktop to
- * draw on, so this window is where the operator reads what n2 is doing.
+ * The activity window: the conversation with the model -- its thinking, every action,
+ * and every shell command -- and, when the run has frames of its own to show, the live
+ * frame of the driven window above it. The desktop surfaces (capsule, cursor, shell
+ * rail) say what is happening right now; this window is where the operator reads back
+ * what happened, in either mode. A foreground run captures the whole desktop, so it
+ * shows no frame pane: the operator is already looking at what the model sees.
  *
  * The type and colour vocabulary is the playground chat's, transcribed from Tailwind
  * to plain CSS: slate text on a near-black surface, italic slate-500 thinking, mono
@@ -41,6 +42,11 @@ body {
   width: 100%;
   max-height: 46vh;
   object-fit: contain;
+}
+
+/* Nothing to show until the run streams a frame or announces it is waiting for one. */
+#n2-activity-frame[data-state="off"] {
+  display: none;
 }
 
 #n2-activity-frame[data-state="waiting"] #n2-activity-image {

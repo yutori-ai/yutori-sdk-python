@@ -438,10 +438,9 @@ class MacOSPresentationController:
         settings: dict[str, Any] = {"showStopButton": self._show_stop_button, "enableHotkey": True, "mode": self._mode}
         if self._title is not None:
             settings["title"] = self._title
-        if self._mode == "status":
-            # The activity window's page. Only status mode opens it, so only status mode
-            # pays for a second WebKit view.
-            settings["activityHtml"] = str(prepared.activity_html)
+        # The activity window's page. Both modes show the conversation with the model; only a
+        # window-scope run also has frames of its own to put above it.
+        settings["activityHtml"] = str(prepared.activity_html)
         config = json.dumps(settings, separators=(",", ":"))
         try:
             self._process = await spawn_rpc_subprocess(str(prepared.binary), str(prepared.html), config)
@@ -533,6 +532,9 @@ class MacOSPresentationController:
             await self._present_status(event)
             return
         try:
+            # The transcript is the same conversation in either mode; only the desktop
+            # surfaces below differ.
+            await self._present_transcript(event)
             event_type = event.get("type")
             if event_type == "reasoning":
                 text = event.get("text")
@@ -592,10 +594,7 @@ class MacOSPresentationController:
                 if isinstance(shell_event, ShellPresentationEvent):
                     self._record_shell(shell_event)
                     await self._track_shell_rail(shell_event)
-            entry = _transcript_entry(event, self._transcript_sequence)
-            if entry is not None:
-                self._transcript_sequence += 1
-                await self._send_command({"op": "transcript", "entry": entry})
+            await self._present_transcript(event)
             text = _status_line(event)
             if text is not None and self._last_render.get("status") != text:
                 self._last_render["status"] = text
@@ -606,6 +605,14 @@ class MacOSPresentationController:
             raise
         except Exception as error:  # noqa: BLE001 - presentation is fail-soft
             await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+
+    async def _present_transcript(self, event: dict[str, Any]) -> None:
+        """Append this event to the activity window's conversation, if it has a row to show."""
+        entry = _transcript_entry(event, self._transcript_sequence)
+        if entry is None:
+            return
+        self._transcript_sequence += 1
+        await self._send_command({"op": "transcript", "entry": entry})
 
     async def before_capture(self, capture_id: int) -> bool:
         if not self._status.available or self._mode == "status":

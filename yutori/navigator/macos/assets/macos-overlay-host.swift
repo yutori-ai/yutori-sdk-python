@@ -106,8 +106,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private var captionLines: [String] = []
     private var thumbnailItem: NSMenuItem?
     private var thumbnailView: NSImageView?
-    // Status mode only: the floating activity window, and the demand signal the Python side
-    // streams frames for (the menu is open, or the activity window is shown).
+    // The floating activity window -- both modes -- and the demand signal the Python side
+    // streams frames for in status mode (the menu is open, or the activity window is shown).
     private var statusMenu: NSMenu?
     private var activityItem: NSMenuItem?
     private var activityPanel: NSPanel?
@@ -188,6 +188,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         self.webView = webView
         railTop = screen.frame.maxY - screen.visibleFrame.maxY + 16
         railRight = screen.frame.maxX - screen.visibleFrame.maxX + 16
+        // The conversation with the model does not depend on how the run drives the Mac, so a
+        // foreground run offers the same activity window; its menu bar item is what opens it.
+        createActivityPanel()
         if config.showStopButton { createStopMenuBarItem() }
         let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
         panel.identifier = NSUserInterfaceItemIdentifier(hotkeyAvailable ? "n2-overlay-hotkey" : "n2-overlay-no-hotkey")
@@ -205,6 +208,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         let status = NSMenuItem(title: "Yutori n2 is controlling this Mac", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
+        let activity = NSMenuItem(title: "Show activity", action: #selector(toggleActivity), keyEquivalent: "")
+        activity.target = self
+        activity.isHidden = activityWebView == nil
+        menu.addItem(activity)
+        activityItem = activity
         menu.addItem(.separator())
         let stop = NSMenuItem(title: "Stop", action: #selector(stopFromMenu), keyEquivalent: "\u{1B}")
         stop.keyEquivalentModifierMask = [.command, .shift]
@@ -278,6 +286,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         }
         createActivityPanel()
         activityItem?.isHidden = activityWebView == nil
+        // Only a window-scope run has frames to show: the model's view of a foreground run is
+        // the desktop the operator is already looking at.
+        callActivity("__n2ActivityCaption", ["text": "Waiting for the first frame"])
         let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
         state = "armed"
         var capabilities = ["thumbnail", "status", "stop", "preview"]
@@ -380,7 +391,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         stopItem?.button?.toolTip = text
     }
 
-    // MARK: Activity window (status mode)
+    // MARK: Activity window
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === statusMenu else { return }
@@ -554,7 +565,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "height": Int(webView.bounds.height.rounded()),
             "backing_scale": screen.backingScaleFactor,
             "hotkey": hotkeyAvailable,
-            "capabilities": ["capture", "encode", "shell_commands", "stop"],
+            "capabilities": activityWebView == nil
+                ? ["capture", "encode", "shell_commands", "stop"]
+                : ["capture", "encode", "shell_commands", "stop", "transcript"],
         ]
         if stopItem != nil {
             ready["stop_control"] = "menu_bar"
@@ -665,7 +678,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         case "transcript":
             // The transcript is advisory: a row that the page rejects must not fail a run,
             // so the reply lands as soon as the row is dispatched or buffered.
-            guard statusMode, let entry = command["entry"] as? [String: Any] else {
+            guard let entry = command["entry"] as? [String: Any] else {
                 return fail(id, "Invalid transcript entry.")
             }
             callActivity("__n2ActivityEntry", entry)
@@ -813,7 +826,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         framesAfter: Int,
         completion: @escaping () -> Void
     ) {
-        let windows = [panel].compactMap { $0 }
+        // The overlay page and, while it is open, the activity window: in foreground mode the
+        // capture is the whole desktop, so anything Yutori drew has to be out of the frame.
+        let windows = [panel, activityShown ? activityPanel : nil].compactMap { $0 }
         if visible { windows.forEach { $0.orderFrontRegardless() } }
         let effectiveDuration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
         NSAnimationContext.runAnimationGroup { context in

@@ -135,8 +135,9 @@ window.__n2ActivityFrame = ({ data, mediaType }) => {
   return { ok: true };
 };
 
-/** What the frame area says until the first frame arrives. */
+/** What the frame area says until the first frame arrives; also what reveals it at all. */
 window.__n2ActivityCaption = ({ text }) => {
   frameCaption.textContent = typeof text === "string" ? text : "";
+  if (frame.dataset.state === "off") frame.dataset.state = "waiting";
   return { ok: true };
 };

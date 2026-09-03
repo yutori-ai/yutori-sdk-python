@@ -356,6 +356,21 @@ async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
     assert len(_rail_renders(commands)) == 1
 
 
+async def test_overlay_mode_streams_the_same_conversation_to_the_activity_window(monkeypatch):
+    """The activity window does not depend on how the run drives the Mac."""
+    controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present({"type": "task", "text": "Rename the file"})
+    await controller.present({"type": "reasoning", "text": "Finder is frontmost"})
+    await controller.present({"type": "action", "name": "left_click", "arguments": {"coordinates": [100, 20]}})
+    await controller.present(_shell("shell-1", "pwd", "running"))
+    await controller.present({"type": "final", "text": "Renamed."})
+
+    entries = [command["entry"] for command in commands if command.get("op") == "transcript"]
+    assert [entry["kind"] for entry in entries] == ["task", "thinking", "action", "shell", "final"]
+    assert entries[3]["id"] == "shell-shell-1"
+
+
 def _status_controller() -> MacOSPresentationController:
     controller = MacOSPresentationController(native_width=0, native_height=0, mode="status", title="Yutori n2 test")
     capabilities = MacOSPresentationCapabilities(2, 0, 0, 2.0, True, None)
