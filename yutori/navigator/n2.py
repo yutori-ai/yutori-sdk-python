@@ -1141,7 +1141,11 @@ async def execute_n2_computer_call(
                 await asyncio.sleep(screenshot_delay)
             screenshot_observation = await computer.screenshot()
         except Exception as error:  # noqa: BLE001 - reported on the wire
-            return await finish_with_error(f"Post-action screenshot failed: {error}")
+            # A failed frame must not swallow the action's own error. Custom tools and GUI
+            # batches both reach here after a failure, so reporting only the screenshot
+            # problem would tell the model the frame broke when the tool call was what did.
+            detail = f"Post-action screenshot failed: {error}"
+            return await finish_with_error(f"{stopped_reason}\n{detail}" if stopped_reason else detail)
     if (
         stopped_reason is None
         and isinstance(reference_observation, N2Observation)

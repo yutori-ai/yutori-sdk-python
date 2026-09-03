@@ -753,6 +753,44 @@ def test_declared_custom_tool_routes_to_the_adapter_hook():
 
 
 @pytest.mark.asyncio
+async def test_a_failed_frame_does_not_swallow_the_tool_error():
+    """A custom tool that raises, then a screenshot that also fails, must report both.
+
+    The custom-tool family reaches the post-action screenshot path, so reporting only the
+    capture failure would tell the model the frame broke when the tool call was the cause.
+    """
+
+    class BrokenDesktop(Desktop):
+        async def run_custom_tool(self, name, arguments):
+            raise RuntimeError("navigation refused")
+
+        async def screenshot(self):
+            raise RuntimeError("capture failed")
+
+    completions = FakeCompletions(
+        [
+            {"content": "", "tool_calls": [_custom_call("goto_url", {"url": "https://x.test"})]},
+            {"content": "done", "tool_calls": []},
+        ]
+    )
+    agent = N2ComputerAgent(
+        computer=BrokenDesktop(),
+        completions=completions,
+        tool_set=TOOL_SET_COMPUTER_USE_LATEST,
+        tools=[_CUSTOM_TOOL_DEF],
+        compactor=None,
+    )
+    outputs = [
+        item["output"]
+        async for step in agent.run("go")
+        for item in step.get("output") or []
+        if item.get("type") == "function_call_output"
+    ]
+    assert len(outputs) == 1
+    assert "navigation refused" in outputs[0]
+    assert "capture failed" in outputs[0]
+
+
 async def test_custom_tool_is_served_and_returns_its_text_with_a_frame():
     class BrowserDesktop(Desktop):
         def __init__(self):
