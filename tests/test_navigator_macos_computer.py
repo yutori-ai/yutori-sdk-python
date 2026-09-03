@@ -19,21 +19,23 @@ from PIL import Image
 import yutori.navigator.macos.computer as computer_module
 from yutori.navigator.macos.computer import (
     MacOSActionRefusedError,
+    MacOSBackgroundDeliveryError,
     MacOSComputer,
     MacOSFocusChangedError,
     MacOSRecoverableActionError,
     MacOSTargetCrashedError,
+    MacOSTargetWindowChangedError,
     MacOSUncertainActionError,
 )
 from yutori.navigator.macos.frontmost import FrontmostApp
 from yutori.navigator.macos.polling import FramePollResult
 from yutori.navigator.macos.transport import CuaDriverToolError, CuaDriverUncertainActionError
-from yutori.navigator.macos.types import MacOSPresentationStatus, N2Observation
+from yutori.navigator.macos.types import MacOSPresentationStatus, MacOSWindowTarget, N2Observation
 
 
-def _png(width: int = 2560, height: int = 1600) -> bytes:
+def _png(width: int = 2560, height: int = 1600, color: tuple[int, int, int] = (15, 25, 35)) -> bytes:
     output = io.BytesIO()
-    Image.new("RGB", (width, height), (15, 25, 35)).save(output, format="PNG")
+    Image.new("RGB", (width, height), color).save(output, format="PNG")
     return output.getvalue()
 
 
@@ -628,9 +630,7 @@ async def test_shell_command_text_is_absent_from_process_arguments():
         check=True,
     ).stdout
     group_commands = "\n".join(
-        line
-        for line in listing.splitlines()
-        if line.strip() and line.strip().split(maxsplit=1)[0] == str(group)
+        line for line in listing.splitlines() if line.strip() and line.strip().split(maxsplit=1)[0] == str(group)
     )
     assert secret not in group_commands
     command.cancel()
@@ -912,3 +912,645 @@ async def test_pointer_actions_do_not_consult_the_focus_guard():
         await computer.click(5, 5)
     assert probe.calls["count"] == 1
     assert [call[0] for call in transport.calls].count("click") == 1
+
+
+# --- window scope -------------------------------------------------------------------------
+
+# The adapter checks target liveness with os.kill(pid, 0); our own pid is the one process
+# every test run can rely on being alive.
+PID = os.getpid()
+DEAD_PID = 2**22 - 7
+
+
+def _window_record(window_id: int = 7, pid: int = PID, **overrides: Any) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "window_id": window_id,
+        "pid": pid,
+        "app_name": "Calculator",
+        "title": "Calculator",
+        "bounds": {"x": 40, "y": 60, "width": 400, "height": 300},
+        "z_index": 5,
+        "is_on_screen": True,
+        "on_current_space": True,
+    }
+    record.update(overrides)
+    return record
+
+
+class WindowFakeTransport(FakeTransport):
+    """FakeTransport that also serves window captures, window lists, and scripted action envelopes."""
+
+    def __init__(self, window_frames: list[bytes] | None = None, windows: list[dict[str, Any]] | None = None):
+        super().__init__()
+        self.window_frames = list(window_frames or [_png(400, 300)])
+        self.windows = list(windows if windows is not None else [_window_record()])
+        self.action_results: dict[str, list[dict[str, Any]]] = {}
+        self.tool_errors: dict[str, list[Exception]] = {}
+        # Extra structuredContent merged into get_window_state responses, keyed by window_id.
+        self.window_state_extra: dict[int, dict[str, Any]] = {}
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        read_only: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        del timeout_seconds
+        self.calls.append((name, arguments, read_only))
+        queued_errors = self.tool_errors.get(name)
+        if queued_errors:
+            raise queued_errors.pop(0)
+        if name == "get_window_state":
+            frame = self.window_frames.pop(0) if len(self.window_frames) > 1 else self.window_frames[0]
+            with Image.open(io.BytesIO(frame)) as image:
+                width, height = image.size
+            extra = self.window_state_extra.get(arguments.get("window_id"), {})
+            return {
+                "content": [{"type": "image", "data": base64.b64encode(frame).decode("ascii")}],
+                "structuredContent": {"screenshot_width": width, "screenshot_height": height, "elements": [], **extra},
+            }
+        if name == "list_windows":
+            pid = arguments.get("pid")
+            return {"structuredContent": {"windows": [w for w in self.windows if pid in (None, w["pid"])]}}
+        scripted = self.action_results.get(name)
+        if scripted:
+            return {"structuredContent": scripted.pop(0)}
+        if name in {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "move_cursor"}:
+            return {
+                "structuredContent": {
+                    "effect": "unverifiable",
+                    "route": "synthetic_events",
+                    "delivery": {"mode": arguments.get("delivery_mode")},
+                }
+            }
+        return {"structuredContent": {"ok": True}}
+
+
+def _window_computer(transport: FakeTransport, **kwargs: Any) -> MacOSComputer:
+    return MacOSComputer(transport, owns_transport=False, presentation=False, scope="window", **kwargs)
+
+
+def _bound_window_computer(transport: FakeTransport, **kwargs: Any) -> MacOSComputer:
+    target = MacOSWindowTarget(PID, 7, title="Calculator", app_name="Calculator")
+    return _window_computer(transport, target_window=target, **kwargs)
+
+
+def _tool_error(code: str) -> CuaDriverToolError:
+    return CuaDriverToolError(f"Cua Driver failed: {code}", structured={"code": code, "effect": "refused"})
+
+
+def _names(transport: FakeTransport) -> list[str]:
+    return [call[0] for call in transport.calls]
+
+
+def _arguments(transport: FakeTransport, name: str) -> list[dict[str, Any]]:
+    return [arguments for called, arguments, _ in transport.calls if called == name]
+
+
+async def _no_wait(_seconds: float) -> None:
+    return None
+
+
+async def test_desktop_scope_wire_arguments_are_unchanged():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, verify_focus=False) as computer:
+        await computer.click(10, 20)
+        await computer.scroll(10, 10, 0, 300)
+        await computer.type("hi")
+        await computer.keypress("Return")
+        await computer.keypress(["cmd", "c"])
+        await computer.drag([{"x": 1, "y": 2}, {"x": 3, "y": 4}])
+        await computer.move(5, 6)
+    session = computer.session
+    by_name = {name: arguments for name, arguments, _ in transport.calls}
+    assert by_name["start_session"] == {"session": session, "capture_scope": "desktop"}
+    base = {"session": session, "scope": "desktop", "delivery_mode": "foreground"}
+    assert by_name["click"] == {**base, "x": 10, "y": 20, "button": "left", "count": 1}
+    assert by_name["scroll"] == {**base, "x": 10, "y": 10, "direction": "down", "amount": 2, "by": "line"}
+    assert by_name["type_text"] == {**base, "text": "hi", "delay_ms": 0}
+    assert by_name["press_key"] == {**base, "key": "Return"}
+    assert by_name["hotkey"] == {**base, "keys": ["cmd", "c"]}
+    assert by_name["drag"] == {**base, "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4}
+    assert by_name["move_cursor"] == {**base, "x": 5, "y": 6}
+    assert not computer.window_mode and computer.target_window is None
+    assert computer.action_outcomes == ()
+    assert computer.delivery_counts["background_attempts"] == 0
+
+
+def test_window_scope_constructor_validation():
+    with pytest.raises(ValueError, match="target_window requires"):
+        MacOSComputer(
+            FakeTransport(), owns_transport=False, presentation=False, target_window=MacOSWindowTarget(PID, 7)
+        )
+    with pytest.raises(ValueError, match="scope must be"):
+        MacOSComputer(FakeTransport(), owns_transport=False, presentation=False, scope="screen")  # type: ignore[arg-type]
+    computer = _bound_window_computer(FakeTransport())
+    assert computer.window_mode and computer.target_pid == PID
+
+
+async def test_window_scope_captures_only_the_target_window():
+    transport = WindowFakeTransport([_png(400, 300)])
+    async with _window_computer(transport) as computer:
+        assert computer.target_window is None
+        with pytest.raises(computer_module.MacOSComputerError, match="set_window_target"):
+            await computer.screenshot()
+        await computer.set_window_target(MacOSWindowTarget(PID, 7, title="Calculator", app_name="Calculator"))
+        assert computer.target_pid == PID
+        observation = await computer.screenshot()
+        assert (observation.native_width, observation.native_height) == (400, 300)
+        assert computer.window_target_info == {
+            "pid": PID,
+            "window_id": 7,
+            "title": "Calculator",
+            "app_name": "Calculator",
+            "capture_width": 400,
+            "capture_height": 300,
+        }
+    assert "get_desktop_state" not in _names(transport)
+    assert _arguments(transport, "start_session") == [{"session": computer.session}]
+    assert _arguments(transport, "get_window_state") == [
+        {
+            "session": computer.session,
+            "pid": PID,
+            "window_id": 7,
+            "include_screenshot": True,
+            "max_elements": 1,
+            "max_depth": 1,
+        }
+    ]
+
+
+async def test_window_scope_leaves_the_overlay_off_and_disables_the_agent_cursor(monkeypatch):
+    started: list[object] = []
+
+    async def unexpected_start(controller):
+        started.append(controller)
+
+    monkeypatch.setattr("yutori.navigator.macos.computer.MacOSPresentationController.start", unexpected_start)
+    transport = WindowFakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=True, scope="window") as computer:
+        status = computer.presentation_status
+        assert computer.presentation is None
+        assert status.requested and not status.available
+        assert status.degradation_reason == "window_mode"
+        assert status.cursor == "hidden"
+    assert not started
+    assert _arguments(transport, "set_agent_cursor_enabled") == [{"session": computer.session, "enabled": False}]
+    assert "set_agent_cursor_theme" not in _names(transport)
+
+
+async def test_window_scope_actions_carry_the_window_target_and_background_delivery():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(10, 20)
+        await computer.scroll(10, 10, 0, 60)
+        await computer.type("9*9=")
+        await computer.keypress("Return")
+        await computer.keypress(["cmd", "c"])
+        await computer.drag([{"x": 1, "y": 2}, {"x": 3, "y": 4}])
+    tools = ["click", "scroll", "type_text", "press_key", "hotkey", "drag"]
+    actions = [(name, arguments) for name, arguments, _ in transport.calls if name in tools]
+    assert [name for name, _ in actions] == tools
+    for _, arguments in actions:
+        assert arguments["target"] == {"kind": "window", "pid": PID, "window_id": 7}
+        # The driver refuses `target` alongside the legacy scope/pid/window_id fields.
+        assert not {"scope", "pid", "window_id"} & arguments.keys()
+        assert arguments["delivery_mode"] == "background"
+    assert actions[1][1]["amount"] == 2  # 60px against a 300px-tall window: two lines
+    assert computer.delivery_counts == {
+        "background_attempts": 6,
+        "foreground_escalations": 0,
+        "fallback_skips": 0,
+        "background_refusals": 0,
+        "window_rebinds": 0,
+    }
+    assert len(computer.action_outcomes) == 6
+    assert computer.last_action_outcome is not None
+    assert (computer.last_action_outcome.tool, computer.last_action_outcome.effect) == ("drag", "unverifiable")
+    assert computer.last_action_outcome.reported_delivery == "background"
+
+
+async def test_window_scope_move_records_the_pointer_without_driver_input():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.move(30, 40)
+        await computer.left_mouse_down()
+        await computer.move(50, 60)
+        await computer.left_mouse_up()
+    assert "move_cursor" not in _names(transport)
+    (drag,) = _arguments(transport, "drag")
+    assert (drag["from_x"], drag["from_y"], drag["to_x"], drag["to_y"]) == (30, 40, 50, 60)
+    assert drag["delivery_mode"] == "background"
+
+
+async def test_window_scope_skips_the_frontmost_probe_and_focus_guard():
+    transport = WindowFakeTransport()
+    probe = _frontmost_probe([FrontmostApp(10, "Calculator"), FrontmostApp(20, "Slack")])
+    async with _bound_window_computer(transport, frontmost_probe=probe) as computer:
+        await computer.screenshot()
+        await computer.type("x")
+        await computer.keypress("Return")
+    assert probe.calls["count"] == 0
+    assert _names(transport).count("type_text") == 1 and _names(transport).count("press_key") == 1
+    assert computer.focus_guard_trips == 0
+
+
+async def test_background_action_that_did_not_land_is_refused_with_a_fresh_frame():
+    transport = WindowFakeTransport([_png(400, 300), _png(420, 310)])
+    transport.action_results["click"] = [
+        {
+            "effect": "suspected_noop",
+            "route": "synthetic_events",
+            "escalation": {"recommended": "foreground", "reason": "renderer never took focus"},
+        }
+    ]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError) as raised:
+            await computer.click(10, 20)
+        error = raised.value
+        assert error.recoverable
+        assert "did not land" in str(error)
+        assert "effect=suspected_noop" in str(error) and "recommended=foreground" in str(error)
+        assert isinstance(error.observation, N2Observation)
+        assert (error.observation.native_width, error.observation.native_height) == (420, 310)
+        assert error.outcome is not None
+        assert (error.outcome.effect, error.outcome.recommended, error.outcome.escalated) == (
+            "suspected_noop",
+            "foreground",
+            False,
+        )
+        assert computer.delivery_counts["background_refusals"] == 1
+        assert computer.delivery_counts["foreground_escalations"] == 0
+    assert _names(transport).count("click") == 1
+
+
+async def test_foreground_fallback_retries_once_when_the_driver_recommends_it():
+    transport = WindowFakeTransport()
+    transport.action_results["type_text"] = [
+        {"effect": "unverifiable", "escalation": {"recommended": "foreground"}},
+        {"effect": "confirmed", "route": "trusted_input", "delivery": {"mode": "foreground"}},
+    ]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.type("hello")
+    sends = _arguments(transport, "type_text")
+    assert [send["delivery_mode"] for send in sends] == ["background", "foreground"]
+    assert sends[1]["text"] == "hello" and sends[1]["target"] == sends[0]["target"]
+    assert computer.delivery_counts["foreground_escalations"] == 1
+    assert computer.delivery_counts["background_refusals"] == 0
+    outcome = computer.last_action_outcome
+    assert outcome is not None and outcome.escalated
+    assert (outcome.requested_delivery, outcome.reported_delivery, outcome.effect) == (
+        "foreground",
+        "foreground",
+        "confirmed",
+    )
+
+
+@pytest.mark.parametrize(
+    "structured",
+    [
+        {"effect": "unverifiable"},
+        {"effect": "partial"},
+        {"effect": "confirmed", "route": "accessibility"},
+        {"effect": "unverifiable", "escalation": {"recommended": "px"}},
+        {},
+    ],
+)
+async def test_landed_effects_never_escalate(structured):
+    transport = WindowFakeTransport()
+    transport.action_results["click"] = [structured]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.click(1, 1)
+    assert _names(transport).count("click") == 1
+    assert computer.delivery_counts["foreground_escalations"] == 0
+    assert computer.last_action_outcome is not None and computer.last_action_outcome.landed
+
+
+async def test_foreground_fallback_is_skipped_when_the_window_already_changed():
+    # Frame 1 is what the model reasoned over; frame 2 (a different image) is captured after the
+    # background attempt that the driver reported as not landing.
+    transport = WindowFakeTransport([_png(400, 300), _png(400, 300, color=(240, 240, 240))])
+    transport.action_results["type_text"] = [{"effect": "unverifiable", "escalation": {"target": "foreground"}}]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.screenshot()
+        await computer.type("15*15")
+    assert [send["delivery_mode"] for send in _arguments(transport, "type_text")] == ["background"]
+    assert computer.delivery_counts["fallback_skips"] == 1
+    assert computer.delivery_counts["foreground_escalations"] == 0
+    assert computer.delivery_counts["background_refusals"] == 0
+
+
+async def test_foreground_fallback_proceeds_when_the_window_did_not_change():
+    transport = WindowFakeTransport([_png(400, 300)])
+    transport.action_results["type_text"] = [
+        {"effect": "unverifiable", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
+        {"effect": "unverifiable"},
+    ]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.screenshot()
+        await computer.type("15*15")
+    assert [send["delivery_mode"] for send in _arguments(transport, "type_text")] == ["background", "foreground"]
+    assert computer.delivery_counts["fallback_skips"] == 0
+    assert computer.delivery_counts["foreground_escalations"] == 1
+    # The guard frame plus the frame the model reasoned over.
+    assert _names(transport).count("get_window_state") == 2
+
+
+async def test_foreground_fallback_that_still_fails_raises_after_one_retry():
+    transport = WindowFakeTransport()
+    transport.action_results["click"] = [{"effect": "suspected_noop"}, {"effect": "suspected_noop"}]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        with pytest.raises(MacOSBackgroundDeliveryError) as raised:
+            await computer.click(1, 1)
+    assert _names(transport).count("click") == 2
+    assert raised.value.outcome is not None
+    assert raised.value.outcome.escalated and raised.value.outcome.requested_delivery == "foreground"
+    assert computer.delivery_counts == {
+        "background_attempts": 1,
+        "foreground_escalations": 1,
+        "fallback_skips": 0,
+        "background_refusals": 1,
+        "window_rebinds": 0,
+    }
+
+
+async def test_modified_click_in_strict_window_scope_is_refused_before_driver_input():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        with pytest.raises(MacOSRecoverableActionError, match="foreground delivery"):
+            await computer.click(1, 1, modifier=["cmd"])
+        await computer.key_down("shift")
+        with pytest.raises(MacOSRecoverableActionError, match="foreground delivery"):
+            await computer.click(1, 1)
+    assert "click" not in _names(transport)
+
+
+async def test_modified_click_goes_foreground_when_fallback_is_allowed():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.click(1, 1, modifier=["cmd"])
+    (click,) = _arguments(transport, "click")
+    assert click["delivery_mode"] == "foreground" and click["modifier"] == ["cmd"]
+    assert computer.delivery_counts["foreground_escalations"] == 1
+    assert computer.delivery_counts["background_attempts"] == 0
+    assert computer.last_action_outcome is not None and computer.last_action_outcome.escalated
+
+
+async def test_stale_frame_refusal_on_input_hands_back_a_fresh_frame():
+    transport = WindowFakeTransport()
+    transport.tool_errors["click"] = [_tool_error("px_frame_mismatch")]
+    async with _bound_window_computer(transport) as computer:
+        with pytest.raises(MacOSUncertainActionError, match="px_frame_mismatch") as raised:
+            await computer.click(1, 1)
+        assert raised.value.observation is not None
+    assert computer.delivery_counts["window_rebinds"] == 0
+
+
+async def test_capture_follows_the_app_to_another_window_when_the_target_window_is_gone(monkeypatch):
+    transport = WindowFakeTransport(windows=[_window_record(window_id=9)])
+    transport.tool_errors["get_window_state"] = [_tool_error("window_id_not_found")]
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        observation = await computer.screenshot()
+        assert observation.native_width == 400
+        assert computer.target_window == MacOSWindowTarget(PID, 9, title="Calculator", app_name="Calculator")
+    assert [capture["window_id"] for capture in _arguments(transport, "get_window_state")] == [7, 9]
+    assert _arguments(transport, "list_windows") == [{"pid": PID}]
+    assert computer.delivery_counts["window_rebinds"] == 1
+
+
+async def test_input_after_window_loss_rebinds_and_hands_the_model_the_new_window():
+    transport = WindowFakeTransport([_png(400, 300), _png(500, 350)], windows=[_window_record(window_id=9)])
+    transport.tool_errors["click"] = [
+        CuaDriverToolError(
+            "Cua Driver click failed: gone",
+            structured={"status": "refused", "refusal": {"code": "window_id_not_found", "message": "gone"}},
+        )
+    ]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSTargetWindowChangedError) as raised:
+            await computer.click(10, 10)
+        error = raised.value
+        assert error.recoverable
+        assert f"(pid {PID}, window 7)" in str(error) and f"(pid {PID}, window 9)" in str(error)
+        assert isinstance(error.observation, N2Observation)
+        assert (error.observation.native_width, error.observation.native_height) == (500, 350)
+        assert computer.target_window is not None and computer.target_window.window_id == 9
+        await computer.click(10, 10)
+    assert [click["target"]["window_id"] for click in _arguments(transport, "click")] == [7, 9]
+    assert computer.delivery_counts["window_rebinds"] == 1
+
+
+async def test_window_loss_with_a_dead_process_recovers_the_target_and_reresolves_its_window(monkeypatch):
+    transport = WindowFakeTransport(windows=[_window_record(window_id=11)])
+    transport.tool_errors["get_window_state"] = [_tool_error("window_owner_pid_mismatch")]
+    recoveries = 0
+
+    async def recover() -> int:
+        nonlocal recoveries
+        recoveries += 1
+        return PID
+
+    async with _window_computer(transport, recover_target=recover) as computer:
+        await computer.set_window_target(MacOSWindowTarget(DEAD_PID, 7, app_name="Calculator"))
+        monkeypatch.setattr(computer, "_pid_alive", lambda pid: pid == PID)
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        assert recoveries == 1
+        assert computer.target_pid == PID
+        assert computer.target_window == MacOSWindowTarget(PID, 11, title="Calculator", app_name="Calculator")
+        assert computer.target_recovery_attempts == 1
+    assert [capture["pid"] for capture in _arguments(transport, "get_window_state")] == [DEAD_PID, PID]
+
+
+async def test_window_loss_without_recovery_is_a_target_crash(monkeypatch):
+    transport = WindowFakeTransport(windows=[])
+    transport.tool_errors["get_window_state"] = [_tool_error("window_id_not_found")]
+    async with _window_computer(transport) as computer:
+        await computer.set_window_target(MacOSWindowTarget(DEAD_PID, 7))
+        monkeypatch.setattr(computer, "_pid_alive", lambda _pid: False)
+        with pytest.raises(MacOSTargetCrashedError):
+            await computer.screenshot()
+        assert computer.cancellation.cause == "target_crash"
+
+
+async def test_live_process_with_no_windows_left_is_a_target_crash(monkeypatch):
+    transport = WindowFakeTransport(windows=[])
+    transport.tool_errors["get_window_state"] = [_tool_error("window_id_not_found")]
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        with pytest.raises(MacOSTargetCrashedError, match="no window left"):
+            await computer.screenshot()
+    assert _names(transport).count("list_windows") == 2
+    assert computer.cancellation.cause == "target_crash"
+
+
+async def test_target_recovery_in_window_scope_rebinds_to_the_relaunched_process_window(monkeypatch):
+    transport = WindowFakeTransport(windows=[_window_record(window_id=13)])
+
+    async def recover() -> int:
+        return PID
+
+    async with _window_computer(transport, recover_target=recover) as computer:
+        await computer.set_window_target(MacOSWindowTarget(DEAD_PID, 7))
+        monkeypatch.setattr(computer, "_pid_alive", lambda pid: pid == PID)
+        await computer._ensure_target_alive()
+        assert computer.target_pid == PID
+        assert computer.target_window == MacOSWindowTarget(PID, 13, title="Calculator", app_name="Calculator")
+        assert computer.delivery_counts["window_rebinds"] == 1
+
+
+async def test_target_recovery_keeps_a_window_the_recoverer_already_bound(monkeypatch):
+    transport = WindowFakeTransport()
+    computer = _window_computer(transport)
+
+    async def recover_and_bind() -> int:
+        await computer.set_window_target(MacOSWindowTarget(PID, 21))
+        return PID
+
+    computer.recover_target = recover_and_bind
+    async with computer:
+        await computer.set_window_target(MacOSWindowTarget(DEAD_PID, 7))
+        monkeypatch.setattr(computer, "_pid_alive", lambda pid: pid == PID)
+        await computer._ensure_target_alive()
+        assert computer.target_window == MacOSWindowTarget(PID, 21)
+        assert computer.delivery_counts["window_rebinds"] == 0
+    assert "list_windows" not in _names(transport)
+
+
+async def test_window_capture_gives_up_after_three_unusable_frames(monkeypatch):
+    transport = WindowFakeTransport()
+    transport.tool_errors["get_window_state"] = [_tool_error("px_capture_unavailable") for _ in range(3)]
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        with pytest.raises(computer_module.MacOSComputerError, match="after 3 attempts"):
+            await computer.screenshot()
+    assert _names(transport).count("get_window_state") == 3
+    assert "list_windows" not in _names(transport)
+
+
+async def test_set_window_target_requires_window_scope_and_a_released_mouse():
+    desktop = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+    with pytest.raises(computer_module.MacOSComputerError, match="scope='window'"):
+        await desktop.set_window_target(MacOSWindowTarget(PID, 7))
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.left_mouse_down(1, 1)
+        with pytest.raises(MacOSRecoverableActionError, match="held mouse"):
+            await computer.set_window_target(MacOSWindowTarget(PID, 9))
+        await computer.left_mouse_up(1, 1)
+        await computer.set_window_target(MacOSWindowTarget(PID, 9))
+        assert computer.current_observation is None
+        assert computer.target_window == MacOSWindowTarget(PID, 9)
+        assert computer.window_target_info is not None and computer.window_target_info["capture_width"] is None
+
+
+async def test_unhide_app_delegates_to_appkit_without_activating(monkeypatch):
+    unhidden: list[int] = []
+
+    async def fake_unhide(pid: int) -> bool:
+        unhidden.append(pid)
+        return True
+
+    monkeypatch.setattr(computer_module, "unhide_application", fake_unhide)
+    transport = WindowFakeTransport()
+    async with _window_computer(transport) as computer:
+        assert await computer.unhide_app(PID) is True
+    assert unhidden == [PID]
+    assert "bring_to_front" not in _names(transport)
+
+
+_UNRESOLVED = {
+    "degraded": True,
+    "degraded_reason": "ax_window_unresolved: window_id 7 exists and is owned by the pid, but no AXWindow reports it",
+    "element_count": 0,
+}
+
+
+async def test_capture_of_a_window_without_an_accessibility_window_moves_to_the_apps_live_window():
+    dialog = _window_record(7, title="", bounds={"x": 0, "y": 0, "width": 500, "height": 500}, is_on_screen=False)
+    document = _window_record(9, title="Untitled 16", z_index=83)
+    transport = WindowFakeTransport([_png(400, 300)], windows=[dialog, document])
+    transport.window_state_extra[7] = _UNRESOLVED
+    async with _bound_window_computer(transport) as computer:
+        observation = await computer.screenshot()
+        assert observation.native_width == 400
+        assert computer.target_window == MacOSWindowTarget(PID, 9, title="Untitled 16", app_name="Calculator")
+    assert [capture["window_id"] for capture in _arguments(transport, "get_window_state")] == [7, 9]
+    assert computer.delivery_counts["window_rebinds"] == 1
+
+
+async def test_capture_of_an_unresolved_window_is_kept_when_the_app_has_no_other_window():
+    transport = WindowFakeTransport([_png(400, 300)], windows=[_window_record(7)])
+    transport.window_state_extra[7] = _UNRESOLVED
+    async with _bound_window_computer(transport) as computer:
+        observation = await computer.screenshot()
+        assert observation.native_width == 400
+        assert computer.target_window is not None and computer.target_window.window_id == 7
+    assert _names(transport).count("get_window_state") == 1
+    assert computer.delivery_counts["window_rebinds"] == 0
+
+
+async def test_input_refused_for_an_unresolved_window_rebinds_to_the_apps_live_window():
+    transport = WindowFakeTransport([_png(400, 300), _png(500, 350)], windows=[_window_record(7), _window_record(9)])
+    transport.tool_errors["click"] = [_tool_error("off_space_or_ax_unresolved")]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSTargetWindowChangedError, match="can no longer be driven") as raised:
+            await computer.click(10, 10)
+        assert raised.value.recoverable
+        assert raised.value.observation is not None and raised.value.observation.native_width == 500
+        assert computer.target_window is not None and computer.target_window.window_id == 9
+        await computer.click(10, 10)
+    assert [click["target"]["window_id"] for click in _arguments(transport, "click")] == [7, 9]
+    assert computer.delivery_counts["window_rebinds"] == 1
+
+
+async def test_input_refused_for_an_unresolved_window_without_alternatives_is_a_recoverable_refusal():
+    transport = WindowFakeTransport(windows=[_window_record(7)])
+    transport.tool_errors["type_text"] = [_tool_error("off_space_or_ax_unresolved")]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        with pytest.raises(MacOSBackgroundDeliveryError, match="another Space") as raised:
+            await computer.type("x")
+        assert raised.value.recoverable and raised.value.observation is not None
+        assert computer.target_window is not None and computer.target_window.window_id == 7
+    assert _names(transport).count("type_text") == 1
+    assert computer.delivery_counts["background_refusals"] == 1
+    assert computer.delivery_counts["window_rebinds"] == 0
+
+
+@pytest.mark.parametrize("code", ["same_pid_keyboard_ambiguity", "minimized_or_hidden_window"])
+async def test_upfront_keyboard_refusals_escalate_to_foreground_when_allowed(code):
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error(code)]
+    transport.action_results["type_text"] = [{"effect": "unverifiable", "delivery": {"mode": "foreground"}}]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.screenshot()
+        await computer.type("hello")
+    sends = _arguments(transport, "type_text")
+    assert [send["delivery_mode"] for send in sends] == ["background", "foreground"]
+    assert computer.delivery_counts["foreground_escalations"] == 1
+    assert computer.delivery_counts["background_refusals"] == 0
+    refused, retried = computer.action_outcomes[-2:]
+    assert (refused.effect, refused.refusal_code, refused.landed) == ("refused", code, False)
+    assert retried.escalated and retried.landed
+
+
+@pytest.mark.parametrize("code", ["same_pid_keyboard_ambiguity", "minimized_or_hidden_window"])
+async def test_upfront_keyboard_refusals_are_recoverable_in_strict_window_scope(code):
+    transport = WindowFakeTransport()
+    transport.tool_errors["hotkey"] = [_tool_error(code)]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError, match=code) as raised:
+            await computer.keypress(["cmd", "shift", "s"])
+        assert raised.value.recoverable and raised.value.observation is not None
+        assert raised.value.outcome is not None and raised.value.outcome.refusal_code == code
+    assert _names(transport).count("hotkey") == 1
+    assert computer.delivery_counts["background_refusals"] == 1
