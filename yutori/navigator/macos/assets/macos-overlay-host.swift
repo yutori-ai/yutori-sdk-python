@@ -18,9 +18,6 @@ private let thumbnailInsetPoints: CGFloat = 12
 // conversation with the model -- opens at this size and is resizable from there.
 private let activityWidthPoints: CGFloat = 520
 private let activityHeightPoints: CGFloat = 720
-// How many recent captions the menu keeps, so a glance at the menu bar shows the last few
-// steps rather than only the newest one.
-private let menuCaptionLines = 4
 // A dropped activity row costs nothing; this only bounds what the host buffers while the
 // activity page is still loading.
 private let pendingActivityCallLimit = 500
@@ -100,10 +97,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // the Stop action. Its on-screen frame is reported as `stop_region` so the Python
     // side keeps refusing model clicks on it.
     private var stopItem: NSStatusItem?
-    // Status mode only: the menu's recent caption lines and the live thumbnail of the driven window.
+    // Status mode only: the menu's caption line and the live thumbnail of the driven window.
     private var statusMode = false
-    private var captionItems: [NSMenuItem] = []
-    private var captionLines: [String] = []
+    private var statusCaptionItem: NSMenuItem?
     private var thumbnailItem: NSMenuItem?
     private var thumbnailView: NSImageView?
     // The floating activity window -- both modes -- and the demand signal the Python side
@@ -226,9 +222,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         requestStop(source: "menu")
     }
 
-    /// Status mode: no panel and no page, just a menu bar item that stays for the whole run.
+    /// Status mode: no full-screen page, just a menu bar item that stays for the whole run.
     /// Its menu carries the run title, a caption with the latest action, the latest frame of
-    /// the driven window, and Stop (also on the ⇧⌘Esc hotkey).
+    /// the driven window, Show activity, and Stop (also on the ⇧⌘Esc hotkey).
     private func startStatusMode() {
         statusMode = true
         let title = config.title ?? "Yutori n2 is working in the background"
@@ -242,18 +238,10 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         let titleItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
-        // The last few steps, oldest first, so the newest sits closest to the frame below it.
-        for index in 0..<menuCaptionLines {
-            let caption = NSMenuItem(
-                title: index == 0 ? "Waiting for the first step" : "",
-                action: nil,
-                keyEquivalent: ""
-            )
-            caption.isEnabled = false
-            caption.isHidden = index > 0
-            menu.addItem(caption)
-            captionItems.append(caption)
-        }
+        let caption = NSMenuItem(title: "Waiting for the first frame", action: nil, keyEquivalent: "")
+        caption.isEnabled = false
+        menu.addItem(caption)
+        statusCaptionItem = caption
         let imageView = NSImageView(
             frame: NSRect(x: 0, y: 0, width: thumbnailWidthPoints + 2 * thumbnailInsetPoints, height: 1)
         )
@@ -379,15 +367,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
     }
 
-    /// Push one caption onto the menu's recent lines, dropping the oldest.
+    /// The menu's one line about the latest step; the activity window keeps the history.
     private func showCaption(_ text: String) {
-        captionLines.append(text)
-        if captionLines.count > menuCaptionLines { captionLines.removeFirst(captionLines.count - menuCaptionLines) }
-        for (index, item) in captionItems.enumerated() {
-            let line = index < captionLines.count ? captionLines[index] : nil
-            item.title = line ?? ""
-            item.isHidden = line == nil
-        }
+        statusCaptionItem?.title = text
         stopItem?.button?.toolTip = text
     }
 
