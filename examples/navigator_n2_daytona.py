@@ -9,7 +9,7 @@
 """
 A computer-use agent: Navigator n2 driving a disposable Daytona Linux desktop.
 
-Navigator n2 looks at a full-screen screenshot and answers with tool calls — a
+Navigator n2 looks at a full-screen screenshot and answers with tool calls -- a
 `computer_batch` of GUI actions, a `bash` command, or a file tool
 (`read`/`write`/`edit`). `N2ComputerAgent`, the SDK's n2 agent
 loop, executes each call through a small adapter, sends the result back (a
@@ -17,7 +17,7 @@ fresh screenshot for the batch, the tool's output otherwise), and asks again
 until the model answers with just text, which indicates stop.
 
 Daytona is third-party infrastructure; this Yutori-maintained example contains
-the whole integration — the `DaytonaComputer` adapter plus the sandbox
+the whole integration -- the `DaytonaComputer` adapter plus the sandbox
 lifecycle in `main`. Swap those pieces for your own environment to drive a
 different desktop.
 
@@ -72,7 +72,7 @@ from yutori.navigator import (
     format_stop_and_summarize,
 )
 from yutori.navigator.n2_compaction import response_message
-from yutori.navigator.sandbox_tools import clamp_bash_timeout
+from yutori.navigator.sandbox_tools import clamp_bash_timeout_or_expired
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
 # desktop at 1024x768; build your own to give the model a browser or an editor.
@@ -177,7 +177,7 @@ class DaytonaComputer(ShellFileToolsMixin):
         # Daytona wants wheel notches and supports vertical scrolling only.
         # Declaring `model_action=` makes the loop pass the model's own call, whose
         # `direction`/`amount` are already notches (see api.md, "Navigator n2 loop"); the
-        # pixel arithmetic — one notch of `amount` is a tenth of the screen — is the
+        # pixel arithmetic -- one notch of `amount` is a tenth of the screen -- is the
         # fallback for callers that don't pass it.
         if model_action and model_action.get("direction"):
             direction, amount = str(model_action["direction"]), int(model_action.get("amount") or 3)
@@ -248,7 +248,7 @@ class DaytonaComputer(ShellFileToolsMixin):
             except Exception as exc:  # noqa: BLE001 - a failed start is a normal tool result
                 return f"ERROR: failed to start background command: {exc}"
             if launched.exit_code:
-                # The launch line itself failed — nothing started; don't claim it did.
+                # The launch line itself failed -- nothing started; don't claim it did.
                 # (The reference reports the same ERROR shape via its exception path.)
                 detail = (launched.result or "").strip()
                 return f"ERROR: failed to start background command: exit code {launched.exit_code}" + (
@@ -267,12 +267,10 @@ class DaytonaComputer(ShellFileToolsMixin):
                 lines.append(f"To cancel: run bash with `kill {pid}`")
             return "\n".join(lines)
 
-        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is
-        # a normal result the model can react to, never a raised failure envelope.
         # (Daytona raises on expiry and discards the partial output.)
-        timeout_s = clamp_bash_timeout(timeout)
-        if timeout_s == 0:
-            return "Command timed out after 0s"
+        timeout_s, expired = clamp_bash_timeout_or_expired(timeout)
+        if expired is not None:
+            return expired
         # Run the command, then report the directory it finished in, keeping
         # the command's own exit code.
         wrapped = f'{command}\n__rc=$?\nprintf "\\n{CWD_SENTINEL}%s" "$PWD"\nexit $__rc'
@@ -280,7 +278,7 @@ class DaytonaComputer(ShellFileToolsMixin):
             result = await self._sandbox.process.exec(wrapped, cwd=self._cwd, timeout=max(1, int(timeout_s)))
         except Exception as error:  # noqa: BLE001 - classify sandbox timeouts below
             # Match the class name (DaytonaProcessExecutionTimeoutError) and the
-            # message ("command execution timeout" — which says "timeout", not
+            # message ("command execution timeout" -- which says "timeout", not
             # "timed out"), so a generically-named error is still classified.
             error_text = f"{type(error).__name__}: {error}".lower()
             if "timeout" in error_text or "timed out" in error_text:
@@ -347,7 +345,7 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
                     await sandbox.delete(wait=True)
 
         if agent.stopped_by == "max_steps":
-            # One summarize-only completion — sent by this harness itself via the
+            # One summarize-only completion -- sent by this harness itself via the
             # actor's exact next request, so a tool-call reply is never executed.
             # The sandbox is already deleted; only the Yutori client is needed.
             nudge = {"role": "user", "content": [{"type": "text", "text": format_stop_and_summarize(task)}]}

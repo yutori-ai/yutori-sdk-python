@@ -1,4 +1,4 @@
-"""The Cua computer handler for Navigator n2 — the reference tool implementations.
+"""The Cua computer handler for Navigator n2 -- the reference tool implementations.
 
 Start from this file as a structural example when desktop operations cross an
 API boundary, whether to local sandbox software or a remote service. Adapt its
@@ -16,11 +16,11 @@ N more chars ...]`` caps, image reads returned as visible image content, the
 sha256-fingerprint read-before-edit gate, and every expected tool error as a plain
 ``ERROR: ...`` result rather than a raised failure envelope. Copy or adapt this module
 when building a handler for your own environment. The ``computer_batch`` tool itself
-lives in the SDK loop — this module implements what the loop delegates: the GUI
+lives in the SDK loop -- this module implements what the loop delegates: the GUI
 primitives it calls, and the full ``bash``/file-tool output contracts.
 
 Cua here is the sandbox vendor (https://cua.ai, github.com/trycua), whose
-``cua-sandbox`` package provides the disposable Docker desktop — not the generic
+``cua-sandbox`` package provides the disposable Docker desktop -- not the generic
 "computer-use agent" acronym used elsewhere in Yutori's own package names.
 """
 
@@ -46,7 +46,7 @@ from yutori.navigator.sandbox_tools import (
     build_cwd_tracking_bash_script as _build_cwd_tracking_bash_script,
 )
 from yutori.navigator.sandbox_tools import (
-    clamp_bash_timeout as _clamp_bash_timeout,
+    clamp_bash_timeout_or_expired as _clamp_bash_timeout_or_expired,
 )
 from yutori.navigator.sandbox_tools import (
     format_background_task_started as _format_background_task_started,
@@ -217,11 +217,9 @@ class CuaSandboxComputer(ShellFileToolsMixin, PointerKeyLifecycleMixin):
             process_id = str(session.get("pid") or "unknown")
             return _format_background_task_started(log_path, process_id)
 
-        # The n2 bash contract: the timeout is clamped to [0, 600] and an expiry is a
-        # NORMAL result the model can react to, never a raised failure envelope.
-        timeout_s = _clamp_bash_timeout(timeout)
-        if timeout_s == 0:
-            return "Command timed out after 0s"
+        timeout_s, expired = _clamp_bash_timeout_or_expired(timeout)
+        if expired is not None:
+            return expired
 
         # cua-computer-server runs /cmd subprocesses on uvloop. If a shell command
         # leaves any descendant alive (for example ``xcalc &``), uvloop reports that

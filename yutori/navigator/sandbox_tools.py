@@ -10,7 +10,7 @@ hooks the adapter supplies. The shell-result helpers render ``bash`` results
 the same way (``Exit code N`` headers, truncation caps).
 
 Ownership note: the n2 loop implements ``computer_batch`` itself but only
-routes shell/file handler text (a trim and a 256K backstop aside) — these
+routes shell/file handler text (a trim and a 256K backstop aside) -- these
 output contracts are the adapter's to honor. When building (or pointing a
 coding agent at) a custom adapter, the expected formats live in
 ``FILE_TOOL_SCRIPT`` below (``cat -n`` numbering, the sha256 read-before-edit
@@ -193,7 +193,7 @@ elif operation == "edit":
     if not path.is_file():
         done(f"ERROR: file does not exist: {display}")
     # NOTE: the decode/match/anchor semantics below deliberately reproduce the served
-    # n2 edit tool exactly — replace-mode decoding (invalid bytes become U+FFFD on
+    # n2 edit tool exactly -- replace-mode decoding (invalid bytes become U+FFFD on
     # write-back), matching against the raw text (read output is CRLF-normalized for
     # display, the edit match is not), and anchoring the snippet on the first
     # occurrence of new_string. Reproducing them byte-for-byte is the point of this
@@ -392,6 +392,21 @@ def clamp_bash_timeout(timeout: float | None) -> float:
     return max(0.0, min(float(BASH_TIMEOUT_DEFAULT_SECONDS if timeout is None else timeout), BASH_TIMEOUT_MAX_SECONDS))
 
 
+def clamp_bash_timeout_or_expired(timeout: float | None) -> tuple[float, str | None]:
+    """Clamp a `bash` timeout and flag an immediate expiry.
+
+    The n2 `bash` contract: the timeout is clamped to [0, 600], and a clamped value of 0 is
+    itself an expiry -- a NORMAL result the model can react to, never a raised failure
+    envelope. Returns ``(timeout_seconds, message)``: when ``message`` is not ``None`` the
+    caller should return it immediately without running the command; otherwise proceed using
+    ``timeout_seconds``.
+    """
+    timeout_s = clamp_bash_timeout(timeout)
+    if timeout_s == 0:
+        return timeout_s, "Command timed out after 0s"
+    return timeout_s, None
+
+
 def build_cwd_tracking_bash_script(command: str, *, cwd: str, cwd_path: str, status_path: str) -> str:
     """Build the n2 `bash` wrapper script: `cd` into ``cwd``, run ``command``, and record its
     resulting working directory and exit status for the caller to read back afterward.
@@ -400,7 +415,7 @@ def build_cwd_tracking_bash_script(command: str, *, cwd: str, cwd_path: str, sta
     cwd are written to a ``.tmp`` sibling and moved into place, never written in place: a status
     poller must never observe a partially written file. The cwd capture runs in an inner shell
     with its own ``trap ... 0`` so it fires even if ``command`` exits early, backgrounds a
-    descendant, or is killed by a signal — the outer ``if`` only backstops the case where the cd
+    descendant, or is killed by a signal -- the outer ``if`` only backstops the case where the cd
     itself failed and the inner shell never ran.
 
     Returns the script body only; the caller supplies its own output redirection, either embedded
@@ -514,7 +529,7 @@ IMAGE_VIEW_MAX_EDGE = 1568
 def render_image_result(file_path: str, data: bytes) -> "dict[str, str] | str":
     """Return an image read as visible image content: a note with the source
     dimensions plus the image itself, downscaled to a 1568-px max edge and
-    WEBP-encoded — the same bounds the loop applies to screenshots."""
+    WEBP-encoded -- the same bounds the loop applies to screenshots."""
     try:
         image = Image.open(io.BytesIO(data))
         image.load()
@@ -577,9 +592,9 @@ class ShellFileToolsMixin:
     Mix into a computer adapter and implement two hooks:
 
     - ``async def run_sandbox_shell(self, command: str, *, timeout_seconds: int)``
-      — run one shell command in the sandbox and return an object with
+      -- run one shell command in the sandbox and return an object with
       ``stdout``, ``stderr``, and ``returncode`` attributes.
-    - ``async def file_tool_cwd(self) -> str`` — the working directory that
+    - ``async def file_tool_cwd(self) -> str`` -- the working directory that
       relative paths resolve against (usually the bash tool's tracked cwd).
 
     The sandbox needs ``python3`` (stdlib only) on PATH.
@@ -687,6 +702,7 @@ __all__ = [
     "build_bash_result_paths",
     "build_cwd_tracking_bash_script",
     "clamp_bash_timeout",
+    "clamp_bash_timeout_or_expired",
     "format_background_task_started",
     "format_shell_output",
     "format_shell_result",
