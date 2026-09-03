@@ -356,6 +356,21 @@ async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
     assert len(_rail_renders(commands)) == 1
 
 
+async def test_overlay_mode_streams_the_same_conversation_to_the_activity_window(monkeypatch):
+    """The activity window does not depend on how the run drives the Mac."""
+    controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present({"type": "task", "text": "Rename the file"})
+    await controller.present({"type": "reasoning", "text": "Finder is frontmost"})
+    await controller.present({"type": "action", "name": "left_click", "arguments": {"coordinates": [100, 20]}})
+    await controller.present(_shell("shell-1", "pwd", "running"))
+    await controller.present({"type": "final", "text": "Renamed."})
+
+    entries = [command["entry"] for command in commands if command.get("op") == "transcript"]
+    assert [entry["kind"] for entry in entries] == ["task", "thinking", "action", "shell", "final"]
+    assert entries[3]["id"] == "shell-shell-1"
+
+
 def _status_controller() -> MacOSPresentationController:
     controller = MacOSPresentationController(native_width=0, native_height=0, mode="status", title="Yutori n2 test")
     capabilities = MacOSPresentationCapabilities(2, 0, 0, 2.0, True, None)
@@ -377,8 +392,8 @@ def test_status_mode_handshake_skips_geometry_and_never_has_a_stop_region():
         MacOSPresentationController(native_width=0, native_height=0, mode="pill")
 
 
-async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypatch):
-    controller = _status_controller()
+def _status_traffic(monkeypatch, controller):
+    """Record what a status-mode controller sends, and fail on any page operation."""
     commands: list[dict] = []
 
     async def send_command(command, **_kwargs):
@@ -388,8 +403,22 @@ async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypat
     async def unexpected_operation(operation, **_kwargs):
         raise AssertionError(f"status mode must not send page operations: {operation}")
 
+    async def sleep(_seconds):
+        return True
+
     monkeypatch.setattr(controller, "_send_command", send_command)
     monkeypatch.setattr(controller, "_send_operation", unexpected_operation)
+    monkeypatch.setattr(controller, "_sleep", sleep)
+    return commands
+
+
+def _of_op(commands: list[dict], op: str) -> list[dict]:
+    return [command for command in commands if command.get("op") == op]
+
+
+async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypatch):
+    controller = _status_controller()
+    commands = _status_traffic(monkeypatch, controller)
 
     await controller.present({"type": "status", "text": "Driving Calculator (pid 4, window 7)"})
     await controller.present({"type": "reasoning", "text": "  Clear the display  "})
@@ -405,25 +434,80 @@ async def test_status_mode_maps_events_and_thumbnails_to_menu_commands(monkeypat
     assert await controller.encode_observation(b"png") is None
     assert not controller.blocks_point((5, 5))
 
-    assert [command["op"] for command in commands] == [
-        "status",
-        "status",
-        "status",
-        "status",
-        "status",
-        "thumbnail",
-        "status",
-    ]
-    assert [command["text"] for command in commands[:5]] == [
+    captions = _of_op(commands, "status")
+    assert [caption["text"] for caption in captions] == [
         "Driving Calculator (pid 4, window 7)",
         "Thinking: Clear the display",
         "left click at (100, 20)",
         "Finished",
         "Shell (running): ls -la",
+        "Shell (running): ls -la",
     ]
-    assert commands[5]["caption"] == "Frame 3"
-    assert base64.b64decode(commands[5]["data"]) == b"jpeg-bytes"
-    assert commands[6]["text"] == "Shell (running): ls -la"
+    thumbnail = _of_op(commands, "thumbnail")[0]
+    assert thumbnail["caption"] == "Frame 3"
+    assert base64.b64decode(thumbnail["data"]) == b"jpeg-bytes"
+
+
+async def test_status_mode_streams_the_conversation_to_the_activity_window(monkeypatch):
+    controller = _status_controller()
+    commands = _status_traffic(monkeypatch, controller)
+
+    await controller.present({"type": "task", "text": "Add up the quarterly totals"})
+    await controller.present({"type": "status", "text": "Driving Numbers (pid 4, window 7)"})
+    await controller.present({"type": "reasoning", "text": "  Select column D  "})
+    await controller.present({"type": "action", "name": "type", "arguments": {"text": "=SUM(D2:D9)"}})
+    await controller.present({"type": "action_done", "call_id": "c1", "refused": True})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "pwd", False, "running")})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "pwd", False, "completed", 0)})
+    await controller.present({"type": "action_done", "call_id": "c1"})
+    await controller.present({"type": "final", "text": "The total is 48,912."})
+
+    entries = [command["entry"] for command in _of_op(commands, "transcript")]
+    assert [entry["kind"] for entry in entries] == [
+        "task",
+        "system",
+        "thinking",
+        "action",
+        "error",
+        "shell",
+        "shell",
+        "final",
+    ]
+    assert entries[2]["text"] == "Select column D"
+    assert (entries[3]["text"], entries[3]["icon"]) == ("type =SUM(D2:D9)", "type")
+    # One card per command, revised in place: both lifecycle events carry the same id.
+    assert entries[5]["id"] == entries[6]["id"] == "shell-t1"
+    assert (entries[6]["state"], entries[6]["exitCode"]) == ("completed", 0)
+    # Every other row is a new one, so nothing overwrites the step above it.
+    assert len({entry["id"] for entry in entries}) == len(entries) - 1
+    assert entries[-1] == {"id": entries[-1]["id"], "kind": "final", "text": "The total is 48,912."}
+
+
+async def test_status_mode_shows_shell_commands_on_the_desktop_rail_and_counts_them(monkeypatch):
+    controller = _status_controller()
+    commands = _status_traffic(monkeypatch, controller)
+
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t1", "sleep 30", True, "running")})
+    await controller.present({"type": "shell", "event": ShellPresentationEvent("t2", "pwd", False, "running")})
+
+    rail = _of_op(commands, "shellCommands")
+    assert [entry["task_id"] for entry in rail[-1]["commands"]] == ["t2", "t1"]
+    assert rail[-1]["overflow"] == 0
+    # A background run's commands are counted the same as a foreground run's.
+    assert controller.background_counts == {"started": 1, "completed": 0, "failed": 0, "cancelled": 0}
+
+
+def test_transcript_entries_skip_empty_text_and_clamp_a_runaway_block():
+    from yutori.navigator.macos.presentation import _TRANSCRIPT_TEXT_MAX_CHARACTERS, _transcript_entry
+
+    assert _transcript_entry({"type": "final", "text": "  "}, 0) is None
+    assert _transcript_entry({"type": "action_done", "call_id": "c1"}, 0) is None
+    assert _transcript_entry({"type": "shell", "event": None}, 0) is None
+    assert _transcript_entry({"type": "reasoning", "text": "x" * 9000}, 3) == {
+        "id": "entry-3",
+        "kind": "thinking",
+        "text": "x" * (_TRANSCRIPT_TEXT_MAX_CHARACTERS - 1) + "\u2026",
+    }
 
 
 async def test_status_mode_thumbnail_rejection_degrades_fail_soft(monkeypatch):
@@ -484,9 +568,9 @@ async def test_status_mode_preview_demand_events_drive_the_owner_callback():
     controller.on_preview_demand = demands.append
     stream = asyncio.StreamReader()
     for event in (
-        {"event": "previewDemand", "menuOpen": True, "liveView": False},
-        {"event": "previewDemand", "menuOpen": False, "liveView": False},
-        {"event": "previewDemand", "menuOpen": False, "liveView": True},
+        {"event": "previewDemand", "menuOpen": True, "activityOpen": False},
+        {"event": "previewDemand", "menuOpen": False, "activityOpen": False},
+        {"event": "previewDemand", "menuOpen": False, "activityOpen": True},
     ):
         stream.feed_data(json.dumps(event).encode() + b"\n")
     stream.feed_eof()

@@ -198,23 +198,55 @@ def _action_visual(name: str, arguments: dict[str, Any]) -> "dict[str, Any] | No
 
 
 _STATUS_LINE_MAX_CHARACTERS = 90
+# The activity window scrolls, so an entry is not truncated to a glance the way the
+# menu caption is; the cap only keeps a runaway reasoning block out of the host.
+_TRANSCRIPT_TEXT_MAX_CHARACTERS = 4000
+
+
+_ACTION_ICONS = {
+    "left_click": "click",
+    "click": "click",
+    "double_click": "click",
+    "right_click": "click",
+    "middle_click": "click",
+    "triple_click": "click",
+    "mouse_move": "move",
+    "move": "move",
+    "drag": "drag",
+    "scroll": "scroll",
+    "type": "type",
+    "key_press": "key",
+    "key": "key",
+    "wait": "wait",
+}
+
+
+def _action_text(event: dict[str, Any]) -> str:
+    """One line naming an action and where it lands: "left click at (100, 20)"."""
+    name = str(event.get("name") or "action").replace("_", " ")
+    arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+    point = _point(arguments, "coordinates", "coordinate", "start_coordinate")
+    if point is not None:
+        return f"{name} at ({round(point[0])}, {round(point[1])})"
+    text = arguments.get("text") or arguments.get("key") or arguments.get("key_comb")
+    return f"{name} {text}" if isinstance(text, str) and text.strip() else name
 
 
 def _status_line(event: dict[str, Any]) -> "str | None":
     """The one-line caption a status-mode menu shows for a presentation event."""
     event_type = event.get("type")
     text: "str | None" = None
-    if event_type == "status":
+    if event_type == "task":
+        value = event.get("text")
+        text = f"Task: {value.strip()}" if isinstance(value, str) and value.strip() else None
+    elif event_type == "status":
         value = event.get("text")
         text = value.strip() if isinstance(value, str) and value.strip() else None
     elif event_type == "reasoning":
         value = event.get("text")
         text = f"Thinking: {value.strip()}" if isinstance(value, str) and value.strip() else None
     elif event_type in {"action", "batch_member"}:
-        name = str(event.get("name") or "action").replace("_", " ")
-        arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
-        point = _point(arguments, "coordinates", "coordinate", "start_coordinate")
-        text = f"{name} at ({round(point[0])}, {round(point[1])})" if point else name
+        text = _action_text(event)
     elif event_type == "final":
         text = "Finished"
     elif event_type == "shell":
@@ -226,6 +258,67 @@ def _status_line(event: dict[str, Any]) -> "str | None":
     if len(text) > _STATUS_LINE_MAX_CHARACTERS:
         text = text[: _STATUS_LINE_MAX_CHARACTERS - 1] + "\u2026"
     return text
+
+
+def _clamp(value: Any) -> "str | None":
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if len(text) <= _TRANSCRIPT_TEXT_MAX_CHARACTERS:
+        return text
+    return text[: _TRANSCRIPT_TEXT_MAX_CHARACTERS - 1] + "\u2026"
+
+
+def _transcript_entry(event: dict[str, Any], sequence: int) -> "dict[str, Any] | None":
+    """One activity-window row for a presentation event, or None when it has nothing to show.
+
+    Shell entries are keyed by task id rather than by sequence, so a command is revised in
+    place as it moves from running to its exit code instead of stacking a card per lifecycle
+    event -- the same identity the desktop shell rail keys on.
+    """
+    event_type = event.get("type")
+    if event_type == "shell":
+        shell_event = event.get("event")
+        if not isinstance(shell_event, ShellPresentationEvent):
+            return None
+        return {
+            "id": f"shell-{shell_event.task_id}",
+            "kind": "shell",
+            "command": shell_event.command,
+            "state": shell_event.state,
+            "exitCode": shell_event.exit_code,
+            "background": shell_event.run_in_background,
+        }
+    identity = f"entry-{sequence}"
+    if event_type == "task":
+        text = _clamp(event.get("text"))
+        return {"id": identity, "kind": "task", "text": text} if text else None
+    if event_type == "reasoning":
+        text = _clamp(event.get("text"))
+        return {"id": identity, "kind": "thinking", "text": text} if text else None
+    if event_type in {"action", "batch_member"}:
+        name = str(event.get("name") or "").lower()
+        return {
+            "id": identity,
+            "kind": "action",
+            "text": _action_text(event),
+            "icon": _ACTION_ICONS.get(name, "click"),
+        }
+    if event_type == "action_done":
+        # A step that failed while the run carried on: a refused click, a tool error.
+        error = _clamp(event.get("error"))
+        if error is not None:
+            return {"id": identity, "kind": "error", "text": error}
+        if event.get("refused") is True:
+            return {"id": identity, "kind": "error", "text": "The action was refused."}
+        return None
+    if event_type == "final":
+        text = _clamp(event.get("text"))
+        return {"id": identity, "kind": "final", "text": text} if text else None
+    if event_type == "status":
+        text = _clamp(event.get("text"))
+        return {"id": identity, "kind": "system", "text": text} if text else None
+    return None
 
 
 def _queue_item(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -271,8 +364,9 @@ class MacOSPresentationController:
         self._prepared = prepared
         self._cache_directory = cache_directory
         self._show_stop_button = show_stop_button
-        # "status": a menu bar item with the latest frame and Stop, no full-screen page. Used for
-        # window-scope runs, where the model's frame is one window and the user keeps working.
+        # "status": a menu bar item with the latest frame and Stop, the shell rail, and the
+        # activity window's transcript -- no full-screen page. Used for window-scope runs, where
+        # the model's frame is one window and the user keeps working next to it.
         self._mode = mode
         self._title = title
         self._restore_native_cursor = restore_native_cursor
@@ -296,10 +390,11 @@ class MacOSPresentationController:
         self._batch_is_last = False
         self._capture_id = 0
         self._shell_started_at: dict[str, float] = {}
+        self._transcript_sequence = 0
         self._shell_rail: dict[str, ShellPresentationEvent] = {}
         self._shell_rail_removals: set[asyncio.Task[None]] = set()
         self._telemetry: list[dict[str, Any]] = []
-        # Status mode: the host reports whether anyone is looking (menu open or live view shown);
+        # Status mode: the host reports whether anyone is looking (menu open or activity window shown);
         # the owner streams preview frames only while that is true.
         self._preview_demand = False
         self.on_preview_demand: "Callable[[bool], None] | None" = None
@@ -343,6 +438,9 @@ class MacOSPresentationController:
         settings: dict[str, Any] = {"showStopButton": self._show_stop_button, "enableHotkey": True, "mode": self._mode}
         if self._title is not None:
             settings["title"] = self._title
+        # The activity window's page. Both modes show the conversation with the model; only a
+        # window-scope run also has frames of its own to put above it.
+        settings["activityHtml"] = str(prepared.activity_html)
         config = json.dumps(settings, separators=(",", ":"))
         try:
             self._process = await spawn_rpc_subprocess(str(prepared.binary), str(prepared.html), config)
@@ -434,6 +532,9 @@ class MacOSPresentationController:
             await self._present_status(event)
             return
         try:
+            # The transcript is the same conversation in either mode; only the desktop
+            # surfaces below differ.
+            await self._present_transcript(event)
             event_type = event.get("type")
             if event_type == "reasoning":
                 text = event.get("text")
@@ -463,7 +564,7 @@ class MacOSPresentationController:
             await self._degrade(f"presentation_failed:{type(error).__name__}", error)
 
     async def show_preview_frame(self, image_bytes: bytes) -> bool:
-        """Status mode: refresh the live view (menu thumbnail and floating panel) with a streamed frame.
+        """Status mode: refresh the live frame (menu thumbnail and activity window) with a streamed frame.
 
         Unlike ``show_thumbnail`` this never degrades the status item: a dropped preview frame
         costs nothing, and the host reader degrades on its own when the host is gone.
@@ -479,21 +580,39 @@ class MacOSPresentationController:
         return reply.get("state") == "shown"
 
     async def _present_status(self, event: dict[str, Any]) -> None:
-        """Status mode: one caption line in the menu per event; nothing is drawn on screen."""
-        text = _status_line(event)
-        if text is None:
-            return
+        """Status mode: the menu's caption, the activity window's transcript, and the shell rail.
+
+        A background run draws no cursor capsule and owns no desktop, so this is everything
+        the operator can see: a glanceable line in the menu, the same step as a row in the
+        activity window's conversation, and -- for a shell command -- the same click-through
+        rail under the menu bar a foreground run shows, because a command running on their
+        Mac should not require opening a window to notice.
+        """
         try:
-            if self._last_render.get("status") == text:
-                return
-            self._last_render["status"] = text
-            reply = await self._send_command({"op": "status", "text": text})
-            if reply.get("state") != "shown":
-                raise MacOSPresentationError("Status item did not accept the caption.")
+            if event.get("type") == "shell":
+                shell_event = event.get("event")
+                if isinstance(shell_event, ShellPresentationEvent):
+                    self._record_shell(shell_event)
+                    await self._track_shell_rail(shell_event)
+            await self._present_transcript(event)
+            text = _status_line(event)
+            if text is not None and self._last_render.get("status") != text:
+                self._last_render["status"] = text
+                reply = await self._send_command({"op": "status", "text": text})
+                if reply.get("state") != "shown":
+                    raise MacOSPresentationError("Status item did not accept the caption.")
         except asyncio.CancelledError:
             raise
         except Exception as error:  # noqa: BLE001 - presentation is fail-soft
             await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+
+    async def _present_transcript(self, event: dict[str, Any]) -> None:
+        """Append this event to the activity window's conversation, if it has a row to show."""
+        entry = _transcript_entry(event, self._transcript_sequence)
+        if entry is None:
+            return
+        self._transcript_sequence += 1
+        await self._send_command({"op": "transcript", "entry": entry})
 
     async def before_capture(self, capture_id: int) -> bool:
         if not self._status.available or self._mode == "status":
@@ -583,7 +702,7 @@ class MacOSPresentationController:
                     self.cancellation.request("operator_stop")
                     continue
                 if reply.get("event") == "previewDemand":
-                    self._preview_demand = bool(reply.get("menuOpen")) or bool(reply.get("liveView"))
+                    self._preview_demand = bool(reply.get("menuOpen")) or bool(reply.get("activityOpen"))
                     self._telemetry.append({"type": "preview_demand", "active": self._preview_demand})
                     if self.on_preview_demand is not None:
                         self.on_preview_demand(self._preview_demand)
@@ -774,13 +893,17 @@ class MacOSPresentationController:
                 await self._send_operation({"op": "previewAction", "presentation": presentation})
                 await self._send_operation({"op": "moveCursor", "point": destination})
 
-    async def _present_shell(self, event: ShellPresentationEvent) -> None:
+    def _record_shell(self, event: ShellPresentationEvent) -> None:
+        """Log one shell lifecycle event as telemetry; both modes count the same commands."""
         self._telemetry.append(
             {
                 "type": "background_command" if event.run_in_background else "shell_command",
                 **asdict(event),
             }
         )
+
+    async def _present_shell(self, event: ShellPresentationEvent) -> None:
+        self._record_shell(event)
         await self._track_shell_rail(event)
         if event.run_in_background:
             return

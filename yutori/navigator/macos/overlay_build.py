@@ -27,6 +27,11 @@ _ASSET_NAMES = (
     "navigator-overlay.css",
     "navigator-overlay.iife.js",
     "macos-overlay.js",
+    # The activity window a status-mode (background) run shows: its own page, because it
+    # scrolls a transcript in a utility panel rather than painting a click-through desktop.
+    "navigator-activity.html",
+    "navigator-activity.css",
+    "navigator-activity.js",
     "provenance.json",
 )
 _COMPILE_TIMEOUT_SECONDS = 60
@@ -42,6 +47,7 @@ class MacOSOverlayPreparationError(RuntimeError):
 class PreparedMacOSOverlay:
     binary: Path
     html: Path
+    activity_html: Path
     manifest: dict[str, Any]
 
 
@@ -138,6 +144,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         "renderer_protocol_version": RENDERER_PROTOCOL_VERSION,
         "binary": _BINARY_NAME,
         "html": "navigator-overlay.html",
+        "activity_html": "navigator-activity.html",
     }
     if not isinstance(value, dict) or any(value.get(key) != expected for key, expected in required.items()):
         raise MacOSOverlayPreparationError("Overlay cache manifest is incompatible or incomplete.")
@@ -170,6 +177,7 @@ def _load_entry(cache_directory: Path, key: str, *, verify_packaged_assets: bool
     return PreparedMacOSOverlay(
         binary=resolved_entry / _BINARY_NAME,
         html=resolved_entry / "navigator-overlay.html",
+        activity_html=resolved_entry / "navigator-activity.html",
         manifest=manifest,
     )
 
@@ -312,6 +320,7 @@ def prepare_macos_overlay(
                 "key": key,
                 "binary": _BINARY_NAME,
                 "html": "navigator-overlay.html",
+                "activity_html": "navigator-activity.html",
                 "asset_sha256": {**packaged_hashes, _BINARY_NAME: _sha256(binary.read_bytes())},
             }
             manifest_path = temporary / "manifest.json"

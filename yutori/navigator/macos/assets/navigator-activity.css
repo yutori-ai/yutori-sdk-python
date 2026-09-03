@@ -1,0 +1,308 @@
+/*
+ * The activity window: the conversation with the model -- its thinking, every action,
+ * and every shell command -- and, when the run has frames of its own to show, the live
+ * frame of the driven window above it. The desktop surfaces (capsule, cursor, shell
+ * rail) say what is happening right now; this window is where the operator reads back
+ * what happened, in either mode. A foreground run captures the whole desktop, so it
+ * shows no frame pane: the operator is already looking at what the model sees.
+ *
+ * The type and colour vocabulary is the playground chat's, transcribed from Tailwind
+ * to plain CSS: slate text on a near-black surface, italic slate-500 thinking, mono
+ * action rows, a teal task bubble on the right, a slate answer bubble on the left,
+ * and the phosphor "run command" panel the overlay's shell rail already uses.
+ */
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b1120;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#n2-activity-frame {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  background: #000;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+#n2-activity-image {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+}
+
+/* Nothing to show until the run streams a frame or announces it is waiting for one. */
+#n2-activity-frame[data-state="off"] {
+  display: none;
+}
+
+#n2-activity-frame[data-state="waiting"] #n2-activity-image {
+  display: none;
+}
+
+#n2-activity-frame-caption {
+  padding: 10px 12px;
+  color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#n2-activity-frame[data-state="live"] #n2-activity-frame-caption {
+  display: none;
+}
+
+#n2-activity-transcript {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#n2-activity-transcript:empty::before {
+  margin: auto;
+  color: #475569;
+  font-size: 12px;
+  content: "Waiting for the first step";
+}
+
+#n2-activity-transcript::-webkit-scrollbar {
+  width: 8px;
+}
+
+#n2-activity-transcript::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.28);
+  background-clip: content-box;
+}
+
+.n2-entry {
+  min-width: 0;
+  animation: n2EntryIn 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The task, as the operator wrote it: the one message in this window that is theirs. */
+.n2-entry-task {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 8px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: #113f3a;
+  color: #d9fff5;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.n2-entry-thinking {
+  color: #64748b;
+  font-style: italic;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.n2-entry-action {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.n2-action-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.n2-action-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The same phosphor panel the desktop shell rail uses, sized for a 480pt window. */
+.n2-entry-shell {
+  overflow: hidden;
+  border: 1px solid rgba(51, 255, 51, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #33ff33;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-shadow: 0 0 6px rgba(51, 255, 51, 0.45);
+}
+
+.n2-shell-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(51, 255, 51, 0.2);
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.n2-shell-caret,
+.n2-shell-state {
+  flex: none;
+  white-space: nowrap;
+}
+
+.n2-shell-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.n2-shell-state {
+  margin-left: auto;
+  text-align: right;
+}
+
+.n2-entry-shell[data-state="failed"] .n2-shell-state,
+.n2-entry-shell[data-state="timed_out"] .n2-shell-state {
+  color: #ffb454;
+  text-shadow: 0 0 6px rgba(255, 180, 84, 0.55);
+}
+
+.n2-entry-shell[data-state="cancelled"] {
+  color: rgba(51, 255, 51, 0.55);
+  text-shadow: none;
+}
+
+.n2-shell-body {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.n2-shell-prompt {
+  flex: none;
+  opacity: 0.7;
+}
+
+.n2-shell-command {
+  margin: 0;
+  min-width: 0;
+  font: inherit;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.n2-shell-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.12em;
+  background: currentColor;
+  animation: n2ShellBlink 1.06s step-end infinite;
+}
+
+/* A step that failed while the run carried on: amber, not red, and monospace,
+ * because the text is program output (an exit code, a refusal, a path). */
+.n2-entry-error {
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.n2-entry-final {
+  align-self: flex-start;
+  max-width: 92%;
+  padding: 8px 14px;
+  border-radius: 16px 16px 16px 4px;
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.n2-entry-system {
+  color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@keyframes n2EntryIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes n2ShellBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .n2-entry-thinking,
+  .n2-entry-action,
+  .n2-entry-system {
+    color: #cbd5e1;
+  }
+  .n2-entry-shell {
+    border-color: rgba(51, 255, 51, 0.8);
+    background: rgba(0, 0, 0, 0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .n2-entry {
+    animation-duration: 0.01ms !important;
+  }
+  .n2-shell-cursor {
+    animation: none;
+  }
+}

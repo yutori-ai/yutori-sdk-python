@@ -1489,6 +1489,10 @@ class N2ComputerAgent:
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
         self.trajectory = self._initial_items(messages)
+        # The task itself opens the presentation's transcript; a surface that only shows
+        # what the model did reads as a conversation missing its first message.
+        if isinstance(messages, str):
+            await _present(self.presentation, {"type": "task", "text": messages})
         self.last_request_id = None
         self.last_usage = {}
         self._native_size = None
@@ -1507,6 +1511,8 @@ class N2ComputerAgent:
         if not self.trajectory:
             raise RuntimeError("resume() requires a prior run()")
         self.trajectory.append({"role": "user", "content": message})
+        if isinstance(message, str):
+            await _present(self.presentation, {"type": "task", "text": message})
         async for step in self._drive(message):
             yield step
 

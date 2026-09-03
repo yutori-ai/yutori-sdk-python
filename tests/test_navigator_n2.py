@@ -1061,7 +1061,15 @@ async def test_agent_defaults_to_latest_tool_set_and_preserves_native_observatio
 
     assert completions.requests[0]["tool_set"] == TOOL_SET_COMPUTER_USE_LATEST
     assert ("click", 1000, 500, "left", 1, None) in computer.calls
-    assert [event["type"] for event in presentation.events] == ["reasoning", "batch_member", "action_done", "final"]
+    # The task opens the transcript, so a presentation shows the conversation from its first message.
+    assert [event["type"] for event in presentation.events] == [
+        "task",
+        "reasoning",
+        "batch_member",
+        "action_done",
+        "final",
+    ]
+    assert presentation.events[0]["text"] == "task"
     final = steps[-1]["output"][-1]["content"][0]["text"]
     assert final == "Finished"
 

@@ -78,7 +78,8 @@ _UNRESOLVED_CAPTURE_REASON = "ax_window_unresolved"
 # Background delivery refused up front; fronting the window (the foreground rung) makes the
 # keystrokes unambiguous or un-minimizes the window, so these behave like "did not land".
 _ESCALATABLE_REFUSAL_CODES = frozenset({"same_pid_keyboard_ambiguity", "minimized_or_hidden_window"})
-# Window scope shows its progress in a menu bar item instead of the full-screen overlay.
+# Window scope shows its progress in a menu bar item, a shell rail, and the activity window
+# instead of the full-screen overlay.
 _STATUS_TITLE = "Yutori n2 is working in a window in the background"
 _THUMBNAIL_LONG_SIDE = 720  # 360pt in the menu, rendered at 2x for Retina menu bars
 _THUMBNAIL_QUALITY = 70
@@ -1231,7 +1232,7 @@ class MacOSComputer:
         self._timings["polling_ms"] += milliseconds
 
     async def _start_status_presentation(self) -> None:
-        """Window scope: a menu bar item with the run title, the latest frame, and Stop."""
+        """Window scope: the menu bar item, the shell rail, and the activity window's transcript."""
         controller = MacOSPresentationController(
             native_width=0,
             native_height=0,
@@ -1249,7 +1250,7 @@ class MacOSComputer:
             self._presentation_failure = f"status_item_start_failed:{type(error).__name__}"
             await controller.stop()
             return
-        # The live view: while the menu is open or the floating panel is shown, stream the
+        # The live frame: while the menu is open or the activity window is shown, stream the
         # driven window over a dedicated driver connection so the model's own captures and
         # actions never wait behind it.
         self._preview = WindowPreviewStreamer(
