@@ -772,10 +772,15 @@ class MacOSComputer:
         )
         self._pointer = (end["x"], end["y"])
 
-    async def left_mouse_down(self, x: "int | None" = None, y: "int | None" = None) -> None:
+    def _point_from_optional_coordinates(
+        self, action_name: str, x: "int | None", y: "int | None"
+    ) -> "tuple[int, int] | None":
         if (x is None) != (y is None):
-            raise ValueError("mouse_down coordinates must include both x and y")
-        point = (x, y) if x is not None and y is not None else self._pointer
+            raise ValueError(f"{action_name} coordinates must include both x and y")
+        return (x, y) if x is not None and y is not None else self._pointer
+
+    async def left_mouse_down(self, x: "int | None" = None, y: "int | None" = None) -> None:
+        point = self._point_from_optional_coordinates("mouse_down", x, y)
         if point is None:
             raise MacOSRecoverableActionError("mouse_down requires coordinates after the pointer has moved.")
         self._refuse_stop_point(*point)
@@ -784,9 +789,7 @@ class MacOSComputer:
         self._left_mouse_down = True
 
     async def left_mouse_up(self, x: "int | None" = None, y: "int | None" = None) -> None:
-        if (x is None) != (y is None):
-            raise ValueError("mouse_up coordinates must include both x and y")
-        point = (x, y) if x is not None and y is not None else self._pointer
+        point = self._point_from_optional_coordinates("mouse_up", x, y)
         if self._held_mouse_start is None or point is None:
             raise MacOSRecoverableActionError("mouse_up requires a preceding mouse_down with known coordinates.")
         self._refuse_stop_point(*point)
