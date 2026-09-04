@@ -82,6 +82,7 @@ from .n2_payload import (
     DEFAULT_IMAGE_FORMAT,
     OLDER_IMAGE_OMITTED_TEXT,
     prepare_n2_image_data_url,
+    prune_n2_screenshots_to_budget,
     retain_n2_image_window,
 )
 from .payload import (
@@ -159,6 +160,7 @@ __all__ = [
     "parse_n2_tool_calls",
     "playwright_screenshot_to_data_url",
     "prepare_n2_image_data_url",
+    "prune_n2_screenshots_to_budget",
     "retain_n2_image_window",
     "screenshot_to_data_url",
     "translate_n2_action",

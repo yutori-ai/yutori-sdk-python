@@ -89,10 +89,9 @@ from .n2_payload import (
     DEFAULT_MAX_MESSAGES_BYTES,
     MAX_REQUEST_BODY_BYTES,
     convert_request_images,
-    fit_n2_request_images_to_budget,
     image_dimensions,
     latest_image_url,
-    retain_n2_image_window,
+    prune_n2_screenshots_to_budget,
     serialized_messages_bytes,
 )
 
@@ -1339,13 +1338,14 @@ class N2ComputerAgent:
         completion_messages = convert_n2_items_to_completion_messages(copy.deepcopy(items))
         if self.system_prompt:
             completion_messages.insert(0, {"role": "system", "content": self.system_prompt})
-        # Strip historical screenshots before compression so long-running
-        # trajectories do not repeatedly re-encode images that will not be
-        # sent. Apply the byte budget after conversion because it measures the
-        # actual request representation.
-        completion_messages = retain_n2_image_window(completion_messages)
+        # Send every frame the run has taken and let the budget decide, rather
+        # than windowing first: the server keeps images only in the two newest
+        # image-bearing messages before it serves the model, so trimming here
+        # changes nothing the model sees — it only empties the request log the
+        # run's replay is built from. Convert before pruning, because the budget
+        # has to measure the representation that actually goes on the wire.
         convert_request_images(completion_messages, self.image_format)
-        completion_messages = fit_n2_request_images_to_budget(completion_messages, DEFAULT_MAX_MESSAGES_BYTES)
+        prune_n2_screenshots_to_budget(completion_messages, DEFAULT_MAX_MESSAGES_BYTES)
 
         request_bytes = serialized_messages_bytes(completion_messages)
         if request_bytes > MAX_REQUEST_BODY_BYTES:
