@@ -358,7 +358,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         webView.navigationDelegate = self
         panel.contentView = webView
         if let screen = NSScreen.main {
-            // Top-left, because the shell rail owns the top-right corner and floats above this.
+            // Top-left: the corner the menu bar item and the shell rail leave free.
             let visible = screen.visibleFrame
             panel.setFrameTopLeftPoint(NSPoint(x: visible.minX + 16, y: visible.maxY - 16))
         }
@@ -397,10 +397,15 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     private func showActivity() {
-        guard let panel = activityPanel else { return }
-        panel.orderFrontRegardless()
+        guard let activityPanel else { return }
+        // A capture in flight has everything Yutori drew animated off the desktop; joining that
+        // at full alpha would put this window in the observation. The capture's own reveal
+        // brings it back, because it is shown from here on.
+        activityPanel.alphaValue = state == "hiding" || state == "hidden" ? 0 : 1
+        activityPanel.orderFrontRegardless()
         activityShown = true
         activityItem?.title = "Hide activity"
+        syncDesktopSurfaces()
         emitPreviewDemand()
     }
 
@@ -408,7 +413,25 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         activityPanel?.orderOut(nil)
         activityShown = false
         activityItem?.title = "Show activity"
+        syncDesktopSurfaces()
         emitPreviewDemand()
+    }
+
+    /// What Yutori paints on the operator's desktop -- the full-screen overlay page with its
+    /// cursor capsule and shell rail in foreground mode, the click-through rail panel in status
+    /// mode -- follows the activity window: the window carries the same reasoning and the same
+    /// commands in a form that scrolls, so while it is open the desktop is left clean, and the
+    /// window is not competing with a rail drawn above it. Ordering rather than alpha, because
+    /// the overlay page's alpha belongs to the capture state machine.
+    private func syncDesktopSurfaces() {
+        guard activityShown else {
+            panel?.orderFrontRegardless()
+            // A rail whose page failed to load is gone for the rest of the run.
+            if railWebView != nil { railPanel?.orderFrontRegardless() }
+            return
+        }
+        panel?.orderOut(nil)
+        railPanel?.orderOut(nil)
     }
 
     /// Send one call to the activity page, or hold it until the page finishes loading.
@@ -438,6 +461,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         guard let closing = notification.object as? NSPanel, closing === activityPanel else { return }
         activityShown = false
         activityItem?.title = "Show activity"
+        syncDesktopSurfaces()
         emitPreviewDemand()
     }
 
@@ -814,7 +838,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         // The overlay page and, while it is open, the activity window: in foreground mode the
         // capture is the whole desktop, so anything Yutori drew has to be out of the frame.
         let windows = [panel, activityShown ? activityPanel : nil].compactMap { $0 }
-        if visible { windows.forEach { $0.orderFrontRegardless() } }
+        // While the activity window stands in for the overlay page, restoring the alpha must
+        // not order the page back onto the desktop.
+        if visible {
+            windows.filter { !(activityShown && $0 === panel) }.forEach { $0.orderFrontRegardless() }
+        }
         let effectiveDuration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = effectiveDuration
