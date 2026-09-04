@@ -91,3 +91,26 @@ uv run examples/navigator_n2_daytona.py \
 Pass `--record` to capture the desktop during the run; the video is downloaded to `n2-daytona-run.mp4` before the sandbox is deleted.
 
 To drive your own Mac instead, use [Yutori MCP](https://github.com/yutori-ai/yutori-mcp) (`uvx yutori-mcp computer-use setup`). Walkthrough: [Run n2 on Daytona](https://docs.yutori.com/reference/n2-daytona).
+
+## browser_tools.json
+
+Reference tool definitions for driving a browser from `N2ComputerAgent(tools=[...])`, in the
+shape the API expects. Eight tools: `goto_url`, `go_back`, `go_forward`, `refresh`,
+`extract_elements`, `find`, `set_element_value`, and `execute_js`. They are ordinary caller
+tools — nothing here is served by the model's built-in tool set — so your computer adapter
+implements `run_custom_tool(name, arguments)` to execute them, and the agent handles routing,
+results and frames. `navigator_n2_daytona.py` shows an adapter; [api.md](../api.md)'s
+"Custom tools" section documents the contract.
+
+```python
+import json
+from pathlib import Path
+
+tools = json.loads(Path("examples/browser_tools.json").read_text())
+agent = N2ComputerAgent(computer=computer, completions=..., model=..., tools=tools)
+```
+
+Serve the subset you actually implement. The four navigation tools are useful on their own;
+the DOM tools (`extract_elements`, `find`, `set_element_value`, `execute_js`) need a way to
+evaluate JavaScript in the page. Custom-tool results carry the post-action frame, so a tool
+that changes the page hands the model the new screenshot with its result.
