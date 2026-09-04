@@ -117,3 +117,11 @@ def test_non_macos_check_is_read_only_and_unavailable(tmp_path, monkeypatch):
     checked = check_macos_overlay(tmp_path / "missing")
     assert checked.available is False
     assert set(os.listdir(tmp_path)) == before
+
+
+def test_stop_item_region_explicitly_converts_cgfloat_arithmetic_to_double():
+    """Older Swift/CoreFoundation combinations cannot infer the numeric-literal overload."""
+    source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
+    region = source.split("private func stopItemRegion", 1)[1].split("private func registerStopHotKey", 1)[0]
+    for key in ("x", "y", "width", "height"):
+        assert f'"{key}": Double(' in region
