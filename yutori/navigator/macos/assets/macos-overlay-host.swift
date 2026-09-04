@@ -479,11 +479,14 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         guard let itemFrame = stopItem?.button?.window?.frame else { return nil }
         let frame = itemFrame.intersection(screen.frame)
         guard !frame.isEmpty else { return nil }
+        // Some Swift/CoreFoundation combinations expose both CGFloat and Double arithmetic
+        // candidates here. Convert before scaling so the dictionary's Double value type does
+        // not have to disambiguate the numeric-literal overload.
         return [
-            "x": (frame.minX - screen.frame.minX) / screen.frame.width * 1000,
-            "y": (screen.frame.maxY - frame.maxY) / screen.frame.height * 1000,
-            "width": frame.width / screen.frame.width * 1000,
-            "height": frame.height / screen.frame.height * 1000,
+            "x": Double((frame.minX - screen.frame.minX) / screen.frame.width) * 1000.0,
+            "y": Double((screen.frame.maxY - frame.maxY) / screen.frame.height) * 1000.0,
+            "width": Double(frame.width / screen.frame.width) * 1000.0,
+            "height": Double(frame.height / screen.frame.height) * 1000.0,
         ]
     }
 
