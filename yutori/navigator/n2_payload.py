@@ -43,22 +43,6 @@ REQUEST_ENVELOPE_ALLOWANCE_BYTES = 64 * 1024
 DEFAULT_MAX_MESSAGES_BYTES = MAX_REQUEST_BODY_BYTES - REQUEST_ENVELOPE_ALLOWANCE_BYTES
 
 
-def _decode_data_url(url: str) -> "tuple[bytes, str]":
-    if not isinstance(url, str) or not url.startswith("data:") or "," not in url:
-        raise ValueError("n2 screenshots must be base64 data URLs")
-    header, encoded = url.split(",", 1)
-    if ";base64" not in header:
-        raise ValueError("n2 screenshots must use base64 data URLs")
-    return base64.b64decode(encoded), header[5:].split(";", 1)[0]
-
-
-def image_dimensions(url: str) -> "tuple[int, int]":
-    """The pixel dimensions of a data-URL image, without re-encoding it."""
-    image_bytes, _ = _decode_data_url(url)
-    with Image.open(io.BytesIO(image_bytes)) as image:
-        return image.size
-
-
 def _data_url_media_type(url: str) -> str:
     """The media type of a base64 data URL, without decoding its payload."""
     if not isinstance(url, str) or not url.startswith("data:") or "," not in url:
@@ -67,6 +51,22 @@ def _data_url_media_type(url: str) -> str:
     if ";base64" not in header:
         raise ValueError("n2 screenshots must use base64 data URLs")
     return header[5:].split(";", 1)[0]
+
+
+def _decode_data_url(url: str) -> "tuple[bytes, str]":
+    # Validation and header parsing live in _data_url_media_type; this only adds
+    # the base64 decode, so the two share one definition of what a valid n2
+    # screenshot data URL looks like.
+    media_type = _data_url_media_type(url)
+    _, encoded = url.split(",", 1)
+    return base64.b64decode(encoded), media_type
+
+
+def image_dimensions(url: str) -> "tuple[int, int]":
+    """The pixel dimensions of a data-URL image, without re-encoding it."""
+    image_bytes, _ = _decode_data_url(url)
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        return image.size
 
 
 def prepare_n2_image_data_url(url: str, image_format: str = DEFAULT_IMAGE_FORMAT) -> str:
