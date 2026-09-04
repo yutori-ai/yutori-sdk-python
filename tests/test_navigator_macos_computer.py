@@ -353,6 +353,32 @@ async def test_manual_drag_and_timed_held_modifier_use_public_driver_primitives(
     assert not [call for call in transport.calls if call[0] in {"mouse_down", "mouse_up", "hold_key"}]
 
 
+@pytest.mark.parametrize("method_name", ["left_mouse_down", "left_mouse_up"])
+async def test_mouse_down_and_up_reject_partial_coordinates(method_name: str):
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        method = getattr(computer, method_name)
+        with pytest.raises(ValueError, match=f"{method_name.split('_', 1)[1]} coordinates must include both x and y"):
+            await method(x=10)
+        with pytest.raises(ValueError, match=f"{method_name.split('_', 1)[1]} coordinates must include both x and y"):
+            await method(y=10)
+
+
+async def test_left_mouse_down_without_a_prior_pointer_position_is_recoverable():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        with pytest.raises(MacOSRecoverableActionError, match="requires coordinates after the pointer has moved"):
+            await computer.left_mouse_down()
+
+
+async def test_left_mouse_up_without_a_preceding_mouse_down_is_recoverable():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        await computer.move(10, 20)
+        with pytest.raises(MacOSRecoverableActionError, match="requires a preceding mouse_down"):
+            await computer.left_mouse_up()
+
+
 async def test_uncertain_mutation_captures_a_fresh_observation():
     class UncertainTransport(FakeTransport):
         async def call_tool(self, name, arguments, **kwargs):
