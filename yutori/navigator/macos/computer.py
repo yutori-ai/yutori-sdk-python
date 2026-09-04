@@ -42,6 +42,7 @@ from .transport import (
     CuaDriverToolError,
     CuaDriverTransport,
     CuaDriverUncertainActionError,
+    inline_image_data,
 )
 from .types import (
     CancellationLatch,
@@ -268,15 +269,8 @@ def _decode_inline_frame(result: dict[str, Any], tool_name: str) -> tuple[bytes,
     """Return the inline PNG frame of a capture result, cross-checked against its reported size."""
     structured = _structured(result)
     width, height = structured.get("screenshot_width"), structured.get("screenshot_height")
-    image_data = next(
-        (
-            part.get("data")
-            for part in result.get("content") or []
-            if isinstance(part, dict) and part.get("type") == "image" and part.get("data")
-        ),
-        None,
-    )
-    if not isinstance(image_data, str):
+    image_data = inline_image_data(result)
+    if image_data is None:
         raise MacOSComputerError(f"{tool_name} returned no inline pixel frame")
     pixels = base64.b64decode(image_data, validate=True)
     with Image.open(io.BytesIO(pixels)) as image:

@@ -48,6 +48,19 @@ class CuaDriverUncertainActionError(CuaDriverError):
     """A mutating request lost its acknowledgement and must not be retried."""
 
 
+def inline_image_data(result: dict[str, Any]) -> "str | None":
+    """The base64 ``data`` field of the first image content part in a driver tool-call result.
+
+    Shared by ``computer.py``'s ``_decode_inline_frame`` (capture pipeline) and ``preview.py``'s
+    ``inline_image`` (live-view streamer), which otherwise duplicated the same scan over
+    ``result["content"]``.
+    """
+    for part in result.get("content") or []:
+        if isinstance(part, dict) and part.get("type") == "image" and isinstance(part.get("data"), str):
+            return part["data"]
+    return None
+
+
 def find_cua_driver_binary() -> Path:
     try:
         from cua_driver import get_binary_path
