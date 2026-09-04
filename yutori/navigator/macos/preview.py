@@ -20,7 +20,7 @@ from typing import Any
 
 from PIL import Image
 
-from .transport import CuaDriverConnectionError, CuaDriverToolError, CuaDriverTransport
+from .transport import CuaDriverConnectionError, CuaDriverToolError, CuaDriverTransport, inline_image_data
 from .types import CancellationLatch, MacOSWindowTarget
 
 PREVIEW_INTERVAL_SECONDS = 0.5
@@ -34,13 +34,13 @@ TargetSource = Callable[[], "MacOSWindowTarget | None"]
 
 def inline_image(result: dict[str, Any]) -> "bytes | None":
     """The inline base64 image part of a driver capture result, decoded, or None."""
-    for part in result.get("content") or []:
-        if isinstance(part, dict) and part.get("type") == "image" and isinstance(part.get("data"), str):
-            try:
-                return base64.b64decode(part["data"], validate=True)
-            except ValueError:
-                return None
-    return None
+    data = inline_image_data(result)
+    if data is None:
+        return None
+    try:
+        return base64.b64decode(data, validate=True)
+    except ValueError:
+        return None
 
 
 def encode_preview(png_bytes: bytes, *, long_side: int = PREVIEW_LONG_SIDE, quality: int = PREVIEW_QUALITY) -> bytes:
