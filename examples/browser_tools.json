@@ -1,0 +1,136 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "goto_url",
+      "description": "Navigates directly to the specified URL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Destination URL."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "go_back",
+      "description": "Navigates back to the previous page in browser history.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "go_forward",
+      "description": "Navigates forward to the next page in browser history.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "refresh",
+      "description": "Reloads the current page.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "extract_elements",
+      "description": "Extracts page elements and references, optionally filtering by a query.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Optional filter query for page content."
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "find",
+      "description": "Searches for text on the page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to search for."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_element_value",
+      "description": "Sets an input element's value by reference.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Element reference for the form input field."
+          },
+          "value": {
+            "type": "string",
+            "description": "Value to set."
+          }
+        },
+        "required": [
+          "ref",
+          "value"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "execute_js",
+      "description": "Executes JavaScript code on the page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "JavaScript code to execute."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  }
+]
