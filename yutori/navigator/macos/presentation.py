@@ -106,7 +106,7 @@ def _fail_soft(reason: str, default: _T) -> Callable[[Callable[..., Awaitable[_T
     presentation operation whose only failure handling is "degrade and report
     failure to the caller" -- unlike ``present``/``_present_status``, which
     interleave several branches and must re-raise ``asyncio.CancelledError``
-    before degrading, so those keep their own inline ``try``/``except``.
+    before degrading, so those use :func:`_fail_soft_cancellable` instead.
     """
 
     def decorator(func: Callable[..., Awaitable[_T]]) -> Callable[..., Awaitable[_T]]:
@@ -121,6 +121,28 @@ def _fail_soft(reason: str, default: _T) -> Callable[[Callable[..., Awaitable[_T
         return wrapper
 
     return decorator
+
+
+def _fail_soft_cancellable(func: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[None]]:
+    """Decorate a controller method: reraise ``asyncio.CancelledError``, else degrade and swallow.
+
+    Consolidates the identical ``except asyncio.CancelledError: raise`` / ``except
+    Exception as error: await self._degrade(f"presentation_failed:{type(error).__name__}",
+    error)`` shape shared by ``present`` and ``_present_status``. Unlike :func:`_fail_soft`,
+    these interleave several branches across a whole event dispatch and must let
+    cancellation propagate rather than being reported as a presentation failure.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(self: "MacOSPresentationController", *args: Any, **kwargs: Any) -> None:
+        try:
+            await func(self, *args, **kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - presentation is fail-soft
+            await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+
+    return wrapper
 
 
 class MacOSPresentationError(RuntimeError):
@@ -553,43 +575,39 @@ class MacOSPresentationController:
         self._terminal_command = ""
         self._active_keys = None
 
+    @_fail_soft_cancellable
     async def present(self, event: dict[str, Any]) -> None:
         if not self._status.available or self._stopping:
             return
         if self._mode == "status":
             await self._present_status(event)
             return
-        try:
-            # The transcript is the same conversation in either mode; only the desktop
-            # surfaces below differ.
-            await self._present_transcript(event)
-            event_type = event.get("type")
-            if event_type == "reasoning":
-                text = event.get("text")
-                if isinstance(text, str) and text.strip():
-                    self._reasoning = text.strip()
-                    self._clear_action_labels()
-                    await self._render_capsule()
-            elif event_type in {"action", "batch_member"}:
-                await self._present_action(event)
-            elif event_type == "action_done":
-                if self._batch_is_last:
-                    self._queue_active = False
-                    self._batch_is_last = False
+        # The transcript is the same conversation in either mode; only the desktop
+        # surfaces below differ.
+        await self._present_transcript(event)
+        event_type = event.get("type")
+        if event_type == "reasoning":
+            text = event.get("text")
+            if isinstance(text, str) and text.strip():
+                self._reasoning = text.strip()
                 self._clear_action_labels()
                 await self._render_capsule()
-            elif event_type == "final":
-                self._reasoning = ""
-                self._clear_action_labels()
-                await self._render_capsule()
-            elif event_type == "shell":
-                shell_event = event.get("event")
-                if isinstance(shell_event, ShellPresentationEvent):
-                    await self._present_shell(shell_event)
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:  # noqa: BLE001 - presentation is fail-soft
-            await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+        elif event_type in {"action", "batch_member"}:
+            await self._present_action(event)
+        elif event_type == "action_done":
+            if self._batch_is_last:
+                self._queue_active = False
+                self._batch_is_last = False
+            self._clear_action_labels()
+            await self._render_capsule()
+        elif event_type == "final":
+            self._reasoning = ""
+            self._clear_action_labels()
+            await self._render_capsule()
+        elif event_type == "shell":
+            shell_event = event.get("event")
+            if isinstance(shell_event, ShellPresentationEvent):
+                await self._present_shell(shell_event)
 
     async def show_preview_frame(self, image_bytes: bytes) -> bool:
         """Status mode: refresh the live frame (menu thumbnail and activity window) with a streamed frame.
@@ -607,6 +625,7 @@ class MacOSPresentationController:
             return False
         return reply.get("state") == "shown"
 
+    @_fail_soft_cancellable
     async def _present_status(self, event: dict[str, Any]) -> None:
         """Status mode: the menu's caption, the activity window's transcript, and the shell rail.
 
@@ -616,23 +635,18 @@ class MacOSPresentationController:
         rail under the menu bar a foreground run shows, because a command running on their
         Mac should not require opening a window to notice.
         """
-        try:
-            if event.get("type") == "shell":
-                shell_event = event.get("event")
-                if isinstance(shell_event, ShellPresentationEvent):
-                    self._record_shell(shell_event)
-                    await self._track_shell_rail(shell_event)
-            await self._present_transcript(event)
-            text = _status_line(event)
-            if text is not None and self._last_render.get("status") != text:
-                self._last_render["status"] = text
-                reply = await self._send_command({"op": "status", "text": text})
-                if reply.get("state") != "shown":
-                    raise MacOSPresentationError("Status item did not accept the caption.")
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:  # noqa: BLE001 - presentation is fail-soft
-            await self._degrade(f"presentation_failed:{type(error).__name__}", error)
+        if event.get("type") == "shell":
+            shell_event = event.get("event")
+            if isinstance(shell_event, ShellPresentationEvent):
+                self._record_shell(shell_event)
+                await self._track_shell_rail(shell_event)
+        await self._present_transcript(event)
+        text = _status_line(event)
+        if text is not None and self._last_render.get("status") != text:
+            self._last_render["status"] = text
+            reply = await self._send_command({"op": "status", "text": text})
+            if reply.get("state") != "shown":
+                raise MacOSPresentationError("Status item did not accept the caption.")
 
     async def _present_transcript(self, event: dict[str, Any]) -> None:
         """Append this event to the activity window's conversation, if it has a row to show."""
