@@ -277,7 +277,13 @@ async def test_harness_loop_starts_blind_and_attaches_one_frame_per_gui_turn():
     assert final == "All set. [DONE]"
 
 
-async def test_pruned_frames_leave_the_harness_marker_in_place():
+async def test_every_frame_of_the_run_rides_along_with_no_marker():
+    """The request carries the whole history, which is what the replay is built from.
+
+    The server keeps images only in the two newest image-bearing messages before
+    it serves the model, so windowing here would change nothing the model reads
+    while emptying the run's replay of every step but the last two.
+    """
     click = _batch({"name": "left_click", "arguments": {"coordinates": [500, 500]}})
     completions = FakeCompletions(
         [{"content": "", "tool_calls": [click]} for _ in range(3)] + [{"content": "done [DONE]", "tool_calls": []}]
@@ -287,10 +293,11 @@ async def test_pruned_frames_leave_the_harness_marker_in_place():
         pass
     last = completions.requests[-1]["messages"]
     tool_messages = [message for message in last if message["role"] == "tool"]
-    assert [len(_images(message)) for message in tool_messages] == [0, 1, 1]
-    # The marker concatenates into the preceding text part, one merged block —
-    # the reference builder's rendering of a pruned frame.
-    assert tool_messages[0]["content"] == [{"type": "text", "text": "[0:left_click][older image omitted]"}]
+    assert [len(_images(message)) for message in tool_messages] == [1, 1, 1]
+    # Each frame still rides with its own result text, and nothing stands in for
+    # a frame that was never dropped.
+    assert tool_messages[0]["content"][0] == {"type": "text", "text": "[0:left_click]"}
+    assert "omitted" not in json.dumps(last)
 
 
 async def test_harness_loop_sizes_a_blind_start_from_the_handler_dimensions():

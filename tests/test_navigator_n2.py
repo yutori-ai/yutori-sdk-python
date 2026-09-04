@@ -27,6 +27,7 @@ from yutori.navigator import (
     parse_n2_key_expression,
     parse_n2_tool_calls,
     prepare_n2_image_data_url,
+    prune_n2_screenshots_to_budget,
     retain_n2_image_window,
     translate_n2_action,
     translate_n2_bash,
@@ -37,11 +38,18 @@ from yutori.navigator import (
 from yutori.navigator.macos.types import CancellationLatch, N2Observation
 from yutori.navigator.n2 import _CallbackDispatcher
 from yutori.navigator.n2_payload import (
-    fit_n2_request_images_to_budget,
+    DEFAULT_MAX_MESSAGES_BYTES,
     image_dimensions,
 )
 
 from .conftest import FakeCompletions
+
+
+def _images(message: dict[str, Any]) -> list[dict[str, Any]]:
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [part for part in content if part.get("type") == "image_url"]
 
 
 def _png_data_url(width: int = 200, height: int = 100) -> str:
@@ -341,17 +349,68 @@ def test_image_window_keeps_only_two_newest_image_messages():
     assert all(message["content"] for message in messages)
 
 
-def test_budget_drops_the_older_image_then_raises():
+def test_a_history_that_fits_keeps_every_frame():
+    def image_message(index):
+        return {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": f"[{index}:left_click]"},
+                {"type": "image_url", "image_url": {"url": _png_data_url(40, 30)}},
+            ],
+        }
+
+    messages = [image_message(index) for index in range(8)]
+    assert prune_n2_screenshots_to_budget(messages, DEFAULT_MAX_MESSAGES_BYTES) == 0
+    assert sum(1 for message in messages if _images(message)) == 8
+
+
+def test_budget_drops_oldest_frames_first_and_leaves_no_marker():
+    big_url = _png_data_url(600, 400)
+
+    def image_message():
+        return {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "[0:left_click]"},
+                {"type": "image_url", "image_url": {"url": big_url}},
+            ],
+        }
+
+    messages = [image_message() for _ in range(4)]
+    # Room for the newest frame and the run's text, and nothing else.
+    dropped = prune_n2_screenshots_to_budget(messages, len(big_url) + 400)
+    assert dropped == 3
+    assert [bool(_images(message)) for message in messages] == [False, False, False, True]
+    # A dropped frame leaves the message's own text and nothing in its place:
+    # the server strips its own window's frames the same way.
+    assert messages[0]["content"] == [{"type": "text", "text": "[0:left_click]"}]
+
+
+def test_budget_raises_when_even_the_newest_frame_cannot_fit():
     big_url = _png_data_url(600, 400)
 
     def image_message():
         return {"role": "user", "content": [{"type": "image_url", "image_url": {"url": big_url}}]}
 
-    budget = len(big_url) + 200
-    fitted = fit_n2_request_images_to_budget([image_message(), image_message()], budget)
-    assert not fitted[0]["content"] and fitted[1]["content"]
     with pytest.raises(ValueError, match="cannot fit"):
-        fit_n2_request_images_to_budget([image_message(), image_message()], 100)
+        prune_n2_screenshots_to_budget([image_message(), image_message()], 100)
+
+
+def test_budget_drains_extra_images_sharing_the_newest_message():
+    big_url = _png_data_url(600, 400)
+    messages = [
+        {
+            "role": "tool",
+            "content": [
+                {"type": "text", "text": "read"},
+                {"type": "image_url", "image_url": {"url": big_url}},
+                {"type": "image_url", "image_url": {"url": big_url}},
+            ],
+        }
+    ]
+    # Only the last image part is protected, not every image in its message.
+    assert prune_n2_screenshots_to_budget(messages, len(big_url) + 400) == 1
+    assert len(_images(messages[0])) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1203,7 +1262,7 @@ def test_agent_rejects_unknown_tool_sets_and_missing_credentials():
         N2ComputerAgent(computer=FakeComputer(), tool_set=TOOL_SET_COMPUTER_USE_HYBRID_BATCH)
 
 
-async def test_agent_requests_stay_within_the_two_image_window():
+async def test_agent_requests_carry_every_frame_the_run_took():
     turns = []
     for index in range(3):
         turns.append(
@@ -1239,7 +1298,10 @@ async def test_agent_requests_stay_within_the_two_image_window():
         for part in (message.get("content") if isinstance(message.get("content"), list) else [])
         if isinstance(part, dict) and part.get("type") == "image_url"
     ]
-    assert len(image_parts) == 2
+    # Three clicks, three frames — the whole run, not a two-image window. The
+    # server applies its own window before serving the model; what the client
+    # sends is what the run's replay is built from.
+    assert len(image_parts) == 3
     # Every image the wire carries is the default WebP re-encode of the raw capture.
     assert all(part["image_url"]["url"].startswith("data:image/webp;") for part in image_parts)
 

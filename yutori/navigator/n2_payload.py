@@ -2,9 +2,17 @@
 
 n2 requests carry the computer handler's screenshots as captured — the handler
 defines the viewport (with any DPR scaling already removed); the SDK never
-resizes, only re-encodes to ``image_format`` (WebP by default). Requests keep
-images only in the two newest image-bearing messages (older ones leave an
-``[older image omitted]`` marker) and must fit a 10 MB serialized request.
+resizes, only re-encodes to ``image_format`` (WebP by default).
+
+Requests carry the WHOLE screenshot history and must fit a 10 MB serialized
+request. Sending every frame is deliberate, and matches the reference harness:
+the server already keeps images only in the two newest image-bearing messages
+before it serves the model, so a client-side window buys the model nothing —
+while the request log the run's replay is built from records exactly the
+messages the client sent, so a client that trims first is the only reason a
+replay has gaps. :func:`prune_n2_screenshots_to_budget` therefore drops frames
+only to fit the wire cap, oldest first.
+
 Coordinates are the model's 0-1000 space mapped onto the capture's dimensions.
 """
 
@@ -13,6 +21,7 @@ from __future__ import annotations
 import base64
 import copy
 import io
+import json
 from typing import Any, Optional
 
 from PIL import Image
@@ -24,7 +33,13 @@ from .payload import estimate_messages_size_bytes
 DEFAULT_IMAGE_FORMAT = "webp"
 
 MAX_REQUEST_BODY_BYTES = 10_000_000
-REQUEST_ENVELOPE_ALLOWANCE_BYTES = 500_000
+# Slack left below the cap when deciding how much screenshot history fits: the
+# budget is measured over the messages array alone, so this covers the rest of
+# the serialized body (model, tool_set, sampling fields, JSON structure) and
+# keeps the loop's own exact-size guard from tripping after a prune. Matches the
+# reference harness's headroom; a larger allowance only throws away frames that
+# would have fit.
+REQUEST_ENVELOPE_ALLOWANCE_BYTES = 64 * 1024
 DEFAULT_MAX_MESSAGES_BYTES = MAX_REQUEST_BODY_BYTES - REQUEST_ENVELOPE_ALLOWANCE_BYTES
 
 
@@ -44,15 +59,29 @@ def image_dimensions(url: str) -> "tuple[int, int]":
         return image.size
 
 
+def _data_url_media_type(url: str) -> str:
+    """The media type of a base64 data URL, without decoding its payload."""
+    if not isinstance(url, str) or not url.startswith("data:") or "," not in url:
+        raise ValueError("n2 screenshots must be base64 data URLs")
+    header = url.split(",", 1)[0]
+    if ";base64" not in header:
+        raise ValueError("n2 screenshots must use base64 data URLs")
+    return header[5:].split(";", 1)[0]
+
+
 def prepare_n2_image_data_url(url: str, image_format: str = DEFAULT_IMAGE_FORMAT) -> str:
     """Re-encode an image data URL to ``image_format``; returned unchanged when it already is.
 
     Never resizes: the frame stays at whatever size the computer handler
     captured (its viewport, with any DPR scaling already removed).
     """
-    image_bytes, media_type = _decode_data_url(url)
-    if media_type.lower() == f"image/{image_format.lower()}":
+    # Read the media type off the header rather than decoding first: a request
+    # now carries the whole history, so the pass-through case is walked once per
+    # frame per step, and base64-decoding megabytes only to compare a string is
+    # the kind of cost that shows up as latency on a long run.
+    if _data_url_media_type(url).lower() == f"image/{image_format.lower()}":
         return url
+    image_bytes, _ = _decode_data_url(url)
     with Image.open(io.BytesIO(image_bytes)) as source:
         output = io.BytesIO()
         source.convert("RGB").save(output, format=image_format.upper())
@@ -112,6 +141,11 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[s
 serialized_messages_bytes = estimate_messages_size_bytes
 
 
+def _serialized_bytes(value: Any) -> int:
+    """The JSON-serialized byte size of one content part, matching the messages estimate."""
+    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+
 def retain_n2_image_window(
     messages: list[dict[str, Any]], *, omitted_text: Optional[str] = OLDER_IMAGE_OMITTED_TEXT
 ) -> list[dict[str, Any]]:
@@ -120,6 +154,13 @@ def retain_n2_image_window(
     Each pruned image is replaced in place by the ``omitted_text`` block (by
     default :data:`OLDER_IMAGE_OMITTED_TEXT`); with ``None`` the
     image part is dropped.
+
+    The loop does NOT apply this — it sends the full history and lets
+    :func:`prune_n2_screenshots_to_budget` drop only what will not fit, because
+    the server applies this same window itself before serving the model. Kept
+    for a harness that has its own reason to send less than it has (a metered
+    uplink, say), and as the executable statement of what the server's window
+    does.
     """
     request_messages = copy.deepcopy(messages)
     image_indices = [index for index, message in enumerate(request_messages) if _message_image_parts(message)]
@@ -128,27 +169,81 @@ def retain_n2_image_window(
     return request_messages
 
 
-def fit_n2_request_images_to_budget(
+def _drop_first_image(content: list[Any]) -> "dict[str, Any] | None":
+    """Remove the first ``image_url`` part from a content list, returning it."""
+    for position, part in enumerate(content):
+        if isinstance(part, dict) and part.get("type") == "image_url":
+            return content.pop(position)
+    return None
+
+
+def prune_n2_screenshots_to_budget(
     messages: list[dict[str, Any]],
     max_messages_bytes: int = DEFAULT_MAX_MESSAGES_BYTES,
-) -> list[dict[str, Any]]:
-    """Copy an already-windowed request and drop its older image message if needed."""
-    request_messages = copy.deepcopy(messages)
-    image_indices = [index for index, message in enumerate(request_messages) if _message_image_parts(message)]
+) -> int:
+    """Drop the oldest screenshots, in place, until *messages* fits the budget.
 
-    if serialized_messages_bytes(request_messages) <= max_messages_bytes:
-        return request_messages
+    Returns how many were dropped, so a caller can surface that the run's replay
+    was truncated. Nothing is dropped when the history already fits, which is the
+    common case and the whole point: every frame reaches the request log the
+    replay is built from.
 
-    retained_indices = image_indices[-2:]
-    if len(retained_indices) == 2:
-        _strip_images_from_message(request_messages[retained_indices[0]])
-    if serialized_messages_bytes(request_messages) <= max_messages_bytes:
-        return request_messages
+    A dropped frame leaves NO marker. That is what the server's own window does
+    to the frames it strips, so a request pruned here and a request pruned there
+    reach the model as the same conversation; injecting a marker per dropped
+    frame instead hands the model text the reference harness never produces.
+    The newest image is never dropped — it is the observation the model is being
+    asked to act on.
 
-    raise ValueError(
-        "The newest n2 screenshot message cannot fit within the serialized messages budget. "
-        "Reduce screenshot dimensions/quality or shorten non-image request content."
-    )
+    Raises:
+        ValueError: if the request cannot fit even with one frame left.
+    """
+    size_bytes = serialized_messages_bytes(messages)
+    if size_bytes <= max_messages_bytes:
+        return 0
+
+    # One entry per image part, oldest first; a message holding several images
+    # appears once per image, and each visit takes that message's first
+    # remaining one. The last entry is the current observation and is never
+    # visited.
+    image_contents: list[list[Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        image_contents.extend(content for part in _message_image_parts(message))
+
+    dropped = 0
+    # Running estimate rather than a re-serialization per drop: the payload is
+    # megabytes by construction, so measuring it once per dropped frame turned a
+    # trim of N frames into N passes over all of it. Dropping an array element
+    # removes its serialization plus one separating comma; an image that was the
+    # only part of its content list has no comma to remove, so the estimate can
+    # run one byte low per such frame. The exact re-measure below settles it.
+    for content in image_contents[:-1]:
+        if size_bytes <= max_messages_bytes:
+            break
+        part = _drop_first_image(content)
+        if part is None:
+            continue
+        size_bytes -= _serialized_bytes(part) + 1
+        dropped += 1
+
+    size_bytes = serialized_messages_bytes(messages)
+    for content in image_contents[:-1]:
+        if size_bytes <= max_messages_bytes:
+            break
+        if _drop_first_image(content) is None:
+            continue
+        dropped += 1
+        size_bytes = serialized_messages_bytes(messages)
+
+    if size_bytes > max_messages_bytes:
+        raise ValueError(
+            "The newest n2 screenshot message cannot fit within the serialized messages budget. "
+            "Reduce screenshot dimensions/quality or shorten non-image request content."
+        )
+    return dropped
 
 
 def convert_request_images(messages: list[dict[str, Any]], image_format: str = DEFAULT_IMAGE_FORMAT) -> None:
