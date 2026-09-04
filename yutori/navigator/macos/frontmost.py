@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -69,6 +70,27 @@ async def _reap(process: asyncio.subprocess.Process) -> None:
         await asyncio.wait_for(asyncio.shield(process.wait()), timeout=_LSAPPINFO_TIMEOUT_SECONDS)
 
 
+async def _lsappinfo_info(
+    run: Callable[..., Awaitable["str | None"]], *find_args: str, only: tuple[str, ...]
+) -> "str | None":
+    """Resolve an app's ASN via ``lsappinfo <find_args>``, then query its ``only`` info fields.
+
+    Shared by :func:`frontmost_app` (``front``, pid/name) and
+    ``visibility.application_hidden`` (``find pid=<pid>``, hidden). ``run`` is the caller's
+    own module-level probe function, so each caller keeps its own patchable entry point for
+    tests. Returns the raw ``lsappinfo info`` output, or None when the ASN cannot be
+    resolved or either call times out.
+    """
+    try:
+        asn = await run("lsappinfo", *find_args)
+        if not asn or not asn.strip().startswith("ASN:"):
+            return None
+        only_flags = [flag for field in only for flag in ("-only", field)]
+        return await run("lsappinfo", "info", *only_flags, asn.strip())
+    except asyncio.TimeoutError:
+        return None
+
+
 async def frontmost_app() -> FrontmostApp | None:
     """Return the frontmost regular application, or None when it cannot be determined.
 
@@ -76,13 +98,7 @@ async def frontmost_app() -> FrontmostApp | None:
     the probe is a safety net, and LaunchServices being unavailable (headless session,
     login window) is not evidence that focus moved.
     """
-    try:
-        asn = await _run("lsappinfo", "front")
-        if not asn or not asn.strip().startswith("ASN:"):
-            return None
-        info = await _run("lsappinfo", "info", "-only", "pid", "-only", "name", asn.strip())
-    except asyncio.TimeoutError:
-        return None
+    info = await _lsappinfo_info(_run, "front", only=("pid", "name"))
     if info is None:
         return None
     return parse_lsappinfo_info(info)

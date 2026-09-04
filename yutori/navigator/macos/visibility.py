@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from .frontmost import _run
+from .frontmost import _lsappinfo_info, _run
 
 _VISIBILITY_SETTLE_SECONDS = 0.2
 _VISIBILITY_POLLS = 5
@@ -43,13 +43,7 @@ def parse_lsappinfo_hidden(output: str) -> bool | None:
 
 async def application_hidden(pid: int) -> bool | None:
     """Report whether LaunchServices lists ``pid`` as hidden, or None when it cannot say."""
-    try:
-        asn = await _run("lsappinfo", "find", f"pid={pid}")
-        if not asn or not asn.strip().startswith("ASN:"):
-            return None
-        info = await _run("lsappinfo", "info", "-only", "hidden", asn.strip())
-    except asyncio.TimeoutError:
-        return None
+    info = await _lsappinfo_info(_run, "find", f"pid={pid}", only=("hidden",))
     if info is None:
         return None
     return parse_lsappinfo_hidden(info)
