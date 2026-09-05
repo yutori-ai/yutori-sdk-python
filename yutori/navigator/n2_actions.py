@@ -12,6 +12,7 @@ import copy
 from typing import Any
 
 from ._key_symbols import PUNCTUATION_KEY_NAMES
+from .coordinates import denormalize_coordinates
 from .models import (
     TOOL_SET_COMPUTER_USE,
     TOOL_SET_COMPUTER_USE_20260825,
@@ -368,10 +369,7 @@ def native_point(value: Any, path: str, width: int, height: int) -> "tuple[int, 
     if width <= 0 or height <= 0:
         raise N2ActionValidationError("native screenshot dimensions must be positive")
     x, y = _coordinate(value, path)
-    return (
-        min(width - 1, round((x / N2_COORDINATE_SCALE) * width)),
-        min(height - 1, round((y / N2_COORDINATE_SCALE) * height)),
-    )
+    return denormalize_coordinates((x, y), width, height, scale=N2_COORDINATE_SCALE)
 
 
 def _validate_wait_seconds(duration: Any, field: str) -> "int | float":
