@@ -248,6 +248,12 @@ class N2Computer(Protocol):
     error and the run continues. ``screenshot`` may also return a native
     ``N2Observation`` frame (as ``MacOSComputer`` does), which unlocks
     ``wait_for_change``/``poll_after_action`` and skips the settle delay.
+    A caller that passes ``tools=`` to ``N2ComputerAgent`` also needs
+    ``run_custom_tool(name, arguments) -> str``: it dispatches a call to one
+    of those definitions and its returned text becomes the result, carried
+    with the post-action frame like ``computer_batch``. An adapter without
+    it answers such a call with a recoverable "not supported" result instead
+    of failing the run.
     """
 
     async def screenshot(self) -> Any:
