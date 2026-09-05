@@ -591,25 +591,19 @@ def parse_n2_tool_calls(
             if not isinstance(args, dict):
                 raise N2ActionValidationError(f"{name} arguments must be an object")
 
-            if name in custom_tool_names:
-                # The name travels with the action: one action type serves every custom
-                # tool, and the adapter dispatches on the name it is handed.
-                call_item = _function_call_with_execution(
-                    name,
-                    args,
-                    call_id,
-                    [{"type": CUSTOM_TOOL_ACTION, "tool_name": name, "tool_arguments": args}],
-                    execution_deadline=execution_deadline,
-                )
-                output.append(call_item)
-                continue
-
             def finish(
                 translated: list[dict[str, Any]], *, batch_actions: "list[dict[str, Any]] | None" = None
             ) -> dict[str, Any]:
                 return _function_call_with_execution(
                     name, args, call_id, translated, batch_actions=batch_actions, execution_deadline=execution_deadline
                 )
+
+            if name in custom_tool_names:
+                # The name travels with the action: one action type serves every custom
+                # tool, and the adapter dispatches on the name it is handed.
+                call_item = finish([{"type": CUSTOM_TOOL_ACTION, "tool_name": name, "tool_arguments": args}])
+                output.append(call_item)
+                continue
 
             if name == "computer_batch":
                 if tool_set not in TOOL_SETS_WITH_BATCH:
