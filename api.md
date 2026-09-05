@@ -551,14 +551,15 @@ from yutori.navigator import N2Computer, N2ComputerAgent, N2InlineCompactor, TOO
 from yutori.navigator.macos import MacOSComputer  # macOS only; needs the `macos` extra
 ```
 
-`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation against any computer adapter. The loop is async: pass `completions=AsyncYutoriClient().chat.completions` (the sync client's completions will not work), or an `api_key` — the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager. The defaults are already pinned: stable model `n2` and the current dated tool set.
+`N2ComputerAgent(*, computer, tool_set=TOOL_SET_COMPUTER_USE_LATEST, tools=None, completions=None, api_key=None, base_url=None, model="n2", instructions=None, callbacks=None, action_confirmation_callback=None, presentation=None, screenshot_delay=0.5, execution_deadline=None, temperature=None, supports_click_modifiers=False, supports_scroll_modifiers=None, **loop_policies)` drives one n2 conversation against any computer adapter. The loop is async: pass `completions=AsyncYutoriClient().chat.completions` (the sync client's completions will not work), or an `api_key` — the agent then owns its own `AsyncYutoriClient`; close it with `aclose()` or the async context manager. The defaults are already pinned: stable model `n2` and the current dated tool set.
 
 Constructor parameters (the `**loop_policies` keywords have [their own table](#loop-policies)):
 
 | Parameter | What it does |
 |---|---|
 | `computer` | Your adapter — see [the adapter contract](#the-adapter-contract-n2computer). |
-| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. The loop serves exactly the set's tools — it has no `disable_tools`/`tools` passthrough, a custom tool call gets a recoverable does-not-expose error, and the adapter must serve every tool in the set (see [Changing the n2 tool set](#changing-the-n2-tool-set)). |
+| `tool_set` | A dated set from `SUPPORTED_N2_TOOL_SETS`. The loop serves exactly the set's tools, and the adapter must serve every tool in the set (see [Changing the n2 tool set](#changing-the-n2-tool-set)). |
+| `tools` | Optional list of caller-owned tool definitions (standard OpenAI shape), served alongside the tool set. Calls to these are dispatched to the adapter's `run_custom_tool(name, arguments)` and their results carry the post-action frame. An adapter without the hook gets a recoverable "not supported" error. |
 | `instructions` | Optional text inserted as the first user message of the run's history. |
 | `callbacks` | List of duck-typed observer objects — see [Callbacks and confirmation](#callbacks-and-confirmation). |
 | `action_confirmation_callback` | Opt-in approval gate for model actions — same section. |

@@ -1256,9 +1256,9 @@ class N2ComputerAgent:
     - ``tools``: caller-owned tool definitions, in the standard OpenAI shape,
       served alongside the tool set. The loop dispatches a call to one of them
       to the computer's ``run_custom_tool(name, arguments)``, whose returned
-      text becomes the tool result — no frame rides with it, as for ``bash``.
-      A computer that does not implement the hook answers with a recoverable
-      "not supported" result instead of failing the run.
+      text becomes the tool result, carried with the post-action frame like
+      ``computer_batch``. A computer that does not implement the hook answers
+      with a recoverable "not supported" result instead of failing the run.
     """
 
     def __init__(
