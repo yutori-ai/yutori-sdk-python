@@ -52,6 +52,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, Protocol, Union
 
+from .macos.process_lifecycle import cancel_and_drain
 from .macos.sanitize import sanitize_command_preview
 from .macos.types import N2Observation, N2Presentation
 from .models import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST
@@ -722,10 +723,7 @@ async def _await_model_response(computer: Any, awaitable: Awaitable[Any]) -> Any
             return request.result()
         raise asyncio.CancelledError(stopped.result())
     finally:
-        for task in (request, stopped):
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(request, stopped, return_exceptions=True)
+        await cancel_and_drain(request, stopped)
 
 
 def _presentation_text(item: dict[str, Any], field: str) -> str:
