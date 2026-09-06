@@ -780,6 +780,13 @@ async def execute_n2_computer_call(
     """
     call_id = item.get("call_id")
 
+    async def finish(output: Any, presentation_event: dict[str, Any]) -> list[dict[str, Any]]:
+        """Report this call's result: the function_call_output, then its own presentation event."""
+        result = [{"type": "function_call_output", "call_id": call_id, "output": output}]
+        await callbacks.fire("on_computer_call_end", item, result)
+        await _present(presentation, presentation_event)
+        return result
+
     async def finish_with_error(message: str, observation: Any = None) -> list[dict[str, Any]]:
         output: Any = f"[ERROR] {message}"
         if observation is not None:
@@ -789,16 +796,7 @@ async def execute_n2_computer_call(
                 await callbacks.fire("on_screenshot", raw_base64, "screenshot_after")
             except Exception:
                 output = f"[ERROR] {message}"
-        result = [
-            {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": output,
-            }
-        ]
-        await callbacks.fire("on_computer_call_end", item, result)
-        await _present(presentation, {"type": "action_done", "call_id": call_id, "error": message})
-        return result
+        return await finish(output, {"type": "action_done", "call_id": call_id, "error": message})
 
     actions = item.get("_computer_actions") or []
     batch_actions = item.get("_batch_actions")
@@ -838,16 +836,10 @@ async def execute_n2_computer_call(
     except Exception as error:  # noqa: BLE001 - a broken hook must not kill the run
         return await finish_with_error(f"Action confirmation failed: {error}")
     if not confirmed:
-        result = [
-            {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": "[ERROR] Action was not confirmed by the user.",
-            }
-        ]
-        await callbacks.fire("on_computer_call_end", item, result)
-        await _present(presentation, {"type": "action_done", "call_id": call_id, "refused": True})
-        return result
+        return await finish(
+            "[ERROR] Action was not confirmed by the user.",
+            {"type": "action_done", "call_id": call_id, "refused": True},
+        )
 
     record_action = getattr(computer, "record_model_action", None)
     if callable(record_action):
@@ -1117,20 +1109,14 @@ async def execute_n2_computer_call(
         file_output: Any = file_output_text
         if file_output_image:
             file_output = {"type": "input_image", "image_url": file_output_image, "result": file_output_text or None}
-        result = [{"type": "function_call_output", "call_id": call_id, "output": file_output}]
-        await callbacks.fire("on_computer_call_end", item, result)
-        await _present(presentation, {"type": "action_done", "call_id": call_id})
-        return result
+        return await finish(file_output, {"type": "action_done", "call_id": call_id})
 
     # Shell and file results carry no frame: their tools return text and change nothing on
     # screen. Browser tools do change the screen -- a navigation replaces the page -- so they
     # fall through to the post-action screenshot below, as a GUI batch does. Without that the
     # model spends a whole extra turn asking for a frame it should already have.
     if not isinstance(batch_actions, list) and shell_output_text is not None:
-        result = [{"type": "function_call_output", "call_id": call_id, "output": result_text()}]
-        await callbacks.fire("on_computer_call_end", item, result)
-        await _present(presentation, {"type": "action_done", "call_id": call_id})
-        return result
+        return await finish(result_text(), {"type": "action_done", "call_id": call_id})
 
     if screenshot_observation is None:
         try:
@@ -1170,17 +1156,10 @@ async def execute_n2_computer_call(
     # The frame rides with the call's text (a late failure such as the screenshot
     # callback must not discard output from a command that already ran).
     output: dict[str, Any] = {"type": "input_image", "image_url": data_url, "result": result_text()}
-    result = [{"type": "function_call_output", "call_id": call_id, "output": output}]
-    await callbacks.fire("on_computer_call_end", item, result)
-    await _present(
-        presentation,
-        {
-            "type": "action_done",
-            "call_id": call_id,
-            "batch_complete": isinstance(batch_actions, list),
-        },
+    return await finish(
+        output,
+        {"type": "action_done", "call_id": call_id, "batch_complete": isinstance(batch_actions, list)},
     )
-    return result
 
 
 class N2ComputerAgent:
