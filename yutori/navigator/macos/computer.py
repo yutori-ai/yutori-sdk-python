@@ -1856,13 +1856,7 @@ class MacOSComputer:
                 self._kill_process_group(process)
         await asyncio.gather(*(process.wait() for process in foreground), return_exceptions=True)
         backgrounds = tuple(self._background.values())
-        for background in backgrounds:
-            if background.monitor is not None:
-                background.monitor.cancel()
-        await asyncio.gather(
-            *(background.monitor for background in backgrounds if background.monitor is not None),
-            return_exceptions=True,
-        )
+        await cancel_and_drain(*(background.monitor for background in backgrounds if background.monitor is not None))
         for background in backgrounds:
             was_running = background.terminal_state is None
             if background.process.returncode is None and self._identity_matches(background.identity):
