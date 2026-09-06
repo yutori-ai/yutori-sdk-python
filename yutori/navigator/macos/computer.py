@@ -642,8 +642,7 @@ class MacOSComputer:
             return
         self._closed = True
         if self._deadline_task is not None:
-            self._deadline_task.cancel()
-            await asyncio.gather(self._deadline_task, return_exceptions=True)
+            await cancel_and_drain(self._deadline_task)
             self._deadline_task = None
         await self._cancel_shell_processes()
         if self._preview is not None:
