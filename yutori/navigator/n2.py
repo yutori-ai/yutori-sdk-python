@@ -726,6 +726,24 @@ async def _await_model_response(computer: Any, awaitable: Awaitable[Any]) -> Any
         await cancel_and_drain(request, stopped)
 
 
+def _parse_json_arguments(raw: Any) -> Any:
+    """Best-effort JSON-decode a possibly-string "arguments" value.
+
+    Returns ``raw`` unchanged when it is not a string (already a dict, a
+    list, ``None``, etc.). Returns ``{}`` when it is a string that fails to
+    parse as JSON. Does not itself validate that the result is a dict --
+    callers that need that check it themselves, since some care whether a
+    valid-but-non-object payload (e.g. ``"[1, 2]"``) should be treated the
+    same as unparseable input.
+    """
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
 def _presentation_text(item: dict[str, Any], field: str) -> str:
     return "\n".join(
         str(part.get("text") or "") for part in item.get(field) or [] if isinstance(part, dict) and part.get("text")
@@ -843,12 +861,7 @@ async def execute_n2_computer_call(
 
     record_action = getattr(computer, "record_model_action", None)
     if callable(record_action):
-        arguments = item.get("arguments")
-        if isinstance(arguments, str):
-            try:
-                arguments = json.loads(arguments)
-            except json.JSONDecodeError:
-                arguments = {}
+        arguments = _parse_json_arguments(item.get("arguments"))
         record_action(str(item.get("name") or ""), arguments if isinstance(arguments, dict) else {})
 
     action_counts: dict[int, int] = {}
@@ -901,11 +914,7 @@ async def execute_n2_computer_call(
         ]
         batch_presentation = {"id": str(call_id), "members": members}
     elif item.get("name") not in SHELL_COMMAND_TOOL_NAMES and item.get("name") != BASH_TOOL_NAME:
-        arguments = item.get("arguments")
-        try:
-            parsed_arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
-        except json.JSONDecodeError:
-            parsed_arguments = {}
+        parsed_arguments = _parse_json_arguments(item.get("arguments"))
         if isinstance(parsed_arguments, dict):
             await _present(
                 presentation,
