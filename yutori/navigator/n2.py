@@ -509,6 +509,21 @@ def _custom_tool_not_supported_error(action: dict[str, Any]) -> str:
     return f"{name} was declared in tools= but this computer environment implements no run_custom_tool."
 
 
+def _require_action_method(
+    computer: Any, handlers: dict[str, str], action_type: Any, not_supported_error: Callable[[str], str]
+) -> Any:
+    """The bound handler for *action_type* in *handlers*, or raise if *computer* doesn't implement it.
+
+    A defense-in-depth check: ``execute_n2_computer_call``'s preflight loop already screens every
+    action for a missing handler before this dispatch runs, but each of the shell/file/browser
+    branches re-derived this same "getattr or raise" idiom independently.
+    """
+    method = getattr(computer, handlers[action_type], None)
+    if method is None:
+        raise RuntimeError(not_supported_error(str(action_type)))
+    return method
+
+
 @functools.lru_cache(maxsize=None)
 def _function_accepts_kwarg(func: Any, name: str) -> bool:
     try:
@@ -991,15 +1006,15 @@ async def execute_n2_computer_call(
                     if isinstance(batch_index, int):
                         member_outcomes[batch_index] = _BATCH_SCREENSHOT_MEMBER_TEXT
             elif action_type in SHELL_ACTION_HANDLERS:
-                shell_method = getattr(computer, SHELL_ACTION_HANDLERS[action_type], None)
-                if shell_method is None:
-                    raise RuntimeError(_shell_not_supported_error(str(action_type)))
+                shell_method = _require_action_method(
+                    computer, SHELL_ACTION_HANDLERS, action_type, _shell_not_supported_error
+                )
                 shell_result = await shell_method(**action_args)
                 shell_output_text = _backstop_result_text("" if shell_result is None else str(shell_result))
             elif action_type in FILE_ACTION_HANDLERS:
-                file_method = getattr(computer, FILE_ACTION_HANDLERS[action_type], None)
-                if file_method is None:
-                    raise RuntimeError(_file_not_supported_error(str(action_type)))
+                file_method = _require_action_method(
+                    computer, FILE_ACTION_HANDLERS, action_type, _file_not_supported_error
+                )
                 file_result = await file_method(**action_args)
                 # A file handler may return {"text", "image_url"} so `read` on an
                 # image file shows the model the image as well as the text.
@@ -1013,9 +1028,9 @@ async def execute_n2_computer_call(
                 )
                 custom_output_text = _backstop_result_text("" if custom_result is None else str(custom_result))
             elif action_type in BROWSER_ACTION_HANDLERS:
-                browser_method = getattr(computer, BROWSER_ACTION_HANDLERS[action_type], None)
-                if browser_method is None:
-                    raise RuntimeError(_browser_not_supported_error(str(action_type)))
+                browser_method = _require_action_method(
+                    computer, BROWSER_ACTION_HANDLERS, action_type, _browser_not_supported_error
+                )
                 action_result = await browser_method(**action_args)
                 if isinstance(action_result, dict) and action_result.get("success") is False:
                     raise RuntimeError(str(action_result.get("error") or action_result))
