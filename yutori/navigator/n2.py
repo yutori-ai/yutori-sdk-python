@@ -477,10 +477,6 @@ def _shell_tool_name(action_type: str) -> str:
     return "bash" if action_type == "run_bash_command" else "shell_command"
 
 
-def _shell_not_supported_error(action_type: str) -> str:
-    return f"{_shell_tool_name(action_type)} is not supported by this computer environment."
-
-
 def _file_tool_name(action_type: str) -> str:
     return {
         "read_file": "read",
@@ -491,8 +487,17 @@ def _file_tool_name(action_type: str) -> str:
     }.get(action_type, action_type)
 
 
+def _not_supported_by_computer_env(tool_name: str) -> str:
+    """Shared error text for a shell/file tool the current computer handler doesn't implement."""
+    return f"{tool_name} is not supported by this computer environment."
+
+
+def _shell_not_supported_error(action_type: str) -> str:
+    return _not_supported_by_computer_env(_shell_tool_name(action_type))
+
+
 def _file_not_supported_error(action_type: str) -> str:
-    return f"{_file_tool_name(action_type)} is not supported by this computer environment."
+    return _not_supported_by_computer_env(_file_tool_name(action_type))
 
 
 def _browser_not_supported_error(action_type: str) -> str:
