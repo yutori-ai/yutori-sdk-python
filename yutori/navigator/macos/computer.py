@@ -1700,13 +1700,11 @@ class MacOSComputer:
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
             )
-        except asyncio.CancelledError:
-            await self._present_shell(ShellPresentationEvent(task_id, preview, run_in_background, "cancelled"))
-            if on_start_failure is not None:
-                on_start_failure()
-            raise
-        except Exception:
-            await self._present_shell(ShellPresentationEvent(task_id, preview, run_in_background, "failed"))
+        except (asyncio.CancelledError, Exception) as error:
+            # Both branches present-then-reraise identically; only the reported
+            # lifecycle state differs by which of the two was actually raised.
+            state = "cancelled" if isinstance(error, asyncio.CancelledError) else "failed"
+            await self._present_shell(ShellPresentationEvent(task_id, preview, run_in_background, state))
             if on_start_failure is not None:
                 on_start_failure()
             raise
