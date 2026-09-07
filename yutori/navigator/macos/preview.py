@@ -20,6 +20,7 @@ from typing import Any
 
 from PIL import Image
 
+from .process_lifecycle import cancel_and_drain
 from .transport import CuaDriverConnectionError, CuaDriverToolError, CuaDriverTransport, inline_image_data
 from .types import CancellationLatch, MacOSWindowTarget
 
@@ -102,10 +103,8 @@ class WindowPreviewStreamer:
         self._closed = True
         self._active = False
         task, self._task = self._task, None
-        if task is not None and not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        if task is not None:
+            await cancel_and_drain(task)
 
     def _cancelled(self) -> bool:
         return self._cancellation is not None and self._cancellation.cancelled
