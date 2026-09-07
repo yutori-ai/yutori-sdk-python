@@ -182,6 +182,11 @@ def _format_action_error(error: BaseException) -> str:
     return f"ERROR: {type(error).__name__}: {error}"
 
 
+def _resolved_batch_index(batch_index: Any) -> int:
+    """The action's batch member index, or 0 for a non-batch (or malformed) action."""
+    return batch_index if isinstance(batch_index, int) else 0
+
+
 def _format_batch_result(
     member_names: "list[str]",
     outcomes: "list[str | None]",
@@ -937,7 +942,7 @@ async def execute_n2_computer_call(
         deadline = item.get("_execution_deadline")
         if isinstance(deadline, (int, float)) and time.monotonic() >= deadline:
             stopped_reason = "deadline_reached"
-            failed_index = action.get("batch_index") if isinstance(action.get("batch_index"), int) else 0
+            failed_index = _resolved_batch_index(action.get("batch_index"))
             break
         cancellation = getattr(computer, "cancellation", None)
         if cancellation is not None and cancellation.cancelled:
@@ -950,7 +955,7 @@ async def execute_n2_computer_call(
         action_args = {key: value for key, value in action.items() if key not in {"type", "batch_index"}}
         # The model's own call ({"action": name, **arguments}) for handlers that want
         # the untranslated values (the key expression as spelled, scroll `amount`).
-        model_action = model_actions[batch_index if isinstance(batch_index, int) else 0]
+        model_action = model_actions[_resolved_batch_index(batch_index)]
         try:
             if isinstance(batch_index, int) and batch_index != presented_member and batch_presentation is not None:
                 member = batch_presentation["members"][batch_index]
@@ -1042,7 +1047,7 @@ async def execute_n2_computer_call(
                 if cleanup_error is not None:
                     raise RuntimeError(f"Failed to release held key: {cleanup_error}")
 
-            member_index = batch_index if isinstance(batch_index, int) else 0
+            member_index = _resolved_batch_index(batch_index)
             action_counts[member_index] = action_counts.get(member_index, 1) - 1
             if action_counts[member_index] == 0:
                 completed_members.add(member_index)
@@ -1076,7 +1081,7 @@ async def execute_n2_computer_call(
                     except Exception:
                         observation = None
                 return await finish_with_error(str(error), observation)
-            failed_index = batch_index if isinstance(batch_index, int) else 0
+            failed_index = _resolved_batch_index(batch_index)
             stopped_reason = _format_action_error(error)
             break
 
