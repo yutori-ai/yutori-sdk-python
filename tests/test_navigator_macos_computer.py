@@ -261,6 +261,18 @@ async def test_native_cursor_fallback_order_uses_current_then_cursorless():
     assert await computer._select_native_cursor() == "cursorless"
 
 
+async def test_restore_native_cursor_falls_back_to_cursorless_like_select_does():
+    class CursorlessTransport(FakeTransport):
+        async def call_tool(self, name, arguments, **kwargs):
+            if name == "set_agent_cursor_enabled":
+                raise RuntimeError("cursor unavailable")
+            return await super().call_tool(name, arguments, **kwargs)
+
+    computer = MacOSComputer(CursorlessTransport(), owns_transport=False, presentation=False)
+    computer._native_cursor = "yutori.default"
+    assert await computer._restore_native_cursor() == "cursorless"
+
+
 async def test_stop_region_refuses_click_drag_and_anchored_scroll_before_driver_input():
     transport = FakeTransport()
     computer = MacOSComputer(transport, owns_transport=False, presentation=False)

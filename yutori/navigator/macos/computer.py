@@ -1631,10 +1631,20 @@ class MacOSComputer:
         if self.presentation.blocks_point(normalized):
             raise MacOSActionRefusedError("Action refused because it intersects the Stop control.")
 
-    async def _select_native_cursor(self) -> str:
+    async def _try_enable_native_cursor(self) -> bool:
+        """Enable the native cursor, reporting failure instead of raising.
+
+        Shared by _select_native_cursor and _restore_native_cursor, which both
+        fall back to "cursorless" the same way when the driver can't enable it.
+        """
         try:
             await self._configure_cursor(True)
+            return True
         except Exception:
+            return False
+
+    async def _select_native_cursor(self) -> str:
+        if not await self._try_enable_native_cursor():
             return "cursorless"
         for theme in ("yutori.default", "cua.default"):
             try:
@@ -1659,9 +1669,7 @@ class MacOSComputer:
             )
 
     async def _restore_native_cursor(self) -> str:
-        try:
-            await self._configure_cursor(True)
-        except Exception:
+        if not await self._try_enable_native_cursor():
             return "cursorless"
         return self._native_cursor
 
