@@ -21,7 +21,6 @@ from __future__ import annotations
 import base64
 import copy
 import io
-import json
 from typing import Any, Optional
 
 from PIL import Image
@@ -139,11 +138,10 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[s
 
 
 serialized_messages_bytes = estimate_messages_size_bytes
-
-
-def _serialized_bytes(value: Any) -> int:
-    """The JSON-serialized byte size of one content part, matching the messages estimate."""
-    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+# estimate_messages_size_bytes only relies on its argument being
+# JSON-serializable, so the same function measures a single content part too —
+# no need for a second, identically-bodied helper.
+_serialized_bytes = estimate_messages_size_bytes
 
 
 def retain_n2_image_window(
