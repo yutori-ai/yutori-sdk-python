@@ -77,6 +77,18 @@ private func stopMenuBarIcon() -> NSImage {
     return image
 }
 
+/// The display the driver captures (`CGMainDisplayID`), so the overlay, the activity window, and
+/// the menu bar item land on the screen being driven and the reported geometry matches the frame
+/// the model reasons over. `NSScreen.main` follows keyboard focus, which on a multi-display Mac is
+/// often a different screen than the one captured; that mismatch put the overlay on the wrong
+/// display and degraded the whole presentation at start.
+private func captureScreen() -> NSScreen? {
+    let mainDisplay = CGMainDisplayID()
+    let key = NSDeviceDescriptionKey("NSScreenNumber")
+    let match = NSScreen.screens.first { ($0.deviceDescription[key] as? NSNumber)?.uint32Value == mainDisplay }
+    return match ?? NSScreen.main
+}
+
 private func writeJSON(_ value: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
     FileHandle.standardOutput.write(data)
@@ -186,7 +198,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             startStatusMode()
             return
         }
-        guard let screen = NSScreen.main else {
+        guard let screen = captureScreen() else {
             writeJSON(["error": "No main display is available."])
             NSApp.terminate(nil)
             return
@@ -305,7 +317,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         }
         item.menu = menu
         stopItem = item
-        if let screen = NSScreen.main {
+        if let screen = captureScreen() {
             self.screen = screen
             createRailPanel(on: screen)
         }
@@ -325,7 +337,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "mode": "status",
             "width": 0,
             "height": 0,
-            "backing_scale": NSScreen.main?.backingScaleFactor ?? 1,
+            "backing_scale": captureScreen()?.backingScaleFactor ?? 1,
             "hotkey": hotkeyAvailable,
             "stop_control": "menu_bar",
             "capabilities": capabilities,
@@ -396,7 +408,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
         panel.contentView = webView
-        if let screen = NSScreen.main {
+        if let screen = captureScreen() {
             // Top-left, because the shell rail owns the top-right corner and floats above this.
             let visible = screen.visibleFrame
             panel.setFrameTopLeftPoint(NSPoint(x: visible.minX + 16, y: visible.maxY - 16))
