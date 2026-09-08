@@ -401,6 +401,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         panel.orderFrontRegardless()
         activityShown = true
         activityItem?.title = "Hide activity"
+        syncRailVisibility()
         emitPreviewDemand()
     }
 
@@ -408,6 +409,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         activityPanel?.orderOut(nil)
         activityShown = false
         activityItem?.title = "Show activity"
+        syncRailVisibility()
         emitPreviewDemand()
     }
 
@@ -438,6 +440,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         guard let closing = notification.object as? NSPanel, closing === activityPanel else { return }
         activityShown = false
         activityItem?.title = "Show activity"
+        syncRailVisibility()
         emitPreviewDemand()
     }
 
@@ -567,6 +570,22 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private func railStyleScript() -> String {
         "document.documentElement.style.setProperty('--n2-rail-top', '\(railTop)px');"
             + "document.documentElement.style.setProperty('--n2-rail-right', '\(railRight)px');"
+            + railVisibilityScript()
+    }
+
+    /// The rail repeats what the activity window already shows in full, so it stands
+    /// down while that window is open. Folded into `railStyleScript` as well, so a page
+    /// that finishes loading after the operator opened the window starts out hidden.
+    private func railVisibilityScript() -> String {
+        "document.documentElement.toggleAttribute('data-n2-activity-open', \(activityShown));"
+    }
+
+    /// Both rail hosts: its own panel in status mode, the desktop overlay page otherwise.
+    private func syncRailVisibility() {
+        let script = railVisibilityScript()
+        for host in [railWebView, webView].compactMap({ $0 }) {
+            host.evaluateJavaScript(script, completionHandler: nil)
+        }
     }
 
     /// Hand the shell rail its commands, holding them while the rail page loads.

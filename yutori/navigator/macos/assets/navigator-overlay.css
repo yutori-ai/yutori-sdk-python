@@ -48,6 +48,14 @@ body {
   text-shadow: 0 0 6px rgba(51, 255, 51, 0.55);
 }
 
+/* The activity window lists every command, with its full text and exit code, so
+ * the rail stands down while that window is open rather than saying the same
+ * thing twice -- once in the window the operator is reading, once over the
+ * desktop behind it. The host sets the attribute when the window is shown. */
+html[data-n2-activity-open] #n2-shell-rail {
+  display: none;
+}
+
 .n2-shell-panel,
 .n2-shell-overflow {
   overflow: hidden;
