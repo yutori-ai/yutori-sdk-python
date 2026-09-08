@@ -52,7 +52,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, Protocol, Union
 
-from .macos.process_lifecycle import cancel_and_drain
+from .macos.process_lifecycle import race_against_cancellation
 from .macos.sanitize import sanitize_command_preview
 from .macos.types import N2Observation, N2Presentation
 from .models import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST
@@ -740,15 +740,7 @@ async def _await_model_response(computer: Any, awaitable: Awaitable[Any]) -> Any
         if inspect.iscoroutine(awaitable):
             awaitable.close()
         cancellation.raise_if_cancelled()
-    request = asyncio.create_task(awaitable)
-    stopped = asyncio.create_task(cancellation.wait())
-    try:
-        done, _ = await asyncio.wait({request, stopped}, return_when=asyncio.FIRST_COMPLETED)
-        if request in done:
-            return request.result()
-        raise asyncio.CancelledError(stopped.result())
-    finally:
-        await cancel_and_drain(request, stopped)
+    return await race_against_cancellation(awaitable, cancellation)
 
 
 def _parse_json_arguments(raw: Any) -> Any:

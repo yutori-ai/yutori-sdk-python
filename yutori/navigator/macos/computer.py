@@ -35,7 +35,7 @@ from .polling import (
 )
 from .presentation import MacOSPresentationController
 from .preview import WindowPreviewStreamer
-from .process_lifecycle import cancel_and_drain, race_sleep_against_cancellation
+from .process_lifecycle import cancel_and_drain, race_against_cancellation, race_sleep_against_cancellation
 from .sanitize import sanitize_command_preview
 from .transport import (
     CuaDriverConnectionError,
@@ -1303,15 +1303,7 @@ class MacOSComputer:
             raise
 
     async def _await_with_cancellation(self, awaitable: Awaitable[Any]) -> Any:
-        operation = asyncio.create_task(awaitable)
-        stopped = asyncio.create_task(self.cancellation.wait())
-        try:
-            done, _ = await asyncio.wait({operation, stopped}, return_when=asyncio.FIRST_COMPLETED)
-            if operation in done:
-                return operation.result()
-            raise asyncio.CancelledError(stopped.result())
-        finally:
-            await cancel_and_drain(operation, stopped)
+        return await race_against_cancellation(awaitable, self.cancellation)
 
     async def _capture_png(self) -> tuple[bytes, int, int]:
         if self.window_mode:

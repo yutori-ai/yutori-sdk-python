@@ -14,6 +14,7 @@ cancellation before continuing.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -88,6 +89,24 @@ async def race_sleep_against_cancellation(
     done, pending = await asyncio.wait({sleeper, cancelled}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
     await cancel_and_drain(*pending)
     return sleeper, cancelled, done
+
+
+async def race_against_cancellation(awaitable: Awaitable[Any], cancellation: "CancellationLatch") -> Any:
+    """Race *awaitable* against ``cancellation.wait()``, returning its result if it wins first.
+
+    Otherwise raises ``asyncio.CancelledError`` carrying the latch's cause, having cancelled
+    and drained the loser either way. Callers that need to special-case an already-cancelled
+    latch, or the absence of a cancellation source altogether, do so before calling this.
+    """
+    operation = asyncio.create_task(awaitable)
+    stopped = asyncio.create_task(cancellation.wait())
+    try:
+        done, _ = await asyncio.wait({operation, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        if operation in done:
+            return operation.result()
+        raise asyncio.CancelledError(stopped.result())
+    finally:
+        await cancel_and_drain(operation, stopped)
 
 
 async def terminate_process_gracefully(
