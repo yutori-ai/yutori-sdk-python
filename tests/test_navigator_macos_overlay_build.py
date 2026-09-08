@@ -125,3 +125,14 @@ def test_stop_item_region_explicitly_converts_cgfloat_arithmetic_to_double():
     region = source.split("private func stopItemRegion", 1)[1].split("private func registerStopHotKey", 1)[0]
     for key in ("x", "y", "width", "height"):
         assert f'"{key}": Double(' in region
+
+
+def test_activity_shell_commands_do_not_inherit_the_phosphor_glow():
+    """Dense command text must stay legible instead of blurring into a green bar."""
+    css = overlay_build._asset_directory().joinpath("navigator-activity.css").read_text(encoding="utf-8")
+    shell_card = css.split(".n2-entry-shell {", 1)[1].split("}", 1)[0]
+    shell_body = css.split(".n2-shell-body {", 1)[1].split("}", 1)[0]
+    shell_command = css.split(".n2-shell-command {", 1)[1].split("}", 1)[0]
+    assert "text-shadow" not in shell_card
+    assert "text-shadow: none" in shell_body
+    assert "flex: 1 1 auto" in shell_command

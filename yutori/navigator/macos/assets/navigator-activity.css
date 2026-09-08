@@ -156,7 +156,6 @@ body {
   background: rgba(0, 0, 0, 0.55);
   color: #33ff33;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  text-shadow: 0 0 6px rgba(51, 255, 51, 0.45);
 }
 
 .n2-shell-header {
@@ -170,6 +169,7 @@ body {
   letter-spacing: 0.28em;
   text-transform: uppercase;
   opacity: 0.7;
+  text-shadow: 0 0 4px rgba(51, 255, 51, 0.35);
 }
 
 .n2-shell-caret,
@@ -206,8 +206,10 @@ body {
   display: flex;
   gap: 8px;
   padding: 8px 10px;
+  color: #b7f7b7;
   font-size: 12px;
   line-height: 18px;
+  text-shadow: none;
 }
 
 .n2-shell-prompt {
@@ -216,6 +218,7 @@ body {
 }
 
 .n2-shell-command {
+  flex: 1 1 auto;
   margin: 0;
   min-width: 0;
   font: inherit;
