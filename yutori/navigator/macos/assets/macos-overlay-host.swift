@@ -18,6 +18,13 @@ private let thumbnailInsetPoints: CGFloat = 12
 // conversation with the model -- opens at this size and is resizable from there.
 private let activityWidthPoints: CGFloat = 520
 private let activityHeightPoints: CGFloat = 720
+// The capture-exclusion probe: a small checkerboard shown in its own panel for one desktop
+// capture at start. Its size and inset in points; `probeCells` cells per side.
+private let probeSizePoints: CGFloat = 32
+private let probeInsetPoints: CGFloat = 16
+private let probeCells = 4
+private let probeColorA = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+private let probeColorB = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)
 // A dropped activity row costs nothing; this only bounds what the host buffers while the
 // activity page is still loading.
 private let pendingActivityCallLimit = 500
@@ -87,6 +94,26 @@ private struct OverlayConfig: Decodable {
     // Status mode: the page the activity window loads. Absent means the caller shipped no
     // activity page, and the run falls back to the menu bar item alone.
     let activityHtml: String?
+    // Whether the panels opt out of screen capture (`NSWindow.sharingType = .none`), so a desktop
+    // screenshot has no Yutori drawing in it without hiding anything first. Absent means yes;
+    // false keeps them capturable (for recording a run) and every capture hides them instead.
+    let excludeFromCapture: Bool?
+}
+
+/// The capture-exclusion probe's pattern: saturated magenta and green cells, colours no desktop is
+/// likely to show in exactly that arrangement. Row 0 is the top row.
+private final class ProbeCheckerView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let cell = bounds.width / CGFloat(probeCells)
+        for row in 0..<probeCells {
+            for column in 0..<probeCells {
+                ((row + column) % 2 == 0 ? probeColorA : probeColorB).setFill()
+                NSRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell).fill()
+            }
+        }
+    }
 }
 
 private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSMenuDelegate, NSWindowDelegate {
@@ -118,6 +145,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // Status mode only: the click-through shell rail, in its own borderless panel because
     // there is no full-screen overlay page to hang it on.
     private var railPanel: NSPanel?
+    // The capture-exclusion probe (see `captureProbe`), alive only between its show and hide.
+    private var probePanel: NSPanel?
     private var railWebView: WKWebView?
     private var railReady = false
     private var pendingRail: [String: Any]?
@@ -138,6 +167,13 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     init(htmlURL: URL, config: OverlayConfig) {
         self.htmlURL = htmlURL
         self.config = config
+    }
+
+    /// Every panel Yutori draws opts out of screen capture unless the caller wants a recordable
+    /// run. The Python side checks with a probe that this macOS honours the opt-out, and hides
+    /// the panels around every capture (`captureHide`/`captureReveal`) when it does not.
+    private var sharing: NSWindow.SharingType {
+        config.excludeFromCapture == false ? .readOnly : .none
     }
 
     deinit {
@@ -171,6 +207,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
+        panel.sharingType = sharing
         panel.alphaValue = 0
 
         let webView = WKWebView(frame: NSRect(origin: .zero, size: screen.frame.size))
@@ -318,6 +355,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
+        panel.sharingType = sharing
         let webView = WKWebView(frame: NSRect(origin: .zero, size: screen.frame.size))
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
@@ -352,6 +390,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
+        panel.sharingType = sharing
         panel.delegate = self
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         webView.autoresizingMask = [.width, .height]
@@ -693,6 +732,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         case "captureReveal":
             guard let requestedID = command["capture_id"] as? Int else { return fail(id, "Missing capture id.") }
             revealAfterCapture(id: id, captureID: requestedID)
+        case "captureProbe":
+            guard let phase = command["phase"] as? String else { return fail(id, "Missing probe phase.") }
+            captureProbe(id: id, phase: phase)
         case "pulse":
             guard let point = command["point"] as? [String: Any] else { return fail(id, "Missing pulse point.") }
             callJavaScript(id: id, body: "return window.__n2OverlayPulse(point)", arguments: ["point": point])
@@ -787,6 +829,74 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         }
     }
 
+    // MARK: Capture exclusion probe
+
+    /// Show or hide the probe: a checkerboard in a panel that, like the overlay, opts out of
+    /// screen capture. The Python side takes one desktop frame while it is shown; the pattern
+    /// in that frame means this macOS ignores the opt-out and every capture must hide the
+    /// overlay. The reply to "show" carries the probe's frame in overlay page points from the
+    /// top-left of the screen, after the panel has been composited.
+    private func captureProbe(id: Int, phase: String) {
+        switch phase {
+        case "show":
+            guard let screen else { return fail(id, "Overlay display is unavailable.") }
+            // Bottom-right of the visible frame: clear of the menu bar, the Dock, notification
+            // banners, and the shell rail.
+            let visible = screen.visibleFrame
+            let frame = NSRect(
+                x: visible.maxX - probeInsetPoints - probeSizePoints,
+                y: visible.minY + probeInsetPoints,
+                width: probeSizePoints,
+                height: probeSizePoints
+            )
+            let panel = probePanel ?? makeProbePanel(frame: frame)
+            panel.setFrame(frame, display: true)
+            panel.orderFrontRegardless()
+            probePanel = panel
+            CATransaction.flush()
+            waitForDisplayFrames(2) {
+                writeJSON([
+                    "id": id,
+                    "ok": true,
+                    "state": "shown",
+                    "probe": [
+                        "x": Double(frame.minX - screen.frame.minX),
+                        "y": Double(screen.frame.maxY - frame.maxY),
+                        "size": Double(probeSizePoints),
+                        "cells": probeCells,
+                    ],
+                ])
+            }
+        case "hide":
+            probePanel?.orderOut(nil)
+            probePanel?.close()
+            probePanel = nil
+            reply(id, state: "hidden")
+        default:
+            fail(id, "Unknown probe phase.")
+        }
+    }
+
+    private func makeProbePanel(frame: NSRect) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
+        panel.isOpaque = true
+        panel.isReleasedWhenClosed = false
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
+        panel.sharingType = sharing
+        panel.contentView = ProbeCheckerView(frame: NSRect(origin: .zero, size: frame.size))
+        return panel
+    }
+
     private func reveal(id: Int) {
         guard state == "armed" else { return fail(id, "Overlay is not armed.") }
         state = "revealing"
@@ -832,6 +942,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     ) {
         // The overlay page and, while it is open, the activity window: in foreground mode the
         // capture is the whole desktop, so anything Yutori drew has to be out of the frame.
+        // This is the fallback for a macOS that captures panels despite `sharingType = .none`;
+        // otherwise the Python side never asks for it.
         let windows = [panel, activityShown ? activityPanel : nil].compactMap { $0 }
         if visible { windows.forEach { $0.orderFrontRegardless() } }
         let effectiveDuration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
@@ -900,12 +1012,13 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         activityPanel = nil
         activityWebView = nil
         railWebView = nil
-        [panel, railPanel].compactMap { $0 }.forEach {
+        [panel, railPanel, probePanel].compactMap { $0 }.forEach {
             $0.alphaValue = 0
             $0.orderOut(nil)
             $0.close()
         }
         railPanel = nil
+        probePanel = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { NSApp.terminate(nil) }
     }
 

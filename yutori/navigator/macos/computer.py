@@ -360,6 +360,7 @@ class MacOSComputer:
         scope: Literal["desktop", "window"] = "desktop",
         target_window: "MacOSWindowTarget | None" = None,
         allow_foreground_fallback: bool = False,
+        exclude_overlay_from_capture: bool = True,
     ) -> None:
         if transport is not None and owns_transport is None:
             raise ValueError("owns_transport must be explicit when transport is injected")
@@ -372,6 +373,8 @@ class MacOSComputer:
         self.session = session or f"yutori-n2-{uuid.uuid4().hex[:12]}"
         self.presentation_requested = presentation
         self.show_stop_button = show_stop_button
+        # False keeps the overlay in screen recordings of the run; captures then hide it first.
+        self.exclude_overlay_from_capture = exclude_overlay_from_capture
         self.allow_local_shell = allow_local_shell
         self.execution_deadline = execution_deadline
         self.cancellation = cancellation or CancellationLatch()
@@ -1265,9 +1268,13 @@ class MacOSComputer:
             cache_directory=self.overlay_cache_directory,
             show_stop_button=self.show_stop_button,
             restore_native_cursor=self._restore_native_cursor,
+            exclude_from_capture=self.exclude_overlay_from_capture,
         )
         try:
             await controller.start()
+            # One desktop frame with the host's probe on screen, before the overlay shows: from
+            # here on captures skip the hide/reveal fade unless the probe was in that frame.
+            await controller.verify_capture_exclusion(self._capture_desktop_png)
             await self._configure_cursor(False)
             await controller.reveal()
             self.presentation = controller
