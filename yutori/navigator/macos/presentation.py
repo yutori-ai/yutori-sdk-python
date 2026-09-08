@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import functools
+import io
 import json
 import math
 import time
@@ -12,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, TypeVar
+
+from PIL import Image
 
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
 from .process_lifecycle import (
@@ -42,6 +45,9 @@ _SHELL_RAIL_TERMINAL_HOLD_SECONDS = 4.0
 _SHELL_RAIL_ROWS = 3
 _SHELL_TERMINAL_STATES = frozenset({"completed", "failed", "timed_out", "cancelled"})
 _NORMALIZED_SCALE = 1000
+# Capture exclusion: the host's probe is a 4x4 checkerboard; this many of its cells in the frame
+# means the probe was captured, so this macOS ignores `sharingType = .none`. See _probe_verdict.
+_PROBE_MATCH_THRESHOLD = 4
 
 _ACTION_STATUS = {
     "left_click": "Click",
@@ -163,6 +169,48 @@ def _valid_stop_region(value: Any) -> "tuple[float, float, float, float] | None"
     if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1000 or y + height > 1000:
         return None
     return x, y, width, height
+
+
+def _valid_probe(value: Any) -> "dict[str, float] | None":
+    """The host's probe frame: top-left origin in overlay page points, plus its cells per side."""
+    if not isinstance(value, dict):
+        return None
+    x, y, size, cells = value.get("x"), value.get("y"), value.get("size"), value.get("cells")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (x, y, size)):
+        return None
+    if x < 0 or y < 0 or size <= 0 or not isinstance(cells, int) or isinstance(cells, bool) or cells < 2:
+        return None
+    return {"x": float(x), "y": float(y), "size": float(size), "cells": float(cells)}
+
+
+def _probe_verdict(png_bytes: bytes, probe: dict[str, float], scale: "tuple[float, float]") -> "tuple[str, int]":
+    """Say whether the capture-exclusion probe is in the frame: ("leaked" | "excluded", cells matched).
+
+    The probe is a checkerboard of saturated magenta (top-left cell) and green; the centre of every
+    cell is sampled and compared with the pattern, with room for the display's colour profile.
+    Matching :data:`_PROBE_MATCH_THRESHOLD` cells or more counts as the probe being captured: chance
+    content in exactly that arrangement is far less likely than a partly covered probe, and a wrong
+    "excluded" is the costlier mistake, since it puts Yutori's drawing in every frame the model sees.
+    """
+    cells = int(probe["cells"])
+    cell = probe["size"] / cells
+    x_scale, y_scale = scale
+    matches = 0
+    with Image.open(io.BytesIO(png_bytes)) as image:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        for row in range(cells):
+            for column in range(cells):
+                px = round((probe["x"] + (column + 0.5) * cell) * x_scale)
+                py = round((probe["y"] + (row + 0.5) * cell) * y_scale)
+                if not (0 <= px < width and 0 <= py < height):
+                    continue
+                r, g, b = rgb.getpixel((px, py))[:3]
+                if (row + column) % 2 == 0:
+                    matches += r > 170 and b > 170 and g < 120
+                else:
+                    matches += g > 170 and r < 130 and b < 130
+    return ("leaked" if matches >= _PROBE_MATCH_THRESHOLD else "excluded"), matches
 
 
 def _point(arguments: dict[str, Any], *keys: str) -> "tuple[float, float] | None":
@@ -408,6 +456,7 @@ class MacOSPresentationController:
         restore_native_cursor: "Callable[[], Awaitable[str]] | None" = None,
         mode: str = "overlay",
         title: "str | None" = None,
+        exclude_from_capture: bool = True,
     ) -> None:
         if mode not in {"overlay", "status"}:
             raise ValueError("mode must be 'overlay' or 'status'")
@@ -422,6 +471,11 @@ class MacOSPresentationController:
         # the model's frame is one window and the user keeps working next to it.
         self._mode = mode
         self._title = title
+        # The panels opt out of screen capture, so a desktop frame has no Yutori drawing in it
+        # without hiding anything first. `verify_capture_exclusion` checks that this macOS honours
+        # the opt-out; until it says "excluded", every capture hides the overlay (the old path).
+        self._exclude_from_capture = exclude_from_capture
+        self._capture_exclusion = "unverified" if exclude_from_capture else "disabled"
         self._restore_native_cursor = restore_native_cursor
         self._status = MacOSPresentationStatus(requested, False, "unavailable", "current")
         self._process: "asyncio.subprocess.Process | None" = None
@@ -461,6 +515,17 @@ class MacOSPresentationController:
         return self._mode
 
     @property
+    def capture_exclusion(self) -> str:
+        """How Yutori's drawing stays out of the frames the model sees.
+
+        ``"excluded"``: the panels' capture opt-out was verified on this Mac, so nothing is hidden
+        for a capture. ``"leaked"``: the probe showed up, so every capture hides the overlay first.
+        ``"unverified"`` (probe not run yet), ``"unverifiable"`` (the probe failed), and
+        ``"disabled"`` (``exclude_from_capture=False``) also hide the overlay for every capture.
+        """
+        return self._capture_exclusion
+
+    @property
     def preview_demand(self) -> bool:
         return self._preview_demand
 
@@ -488,7 +553,12 @@ class MacOSPresentationController:
             return
         self._status = replace(self._status, state="starting")
         prepared = self._prepared or load_prepared_macos_overlay(self._cache_directory)
-        settings: dict[str, Any] = {"showStopButton": self._show_stop_button, "enableHotkey": True, "mode": self._mode}
+        settings: dict[str, Any] = {
+            "showStopButton": self._show_stop_button,
+            "enableHotkey": True,
+            "mode": self._mode,
+            "excludeFromCapture": self._exclude_from_capture,
+        }
         if self._title is not None:
             settings["title"] = self._title
         # The activity window's page. Both modes show the conversation with the model; only a
@@ -656,9 +726,45 @@ class MacOSPresentationController:
         self._transcript_sequence += 1
         await self._send_command({"op": "transcript", "entry": entry})
 
+    async def verify_capture_exclusion(self, capture: "Callable[[], Awaitable[tuple[bytes, int, int]]]") -> str:
+        """Check on this Mac that the overlay's panels stay out of a desktop capture.
+
+        Shows the host's probe (a small checkerboard in a panel that, like the overlay, opts out of
+        screen capture), takes one frame through ``capture``, and looks for the pattern. Absent, the
+        overlay is left on screen for every later capture; present, or if anything goes wrong, each
+        capture keeps hiding the overlay first. Advisory: never degrades the presentation.
+        """
+        if not self._status.available or self._mode == "status" or self._stopping or not self._exclude_from_capture:
+            return self._capture_exclusion
+        state, matches, error_type = "unverifiable", None, None
+        try:
+            reply = await self._send_command({"op": "captureProbe", "phase": "show"})
+            try:
+                probe = _valid_probe(reply.get("probe"))
+                if reply.get("state") != "shown" or probe is None:
+                    raise MacOSPresentationError("Overlay did not show the capture probe.")
+                png_bytes, width, height = await capture()
+            finally:
+                # Whatever the host answered, the probe panel must not outlive the check.
+                await self._send_command({"op": "captureProbe", "phase": "hide"})
+            self._validate_capture_geometry(width, height)
+            capabilities = self._status.capabilities
+            assert capabilities is not None
+            scale = (width / capabilities.viewport_width, height / capabilities.viewport_height)
+            state, matches = _probe_verdict(png_bytes, probe, scale)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - the probe is advisory; hiding stays the default
+            error_type = type(error).__name__
+        self._capture_exclusion = state
+        self._telemetry.append(
+            {"type": "capture_exclusion", "state": state, "matches": matches, "error_type": error_type}
+        )
+        return state
+
     @_fail_soft("capture_hide_failed", False)
     async def before_capture(self, capture_id: int) -> bool:
-        if not self._status.available or self._mode == "status":
+        if not self._status.available or self._mode == "status" or self._capture_exclusion == "excluded":
             return False
         if capture_id <= self._capture_id:
             raise MacOSPresentationError("Capture IDs must increase monotonically.")
