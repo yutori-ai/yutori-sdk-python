@@ -95,7 +95,13 @@ body {
   background-clip: content-box;
 }
 
+/* `flex: none` because the transcript is a scrolling flex column: an entry that
+ * clips its own overflow (the shell panel) loses the automatic minimum size that
+ * keeps the others intact, so the flex algorithm squeezes it -- the taller the
+ * transcript and the shorter the window, the flatter it gets, until only the
+ * header survives. Entries size to their text and the column scrolls instead. */
 .n2-entry {
+  flex: none;
   min-width: 0;
   animation: n2EntryIn 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
