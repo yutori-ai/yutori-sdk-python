@@ -192,6 +192,25 @@ html[data-n2-activity-open] #n2-shell-rail {
   pointer-events: none;
 }
 
+/*
+ * The loop mark's stroke and travelling dot are painted through an SVG gradient
+ * (`url(#yutoriNavigatorLoopGradient)`), and the path toggles `display` every
+ * cycle as the loop retracts into a dot and redraws. In the WKWebView host that
+ * paint server has been seen to drop out mid-run: the solid crossover mask kept
+ * painting (a faint dark diamond in the badge slot) while the gradient-stroked
+ * loop around it vanished. The gradient only runs #C6FAFB to #9DFBFC, so at
+ * badge size a flat colour is indistinguishable; paint the loop directly and
+ * skip the reference.
+ */
+.yutori-loop-path,
+.yutori-loop-mask-top {
+  stroke: #a8fbfc !important;
+}
+
+.yutori-loop-dot {
+  fill: #a8fbfc !important;
+}
+
 .yutori-overlay-rim {
   background: linear-gradient(
     145deg,

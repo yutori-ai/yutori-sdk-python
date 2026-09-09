@@ -160,6 +160,20 @@ def test_activity_entries_are_not_shrunk_by_the_transcript_flex_column():
     assert "flex: none" in entry
 
 
+def test_the_loop_mark_is_painted_with_flat_colour_not_a_gradient_reference():
+    """The badge's loop is stroked through `url(#yutoriNavigatorLoopGradient)` in the bundle.
+
+    In the WKWebView host that paint server has dropped out mid-run, leaving the solid crossover
+    mask as a faint dark diamond where the loop should be. The host stylesheet paints the loop's
+    stroke and travelling dot directly so the mark never depends on the gradient resolving.
+    """
+    css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")
+    stroke = css.split(".yutori-loop-path,\n.yutori-loop-mask-top {", 1)[1].split("}", 1)[0]
+    assert "stroke: #a8fbfc !important" in stroke
+    dot = css.split(".yutori-loop-dot {", 1)[1].split("}", 1)[0]
+    assert "fill: #a8fbfc !important" in dot
+
+
 def test_the_shell_rail_stands_down_while_the_activity_window_is_open():
     """One list of commands at a time: the window the operator opened, not the desktop."""
     css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")
