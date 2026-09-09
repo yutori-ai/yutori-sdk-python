@@ -747,10 +747,7 @@ class MacOSPresentationController:
             finally:
                 # Whatever the host answered, the probe panel must not outlive the check.
                 await self._send_command({"op": "captureProbe", "phase": "hide"})
-            self._validate_capture_geometry(width, height)
-            capabilities = self._status.capabilities
-            assert capabilities is not None
-            scale = (width / capabilities.viewport_width, height / capabilities.viewport_height)
+            scale = self._validate_capture_geometry(width, height)
             state, matches = _probe_verdict(png_bytes, probe, scale)
         except asyncio.CancelledError:
             raise
@@ -1160,14 +1157,16 @@ class MacOSPresentationController:
         self._validate_geometry(capabilities, self.native_width, self.native_height)
         return capabilities
 
-    def _validate_capture_geometry(self, width: int, height: int) -> None:
+    def _validate_capture_geometry(self, width: int, height: int) -> "tuple[float, float]":
         capabilities = self._status.capabilities
         if capabilities is None:
             raise MacOSPresentationError("Overlay capabilities are unavailable.")
-        self._validate_geometry(capabilities, width, height)
+        return self._validate_geometry(capabilities, width, height)
 
     @staticmethod
-    def _validate_geometry(capabilities: MacOSPresentationCapabilities, width: int, height: int) -> None:
+    def _validate_geometry(
+        capabilities: MacOSPresentationCapabilities, width: int, height: int
+    ) -> "tuple[float, float]":
         point_aspect = capabilities.viewport_width / capabilities.viewport_height
         pixel_aspect = width / height
         x_scale = width / capabilities.viewport_width
@@ -1181,6 +1180,7 @@ class MacOSPresentationController:
             raise MacOSPresentationError("Overlay display geometry does not match the captured desktop.")
         if abs(x_scale - capabilities.backing_scale) > 0.15:
             raise MacOSPresentationError("Overlay Retina scale does not match the captured desktop.")
+        return x_scale, y_scale
 
     async def _degrade(self, reason: str, error: "BaseException | None" = None) -> None:
         if self._fatal_error is not None or self._stopping:
