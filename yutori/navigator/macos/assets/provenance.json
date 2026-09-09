@@ -2,7 +2,10 @@
   "runtime": "yutori.navigator.macos",
   "sdk_version": "0.9.4",
   "overlay_protocol_version": 2,
-  "renderer_protocol_version": 3,
+  "renderer_protocol_version": 4,
+  "renderer_distribution": "yutori-navigator-overlay-runtime==0.5.0",
+  "renderer_source_commit": "e78194c988d3861662f040a600d8759ac635c5b6",
+  "renderer_artifact_sha256": "30d5f3754490adf2ab0547f9aeb078cdc2f8dba2622874fa05852509c90697c1",
   "source": "Public yutori SDK distribution",
   "assets": ["macos-overlay-host.swift", "navigator-overlay.iife.js"],
   "integrity": "prepare_macos_overlay records and verifies SHA-256 for every packaged asset and the compiled host"
