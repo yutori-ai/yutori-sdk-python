@@ -280,6 +280,52 @@ def test_batch_accepts_both_envelopes_and_is_all_or_nothing():
         )
 
 
+def test_batch_folds_consecutive_waits_into_one_summed_wait():
+    validated, translated = translate_n2_batch(
+        {
+            "actions": [
+                {"action": "left_click", "coordinates": [0, 0]},
+                {"action": "wait", "duration": 2},
+                {"action": "wait"},
+                {"action": "wait", "duration": 1.5},
+                {"action": "key_press", "key": "enter"},
+                {"action": "wait", "duration": 3},
+            ]
+        },
+        100,
+        100,
+    )
+    assert [member["action"] for member in validated] == ["left_click", "wait", "key_press", "wait"]
+    # 2 + the 5s default + 1.5 in one pause; the wait after the key press stays its own member.
+    assert [member.get("duration") for member in validated] == [None, 8.5, None, 3]
+    # `batch_index` is renumbered against the folded members, not the raw ones.
+    assert translated == [
+        {"type": "click", "x": 0, "y": 0, "button": "left", "batch_index": 0},
+        {"type": "wait", "ms": 8_500, "batch_index": 1},
+        {"type": "keypress", "keys": ["enter"], "batch_index": 2},
+        {"type": "wait", "ms": 3_000, "batch_index": 3},
+    ]
+
+
+def test_batch_caps_a_folded_wait_run_at_the_single_wait_ceiling():
+    validated, translated = translate_n2_batch(
+        {"actions": [{"action": "wait", "duration": 300}, {"action": "wait", "duration": 300}]},
+        100,
+        100,
+    )
+    assert validated == [{"action": "wait", "duration": 300}]
+    assert translated == [{"type": "wait", "ms": 300_000, "batch_index": 0}]
+
+
+def test_batch_still_rejects_an_overlong_wait_before_folding_it():
+    with pytest.raises(N2ActionValidationError, match="wait.duration must be between"):
+        translate_n2_batch(
+            {"actions": [{"action": "wait", "duration": 1}, {"action": "wait", "duration": 301}]},
+            100,
+            100,
+        )
+
+
 def test_historical_batches_reject_screenshot_and_all_batches_reject_shell_members():
     with pytest.raises(N2ActionValidationError, match="screenshot inside computer_batch"):
         translate_n2_batch(

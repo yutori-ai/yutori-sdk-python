@@ -713,6 +713,37 @@ def internal_file_action(action_type: str, **kwargs: Any) -> dict[str, Any]:
     return {"type": action_type, **kwargs}
 
 
+def _member_wait_seconds(member: dict[str, Any]) -> "int | float":
+    """The seconds one already-validated `wait` member sleeps for."""
+    duration = member.get("duration", N2_DEFAULT_WAIT_SECONDS)
+    return duration if is_strict_number(duration) else N2_DEFAULT_WAIT_SECONDS
+
+
+def _coalesce_batch_waits(
+    members: "list[tuple[dict[str, Any], list[dict[str, Any]]]]",
+) -> "list[tuple[dict[str, Any], list[dict[str, Any]]]]":
+    """Fold every run of consecutive `wait` members into one wait of the summed duration.
+
+    A model that asks for three two-second waits in a row wants six seconds of settling,
+    not three separate pauses: each extra member costs a round of executor and frame-poll
+    overhead, an overlay queue slot, and a confirmation line, all for the same total sleep.
+    The fold keeps the ceiling a single wait may request, so a run summing past it sleeps
+    that maximum instead of failing the batch the model already committed to.
+    """
+    folded: "list[tuple[dict[str, Any], list[dict[str, Any]]]]" = []
+    for member, actions in members:
+        previous = folded[-1][0] if folded else None
+        if member.get("action") != "wait" or previous is None or previous.get("action") != "wait":
+            folded.append((member, actions))
+            continue
+        seconds = min(
+            _member_wait_seconds(previous) + _member_wait_seconds(member),
+            N2_MAX_WAIT_SECONDS,
+        )
+        folded[-1] = ({"action": "wait", "duration": seconds}, [{"type": "wait", "ms": round(float(seconds) * 1000)}])
+    return folded
+
+
 def translate_n2_batch(
     args: dict[str, Any],
     native_width: int,
@@ -729,8 +760,7 @@ def translate_n2_batch(
     if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= N2_MAX_BATCH_ACTIONS:
         raise N2ActionValidationError(f"computer_batch.actions must contain 1-{N2_MAX_BATCH_ACTIONS} actions")
 
-    translated: list[dict[str, Any]] = []
-    validated: list[dict[str, Any]] = []
+    members: "list[tuple[dict[str, Any], list[dict[str, Any]]]]" = []
     for index, raw_action in enumerate(raw_actions):
         if not isinstance(raw_action, dict):
             raise N2ActionValidationError(f"computer_batch.actions[{index}] must be an object")
@@ -751,18 +781,23 @@ def translate_n2_batch(
             and tool_set not in TOOL_SETS_WITH_CLICK_MODIFIERS
         ):
             raise N2ActionValidationError(f"{tool_set} does not allow a held modifier inside computer_batch")
-        translated.extend(
-            translate_n2_action(
-                action,
-                member_args,
-                native_width,
-                native_height,
-                batch_index=index,
-                allow_click_modifiers=allow_click_modifiers,
-                allow_scroll_modifiers=allow_scroll_modifiers,
-            )
+        actions = translate_n2_action(
+            action,
+            member_args,
+            native_width,
+            native_height,
+            allow_click_modifiers=allow_click_modifiers,
+            allow_scroll_modifiers=allow_scroll_modifiers,
         )
         # The flattened member, not the raw one: confirmation prompts then render
         # one shape regardless of which envelope arrived.
-        validated.append(copy.deepcopy(member))
+        members.append((copy.deepcopy(member), actions))
+
+    translated: list[dict[str, Any]] = []
+    validated: list[dict[str, Any]] = []
+    # Numbered after the fold, not before: `batch_index` points the loop at the member
+    # it is executing, and folding a run of waits shifts every member that follows it.
+    for index, (member, actions) in enumerate(_coalesce_batch_waits(members)):
+        validated.append(member)
+        translated.extend({**action, "batch_index": index} for action in actions)
     return validated, translated
