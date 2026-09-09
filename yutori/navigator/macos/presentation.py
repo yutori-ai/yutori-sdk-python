@@ -40,9 +40,9 @@ _PROCESS_EXIT_TIMEOUT_SECONDS = 1
 _OVERLAY_LEAD_SECONDS = 0.15
 _SHELL_MINIMUM_DWELL_SECONDS = 0.9
 _SHELL_TERMINAL_HOLD_SECONDS = 0.9
-# The shell rail at the top-right keeps a finished command on screen long enough
-# to read: the capsule's 0.9s hold is tuned for a glance at the cursor, not for an
-# operator checking what just ran on their Mac.
+# The shell panel keeps a finished command on screen long enough to read: the
+# capsule's 0.9s hold is tuned for a glance at a status word, not for an operator
+# checking what just ran on their Mac.
 _SHELL_RAIL_TERMINAL_HOLD_SECONDS = 4.0
 _SHELL_RAIL_ROWS = 3
 _SHELL_TERMINAL_STATES = frozenset({"completed", "failed", "timed_out", "cancelled"})
@@ -499,7 +499,6 @@ class MacOSPresentationController:
         self._last_render: dict[str, str] = {}
         self._reasoning = ""
         self._action_status = ""
-        self._terminal_command = ""
         self._active_keys: "list[str] | None" = None
         self._queue_active = False
         self._batch_is_last = False
@@ -665,14 +664,13 @@ class MacOSPresentationController:
         return self.blocking_surface(point) is not None
 
     def _clear_action_labels(self) -> None:
-        """Reset the capsule's action-status, terminal-command, and active-key labels.
+        """Reset the capsule's action-status and active-key labels.
 
         Shared by the ``reasoning``, ``action_done``, and ``final`` branches of
-        :meth:`present`, each of which clears these three fields immediately
-        before re-rendering the capsule.
+        :meth:`present`, each of which clears both fields immediately before
+        re-rendering the capsule.
         """
         self._action_status = ""
-        self._terminal_command = ""
         self._active_keys = None
 
     @_fail_soft_cancellable
@@ -1054,15 +1052,9 @@ class MacOSPresentationController:
     async def _render_capsule(self) -> None:
         if self._queue_active:
             return
-        text = " · ".join(
-            part
-            for part in (
-                self._action_status,
-                f"$ {self._terminal_command}" if self._terminal_command else "",
-                self._reasoning,
-            )
-            if part
-        )
+        # The command itself is in the shell panel hanging off the capsule, so the
+        # capsule only carries the status word and the reasoning.
+        text = " · ".join(part for part in (self._action_status, self._reasoning) if part)
         if not text and not self._active_keys:
             await self._send_operation({"op": "clearThought"})
             return
@@ -1103,7 +1095,6 @@ class MacOSPresentationController:
         if batch:
             status = f"{int(batch.get('index') or 0) + 1} of {len(batch.get('members') or [])} · {status}"
         self._action_status = status
-        self._terminal_command = ""
         self._active_keys = visual.get("keys")
 
         viewport = self._viewport
@@ -1161,7 +1152,6 @@ class MacOSPresentationController:
         if event.state in {"starting", "running"}:
             self._shell_started_at.setdefault(event.task_id, time.monotonic())
             self._action_status = "Run command"
-            self._terminal_command = event.command
             self._active_keys = None
             await self._render_capsule()
             await self._send_operation(
@@ -1185,7 +1175,6 @@ class MacOSPresentationController:
         self._action_status = labels.get(event.state, "Command finished")
         if event.exit_code is not None:
             self._action_status = f"{self._action_status} · exit {event.exit_code}"
-        self._terminal_command = ""
         await self._render_capsule()
         await self._sleep(_SHELL_TERMINAL_HOLD_SECONDS)
         self._clear_action_labels()
@@ -1194,10 +1183,12 @@ class MacOSPresentationController:
     async def _track_shell_rail(self, event: ShellPresentationEvent) -> None:
         """Mirror every shell lifecycle event, foreground or background, into the rail.
 
-        The capsule by the cursor only shows a foreground command for the ~1s it
-        takes to run, which is too brief for an operator to read; the rail under
-        the menu bar keeps each command visible while it runs and for a hold
-        after it finishes, so the operator can see what was sent to their Mac.
+        The capsule only says "Run command" for the ~1s a foreground command takes,
+        which is too brief for an operator to read; the rail -- a stack of panels
+        hanging off the cursor in a foreground run, under the menu bar in a
+        background one -- keeps each command's full text visible while it runs and
+        for a hold after it finishes, so the operator can see what was sent to
+        their Mac.
         """
         self._shell_rail[event.task_id] = event
         await self._render_shell_rail()
@@ -1207,7 +1198,7 @@ class MacOSPresentationController:
             task.add_done_callback(self._shell_rail_removals.discard)
 
     async def _render_shell_rail(self) -> None:
-        # Newest first: the most recent command lands at the top, just under the menu bar.
+        # Newest first: the most recent command lands at the top of the stack.
         events = list(reversed(self._shell_rail.values()))
         commands = [asdict(event) for event in events[:_SHELL_RAIL_ROWS]]
         overflow = max(0, len(events) - _SHELL_RAIL_ROWS)

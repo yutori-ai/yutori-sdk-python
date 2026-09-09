@@ -460,7 +460,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     ///
     /// A window-scope run drives one window and paints nothing on the desktop, but it still
     /// runs commands on this Mac -- and those should be visible without opening a window, the
-    /// same way a foreground run shows them under the menu bar. The panel ignores mouse events
+    /// way a foreground run shows them beside its cursor. With no cursor to hang them on, this
+    /// rail sits under the menu bar's Stop item instead. The panel ignores mouse events
     /// and never takes focus, and window-scope capture sees only the target window, so neither
     /// the operator's work nor the model's view is disturbed.
     private func createRailPanel(on screen: NSScreen) {

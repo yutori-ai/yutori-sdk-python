@@ -202,3 +202,64 @@ def test_the_shell_rail_stands_down_while_the_activity_window_is_open():
     assert source.count("        syncRailVisibility()") == 2
     # A rail page that loads while the window is already open must start hidden.
     assert "railVisibilityScript()" in source.split("private func railStyleScript", 1)[1].split("}", 1)[0]
+
+
+def test_the_shell_panel_hangs_off_the_cursor_in_a_foreground_run():
+    """The page script measures the capsule in the bundle's shadow root and anchors the rail to it.
+
+    A background (status-mode) run never mounts a cursor, so the rail keeps its top-right spot
+    under the menu bar: the anchor attribute is only ever set once a capsule exists to hang from.
+    """
+    script = overlay_build._asset_directory().joinpath("macos-overlay.js").read_text(encoding="utf-8")
+    apply = script.split("window.__n2OverlayApply = ", 1)[1].split("\n};", 1)[0]
+    # Re-placed after every operation (moves, thoughts, and badges all change the capsule's
+    # frame) and then every frame for a while, because the bundle animates the capsule's flip
+    # to the other side of the cursor over several hundred milliseconds.
+    assert 'positionShellRail(operation.op === "mount" || operation.immediate === true)' in apply
+    assert "followShellRail();" in apply
+    follow = script.split("const followShellRail = ", 1)[1].split("\n};", 1)[0]
+    assert "shellFollowUntil = performance.now() + SHELL_FOLLOW_MS" in follow
+    assert "requestAnimationFrame(followShellRailFrame)" in follow
+    assert "const SHELL_FOLLOW_MS = 700;" in script
+    elements = script.split("const capsuleElements = ", 1)[1].split("\n};", 1)[0]
+    assert 'root.querySelector(".yutori-overlay-cursor")' in elements
+    assert 'root.querySelector(".yutori-overlay-badge")' in elements
+    # The frame is where the capsule will be once the cursor's transition lands, not mid-flight.
+    frame = script.split("const settledCapsuleFrame = ", 1)[1].split("\n};", 1)[0]
+    assert "parseFloat(cursor.style.left)" in frame and "parseFloat(computed.left)" in frame
+    assert 'side: badge.dataset.side === "left" ? "left" : "right"' in frame
+    position = script.split("const positionShellRail = ", 1)[1].split("\n};", 1)[0]
+    assert "if (!elements) return;" in position
+    assert 'rail.dataset.anchor = "cursor"' in position
+    # As wide as the capsule (never narrower than a command can use), below it on its side; above
+    # it when it flipped up; the other side when it would leave the screen.
+    assert "const width = Math.max(frame.right - frame.left, SHELL_PANEL_MIN_WIDTH);" in position
+    assert "rail.style.width = `${width}px`;" in position
+    assert 'let left = side === "left" ? frame.right - width : frame.left;' in position
+    assert "let top = above ? frame.top - gap - height : frame.bottom + gap;" in position
+    assert 'if (side === "right" && !fitsRight && fitsLeft) side = "left";' in position
+    # Re-anchored after every render, so a new panel lands beside the cursor at once.
+    render = script.split("window.__n2ShellCommands = ", 1)[1]
+    assert "positionShellRail(true);" in render
+
+    css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")
+    anchored = css.split('#n2-shell-rail[data-anchor="cursor"] {', 1)[1].split("}", 1)[0]
+    assert "right: auto" in anchored
+    assert "left 150ms cubic-bezier(0.22, 1, 0.36, 1)" in anchored
+    assert "width 150ms cubic-bezier(0.22, 1, 0.36, 1)" in anchored
+
+
+def test_the_shell_panel_grows_to_show_the_whole_command():
+    """No line clamp: every panel fills the rail's width and grows in height to its command, so an
+    operator always reads the full command that was sent to their Mac."""
+    css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")
+    rail = css.split("#n2-shell-rail {", 1)[1].split("}", 1)[0]
+    assert "width: 360px" in rail  # status mode; a foreground run sizes it to the capsule
+    panel = css.split(".n2-shell-panel,\n.n2-shell-overflow {", 1)[1].split("}", 1)[0]
+    assert "width: 100%" in panel
+    assert "box-sizing: border-box" in panel
+    assert "max-width" not in panel
+    command = css.split(".n2-shell-command {", 1)[1].split("}", 1)[0]
+    assert "line-clamp" not in command
+    assert "white-space: pre-wrap" in command
+    assert "overflow-wrap: anywhere" in command
