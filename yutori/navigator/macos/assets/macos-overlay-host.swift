@@ -10,6 +10,7 @@ private let overlayProtocolVersion = 2
 // with its two filled subpaths emitted as CGPath calls because AppKit has no SVG parser.
 private let yutoriMarkViewBox = CGRect(x: -2, y: -2, width: 117, height: 114)
 private let menuBarIconPoints: CGFloat = 18
+private let activityDotFontPoints: CGFloat = 6
 // Status mode (background window-scope runs): the menu shows the latest frame at this width.
 private let thumbnailWidthPoints: CGFloat = 360
 private let thumbnailMaxHeightPoints: CGFloat = 420
@@ -75,6 +76,23 @@ private func stopMenuBarIcon() -> NSImage {
     image.isTemplate = true
     image.accessibilityDescription = "Yutori n2 is controlling this Mac"
     return image
+}
+
+/// Keep the Yutori mark templated for menu-bar contrast, then add a small color-preserving
+/// activity dot beside it. The status item exists only for the lifetime of an active run.
+private func configureStatusButton(_ button: NSStatusBarButton, toolTip: String) {
+    button.image = stopMenuBarIcon()
+    button.imagePosition = .imageLeading
+    button.attributedTitle = NSAttributedString(
+        string: "\u{25CF}",
+        attributes: [
+            .foregroundColor: NSColor.systemGreen,
+            .font: NSFont.systemFont(ofSize: activityDotFontPoints, weight: .medium),
+            .baselineOffset: 1,
+        ]
+    )
+    button.toolTip = toolTip
+    button.setAccessibilityLabel(toolTip)
 }
 
 /// The display the driver captures (`CGMainDisplayID`), so the overlay, the activity window, and
@@ -243,10 +261,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     private func createStopMenuBarItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = stopMenuBarIcon()
-            button.toolTip = "Yutori n2 is controlling this Mac. Stop with ⇧⌘Esc."
+            configureStatusButton(button, toolTip: "Yutori n2 is controlling this Mac. Stop with ⇧⌘Esc.")
         }
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -277,10 +294,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private func startStatusMode() {
         statusMode = true
         let title = config.title ?? "Yutori n2 is working in the background"
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = stopMenuBarIcon()
-            button.toolTip = title
+            configureStatusButton(button, toolTip: title)
         }
         let menu = NSMenu()
         menu.autoenablesItems = false
