@@ -1117,8 +1117,7 @@ class MacOSPresentationController:
         self._terminal_command = ""
         await self._render_capsule()
         await self._sleep(_SHELL_TERMINAL_HOLD_SECONDS)
-        self._action_status = ""
-        self._terminal_command = ""
+        self._clear_action_labels()
         await self._render_capsule()
 
     async def _track_shell_rail(self, event: ShellPresentationEvent) -> None:
