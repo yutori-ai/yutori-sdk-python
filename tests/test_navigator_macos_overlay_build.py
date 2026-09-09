@@ -174,6 +174,21 @@ def test_the_loop_mark_is_painted_with_flat_colour_not_a_gradient_reference():
     assert "fill: #a8fbfc !important" in dot
 
 
+def test_activity_window_lets_clicks_through_except_on_its_grip():
+    """The body ignores the mouse; the grip drags both panels and is reported for refusal."""
+    source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
+    create = source.split("private func createActivityPanel", 1)[1].split("private func closeGlyph", 1)[0]
+    assert "body.ignoresMouseEvents = true" in create
+    assert "grip.isMovableByWindowBackground = true" in create
+    assert "grip.addChildWindow(body, ordered: .below)" in create
+    # Neither panel takes focus from what the operator is doing.
+    assert create.count(".nonactivatingPanel") == 2
+    assert "grip.becomesKeyOnlyIfNeeded = true" in create
+    # The grip's frame reaches the Python side on show, hide, and every move.
+    assert source.count("        emitActivityGrip()") == 3
+    assert '"event": "activityGrip"' in source
+
+
 def test_the_shell_rail_stands_down_while_the_activity_window_is_open():
     """One list of commands at a time: the window the operator opened, not the desktop."""
     css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")
@@ -183,7 +198,7 @@ def test_the_shell_rail_stands_down_while_the_activity_window_is_open():
     source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
     visibility = source.split("private func railVisibilityScript", 1)[1].split("}", 1)[0]
     assert "toggleAttribute('data-n2-activity-open', \\(activityShown))" in visibility
-    # Both the show and the hide path, and the close button that bypasses them.
-    assert source.count("        syncRailVisibility()") == 3
+    # Both the show and the hide path; the grip's close button goes through the hide path.
+    assert source.count("        syncRailVisibility()") == 2
     # A rail page that loads while the window is already open must start hidden.
     assert "railVisibilityScript()" in source.split("private func railStyleScript", 1)[1].split("}", 1)[0]

@@ -1627,8 +1627,11 @@ class MacOSComputer:
             return
         width, height = self._native_size
         normalized = (x / width * 1000, y / height * 1000)
-        if self.presentation.blocks_point(normalized):
+        surface = self.presentation.blocking_surface(normalized)
+        if surface == "stop":
             raise MacOSActionRefusedError("Action refused because it intersects the Stop control.")
+        if surface is not None:
+            raise MacOSActionRefusedError("Action refused because it intersects the Yutori activity window's grip.")
 
     async def _try_enable_native_cursor(self) -> bool:
         """Enable the native cursor, reporting failure instead of raising.

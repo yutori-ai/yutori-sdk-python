@@ -266,8 +266,8 @@ class _FakeController:
     async def encode_observation(self, _png: bytes):
         return None
 
-    def blocks_point(self, _point) -> bool:
-        return False
+    def blocking_surface(self, _point) -> "str | None":
+        return None
 
     async def stop(self) -> None:
         pass

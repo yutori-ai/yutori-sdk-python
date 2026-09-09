@@ -159,7 +159,8 @@ def _positive_finite(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
-def _valid_stop_region(value: Any) -> "tuple[float, float, float, float] | None":
+def _valid_region(value: Any) -> "tuple[float, float, float, float] | None":
+    """A host region in the overlay's normalized 0-1000 space: the Stop item, the activity grip."""
     if not isinstance(value, dict):
         return None
     fields = tuple(value.get(key) for key in ("x", "y", "width", "height"))
@@ -505,6 +506,10 @@ class MacOSPresentationController:
         # the owner streams preview frames only while that is true.
         self._preview_demand = False
         self.on_preview_demand: "Callable[[bool], None] | None" = None
+        # The activity window's grip -- the one part of it that takes the mouse -- while the
+        # window is shown, in the same 0-1000 space as the Stop region. The host reports it on
+        # show, hide, and every move, so a model click on it is refused rather than swallowed.
+        self._activity_grip_region: "tuple[float, float, float, float] | None" = None
 
     @property
     def status(self) -> MacOSPresentationStatus:
@@ -617,16 +622,28 @@ class MacOSPresentationController:
             self._last_render["status"] = caption
         return True
 
-    def blocks_point(self, point: tuple[float, float]) -> bool:
+    def blocking_surface(self, point: tuple[float, float]) -> "str | None":
+        """Which Yutori control a model input at this point (0-1000 space) would land on.
+
+        ``"stop"`` for the menu bar Stop item, ``"activity"`` for the activity window's grip,
+        None when the point reaches the desktop. The activity window's body ignores the mouse,
+        so only its grip can swallow a click.
+        """
         if not self._status.available:
-            return False
+            return None
         capabilities = self._status.capabilities
-        region = capabilities.stop_region if capabilities else None
-        if region is None:
-            return False
+        stop_region = capabilities.stop_region if capabilities else None
         x, y = point
-        left, top, width, height = region
-        return left <= x <= left + width and top <= y <= top + height
+        for name, region in (("stop", stop_region), ("activity", self._activity_grip_region)):
+            if region is None:
+                continue
+            left, top, width, height = region
+            if left <= x <= left + width and top <= y <= top + height:
+                return name
+        return None
+
+    def blocks_point(self, point: tuple[float, float]) -> bool:
+        return self.blocking_surface(point) is not None
 
     def _clear_action_labels(self) -> None:
         """Reset the capsule's action-status, terminal-command, and active-key labels.
@@ -838,6 +855,9 @@ class MacOSPresentationController:
                     return
                 if reply.get("event") == "stop":
                     self.cancellation.request("operator_stop")
+                    continue
+                if reply.get("event") == "activityGrip":
+                    self._activity_grip_region = _valid_region(reply.get("region"))
                     continue
                 if reply.get("event") == "previewDemand":
                     self._preview_demand = bool(reply.get("menuOpen")) or bool(reply.get("activityOpen"))
@@ -1161,7 +1181,7 @@ class MacOSPresentationController:
         if reply.get("protocol_version") != OVERLAY_PROTOCOL_VERSION:
             raise MacOSPresentationError("Overlay returned an incompatible protocol version.")
         width, height, scale = reply.get("width"), reply.get("height"), reply.get("backing_scale")
-        stop_region = _valid_stop_region(reply.get("stop_region"))
+        stop_region = _valid_region(reply.get("stop_region"))
         if not _positive_finite(width) or not _positive_finite(height) or not _positive_finite(scale):
             raise MacOSPresentationError("Overlay returned invalid viewport capabilities.")
         # The Stop control is a menu bar status item. Its frame comes back as `stop_region` so
