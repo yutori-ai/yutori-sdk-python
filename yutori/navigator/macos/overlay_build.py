@@ -261,6 +261,8 @@ def prepare_macos_overlay(
         "-framework",
         "QuartzCore",
         "-framework",
+        "ScreenCaptureKit",
+        "-framework",
         "WebKit",
         "-target",
         f"{architecture}-apple-macosx{OVERLAY_DEPLOYMENT_TARGET}",

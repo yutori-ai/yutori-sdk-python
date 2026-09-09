@@ -34,6 +34,8 @@ from .types import (
 _READY_TIMEOUT_SECONDS = 15
 _OPERATION_TIMEOUT_SECONDS = 5
 _ENCODE_TIMEOUT_SECONDS = 30
+# The host's own desktop capture: ScreenCaptureKit plus a PNG encode of a full Retina frame.
+_CAPTURE_TIMEOUT_SECONDS = 15
 _PROCESS_EXIT_TIMEOUT_SECONDS = 1
 _OVERLAY_LEAD_SECONDS = 0.15
 _SHELL_MINIMUM_DWELL_SECONDS = 0.9
@@ -472,11 +474,16 @@ class MacOSPresentationController:
         # the model's frame is one window and the user keeps working next to it.
         self._mode = mode
         self._title = title
-        # The panels opt out of screen capture, so a desktop frame has no Yutori drawing in it
-        # without hiding anything first. `verify_capture_exclusion` checks that this macOS honours
-        # the opt-out; until it says "excluded", every capture hides the overlay (the old path).
+        # Two ways to keep Yutori's drawing out of the model's frame without hiding it. True: the
+        # panels opt out of screen capture (`sharingType = .none`) and the frames come from the
+        # driver. False: the panels stay capturable, so screen recordings and screen shares of the
+        # run show them, and the desktop frames come from the host instead, which leaves its own
+        # windows out on the capturer's side (`capture_source == "overlay"`). Either way
+        # `verify_capture_exclusion` checks the mechanism on this Mac with a probe; until it says
+        # "excluded", every capture hides the overlay first (the old path).
         self._exclude_from_capture = exclude_from_capture
-        self._capture_exclusion = "unverified" if exclude_from_capture else "disabled"
+        self._capture_exclusion = "unverified"
+        self._capture_source = "driver"
         self._restore_native_cursor = restore_native_cursor
         self._status = MacOSPresentationStatus(requested, False, "unavailable", "current")
         self._process: "asyncio.subprocess.Process | None" = None
@@ -523,12 +530,24 @@ class MacOSPresentationController:
     def capture_exclusion(self) -> str:
         """How Yutori's drawing stays out of the frames the model sees.
 
-        ``"excluded"``: the panels' capture opt-out was verified on this Mac, so nothing is hidden
-        for a capture. ``"leaked"``: the probe showed up, so every capture hides the overlay first.
-        ``"unverified"`` (probe not run yet), ``"unverifiable"`` (the probe failed), and
-        ``"disabled"`` (``exclude_from_capture=False``) also hide the overlay for every capture.
+        ``"excluded"``: the mechanism (the panels' capture opt-out, or the host's filtered capture
+        when the overlay is recordable) was verified on this Mac, so nothing is hidden for a
+        capture. ``"leaked"``: the probe showed up, so every capture hides the overlay first.
+        ``"unverified"`` (probe not run yet) and ``"unverifiable"`` (the probe or the host's
+        capture failed) also hide the overlay for every capture.
         """
         return self._capture_exclusion
+
+    @property
+    def capture_source(self) -> str:
+        """Where the model's desktop frames come from.
+
+        ``"driver"``: the driver's desktop capture. ``"overlay"``: the host's own capture with
+        its windows left out by the capturer, so the overlay stays in screen recordings and
+        screen shares of the run; set once ``exclude_from_capture=False`` passes the probe, and
+        handed back to the driver (with hiding) if a capture ever fails.
+        """
+        return self._capture_source
 
     @property
     def preview_demand(self) -> bool:
@@ -740,13 +759,18 @@ class MacOSPresentationController:
     async def verify_capture_exclusion(self, capture: "Callable[[], Awaitable[tuple[bytes, int, int]]]") -> str:
         """Check on this Mac that the overlay's panels stay out of a desktop capture.
 
-        Shows the host's probe (a small checkerboard in a panel that, like the overlay, opts out of
-        screen capture), takes one frame through ``capture``, and looks for the pattern. Absent, the
-        overlay is left on screen for every later capture; present, or if anything goes wrong, each
-        capture keeps hiding the overlay first. Advisory: never degrades the presentation.
+        Shows the host's probe (a small checkerboard in a panel treated like the overlay), takes one
+        frame, and looks for the pattern. With ``exclude_from_capture=True`` the frame comes through
+        ``capture`` (the driver) and the probe opts out of capture like the panels; with ``False``
+        it comes from the host's own filtered capture, which then serves every later frame. Absent,
+        the overlay is left on screen for every later capture; present, or if anything goes wrong,
+        each capture keeps hiding the overlay first. Advisory: never degrades the presentation.
         """
-        if not self._status.available or self._mode == "status" or self._stopping or not self._exclude_from_capture:
+        if not self._status.available or self._mode == "status" or self._stopping:
             return self._capture_exclusion
+        mechanism = "sharing" if self._exclude_from_capture else "filter"
+        if not self._exclude_from_capture:
+            capture = self._capture_desktop_frame
         state, matches, error_type = "unverifiable", None, None
         try:
             reply = await self._send_command({"op": "captureProbe", "phase": "show"})
@@ -765,10 +789,57 @@ class MacOSPresentationController:
         except Exception as error:  # noqa: BLE001 - the probe is advisory; hiding stays the default
             error_type = type(error).__name__
         self._capture_exclusion = state
+        if mechanism == "filter" and state == "excluded":
+            self._capture_source = "overlay"
         self._telemetry.append(
-            {"type": "capture_exclusion", "state": state, "matches": matches, "error_type": error_type}
+            {
+                "type": "capture_exclusion",
+                "mechanism": mechanism,
+                "state": state,
+                "matches": matches,
+                "error_type": error_type,
+            }
         )
         return state
+
+    async def capture_desktop(self) -> "tuple[bytes, int, int] | None":
+        """The model's desktop frame from the host, or ``None`` when the driver has to take it.
+
+        Only while :attr:`capture_source` is ``"overlay"``. A failure hands the frames back to the
+        driver for the rest of the run, with the overlay hidden around each, rather than degrading
+        the presentation: the overlay keeps painting, and the run keeps going.
+        """
+        if self._capture_source != "overlay" or not self._status.available or self._stopping:
+            return None
+        try:
+            return await self._capture_desktop_frame()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - the driver's capture (with hiding) is the fallback
+            self._capture_source = "driver"
+            self._capture_exclusion = "unverifiable"
+            self._telemetry.append({"type": "capture_source", "source": "driver", "error_type": type(error).__name__})
+            return None
+
+    async def _capture_desktop_frame(self) -> tuple[bytes, int, int]:
+        """One desktop frame from the host, checked to be the same shape as the driver's."""
+        reply = await self._send_command({"op": "captureDesktop"}, timeout=_CAPTURE_TIMEOUT_SECONDS)
+        frame = reply.get("frame")
+        if not isinstance(frame, dict):
+            raise MacOSPresentationError("Overlay desktop capture returned no frame.")
+        png_bytes = base64.b64decode(frame.get("data") or "", validate=True)
+        if not png_bytes:
+            raise MacOSPresentationError("Overlay desktop capture returned empty data.")
+        with Image.open(io.BytesIO(png_bytes)) as image:
+            width, height = image.size
+        if (width, height) != (frame.get("width"), frame.get("height")):
+            raise MacOSPresentationError("Overlay desktop capture reported a different size than its frame.")
+        if (width, height) != (self.native_width, self.native_height):
+            raise MacOSPresentationError(
+                f"Overlay desktop capture is {width}x{height}; the driver's frame is "
+                f"{self.native_width}x{self.native_height}."
+            )
+        return png_bytes, width, height
 
     @_fail_soft("capture_hide_failed", False)
     async def before_capture(self, capture_id: int) -> bool:
