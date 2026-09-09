@@ -15,10 +15,16 @@ private let activityDotFontPoints: CGFloat = 6
 private let thumbnailWidthPoints: CGFloat = 360
 private let thumbnailMaxHeightPoints: CGFloat = 420
 private let thumbnailInsetPoints: CGFloat = 12
-// Status mode: the floating activity window -- the driven window's live frame above the
-// conversation with the model -- opens at this size and is resizable from there.
+// The floating activity window -- the driven window's live frame above the conversation
+// with the model -- is two panels of this width: a grip strip on top, the only part that
+// takes the mouse (drag, close), and the page below it, which lets every click through.
 private let activityWidthPoints: CGFloat = 520
 private let activityHeightPoints: CGFloat = 720
+private let activityGripHeightPoints: CGFloat = 28
+private let activityCornerRadius: CGFloat = 10
+private let activityGripBackground = NSColor(srgbRed: 0x11 / 255, green: 0x1a / 255, blue: 0x2e / 255, alpha: 1)
+private let activityGripText = NSColor(srgbRed: 0xe2 / 255, green: 0xe8 / 255, blue: 0xf0 / 255, alpha: 1)
+private let activityGripMuted = NSColor(srgbRed: 0x94 / 255, green: 0xa3 / 255, blue: 0xb8 / 255, alpha: 1)
 // The capture-exclusion probe: a small checkerboard shown in its own panel for one desktop
 // capture at start. Its size and inset in points; `probeCells` cells per side.
 private let probeSizePoints: CGFloat = 32
@@ -55,11 +61,10 @@ private func yutoriMarkGlyph() -> CGPath {
     return path
 }
 
-/// A template image of the Yutori mark, filled, so it takes the menu bar's light or dark tint
-/// like the system status items around it.
-private func stopMenuBarIcon() -> NSImage {
+/// The Yutori mark filled in one colour at the given size.
+private func yutoriMarkImage(points: CGFloat, color: NSColor) -> NSImage {
     let glyph = yutoriMarkGlyph()
-    let image = NSImage(size: NSSize(width: menuBarIconPoints, height: menuBarIconPoints), flipped: true) { rect in
+    return NSImage(size: NSSize(width: points, height: points), flipped: true) { rect in
         guard let context = NSGraphicsContext.current?.cgContext else { return false }
         let scale = min(rect.width / yutoriMarkViewBox.width, rect.height / yutoriMarkViewBox.height)
         context.translateBy(
@@ -69,10 +74,16 @@ private func stopMenuBarIcon() -> NSImage {
         context.scaleBy(x: scale, y: scale)
         context.translateBy(x: -yutoriMarkViewBox.minX, y: -yutoriMarkViewBox.minY)
         context.addPath(glyph)
-        context.setFillColor(NSColor.black.cgColor)
+        context.setFillColor(color.cgColor)
         context.fillPath()
         return true
     }
+}
+
+/// A template image of the Yutori mark, filled, so it takes the menu bar's light or dark tint
+/// like the system status items around it.
+private func stopMenuBarIcon() -> NSImage {
+    let image = yutoriMarkImage(points: menuBarIconPoints, color: .black)
     image.isTemplate = true
     image.accessibilityDescription = "Yutori n2 is controlling this Mac"
     return image
@@ -146,6 +157,52 @@ private final class ProbeCheckerView: NSView {
     }
 }
 
+/// The activity window's grip: the page's near-black surface with the top corners rounded,
+/// the Yutori mark, and the title, drawn rather than laid out as subviews so a mouse-down
+/// anywhere but the close button drags the window (`isMovableByWindowBackground`).
+private final class ActivityGripView: NSView {
+    private let mark = yutoriMarkImage(points: 14, color: activityGripMuted)
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath()
+        let radius = activityCornerRadius
+        // Rounded at the top only: the page continues flush below.
+        shape.move(to: NSPoint(x: bounds.minX, y: bounds.minY))
+        shape.line(to: NSPoint(x: bounds.minX, y: bounds.maxY - radius))
+        shape.appendArc(
+            withCenter: NSPoint(x: bounds.minX + radius, y: bounds.maxY - radius),
+            radius: radius, startAngle: 180, endAngle: 90, clockwise: true
+        )
+        shape.line(to: NSPoint(x: bounds.maxX - radius, y: bounds.maxY))
+        shape.appendArc(
+            withCenter: NSPoint(x: bounds.maxX - radius, y: bounds.maxY - radius),
+            radius: radius, startAngle: 90, endAngle: 0, clockwise: true
+        )
+        shape.line(to: NSPoint(x: bounds.maxX, y: bounds.minY))
+        shape.close()
+        activityGripBackground.setFill()
+        shape.fill()
+        NSColor(white: 1, alpha: 0.08).setFill()
+        NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1).fill()
+
+        let markSize = mark.size
+        mark.draw(
+            in: NSRect(x: 12, y: (bounds.height - markSize.height) / 2, width: markSize.width, height: markSize.height)
+        )
+        let title = NSAttributedString(
+            string: "Yutori n2 activity",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: activityGripText,
+            ]
+        )
+        let titleSize = title.size()
+        title.draw(at: NSPoint(x: 12 + markSize.width + 8, y: (bounds.height - titleSize.height) / 2))
+    }
+}
+
 private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let htmlURL: URL
     private let config: OverlayConfig
@@ -163,7 +220,10 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // streams frames for in status mode (the menu is open, or the activity window is shown).
     private var statusMenu: NSMenu?
     private var activityItem: NSMenuItem?
+    // The grip (title strip: drag and close) is the parent; the page is its child window,
+    // ordered below, so it follows a drag while ignoring the mouse itself.
     private var activityPanel: NSPanel?
+    private var activityBodyPanel: NSPanel?
     private var activityWebView: WKWebView?
     private var activityReady = false
     // Rows and frames that arrived while the activity page was still loading, replayed in
@@ -400,38 +460,111 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// The activity window: the live frame of the driven window above the conversation with
     /// the model. It is built up front, hidden, so the transcript starts at the first step
     /// no matter when the operator opens it.
+    ///
+    /// Two panels. The body carries the page and ignores the mouse entirely: it floats over
+    /// whatever the operator (a foreground run) or the model (its clicks are posted to the
+    /// desktop) is working on, and a click there has to reach that, not the transcript. The
+    /// grip above it -- the mark, the title, and a close button -- is the one part that takes
+    /// the mouse: dragging it moves both, because the body is its child window, and its frame
+    /// goes to the Python side (`activityGrip` events) so model clicks on it are refused the
+    /// way clicks on the Stop item are. Neither panel ever takes focus.
     private func createActivityPanel() {
         guard let activityHtml = config.activityHtml else { return }
         let url = URL(fileURLWithPath: activityHtml).standardizedFileURL
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: activityWidthPoints, height: activityHeightPoints),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+        let grip = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: activityWidthPoints, height: activityGripHeightPoints),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        // Its own short title: the menu's sentence-length one is for the menu bar item.
-        panel.title = "Yutori n2 activity"
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        // The transcript scrolls, so dragging inside it must not drag the window.
-        panel.isMovableByWindowBackground = false
-        panel.isReleasedWhenClosed = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.sharingType = sharing
-        panel.delegate = self
-        let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
+        // Its own short title, for the window list: the menu's sentence-length one is for the
+        // menu bar item. Borderless, so the grip view draws it.
+        grip.title = "Yutori n2 activity"
+        grip.backgroundColor = .clear
+        grip.isOpaque = false
+        grip.hasShadow = false
+        grip.level = .floating
+        grip.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        grip.hidesOnDeactivate = false
+        grip.isMovableByWindowBackground = true
+        grip.isReleasedWhenClosed = false
+        grip.becomesKeyOnlyIfNeeded = true
+        grip.sharingType = sharing
+        grip.delegate = self
+        let gripView = ActivityGripView(frame: NSRect(origin: .zero, size: grip.frame.size))
+        let close = NSButton(
+            image: closeGlyph(),
+            target: self,
+            action: #selector(hideActivityFromGrip)
+        )
+        close.isBordered = false
+        close.imagePosition = .imageOnly
+        close.contentTintColor = activityGripMuted
+        close.toolTip = "Hide activity"
+        close.setAccessibilityLabel("Hide activity")
+        close.frame = NSRect(
+            x: gripView.bounds.maxX - 30,
+            y: (gripView.bounds.height - 20) / 2,
+            width: 20,
+            height: 20
+        )
+        close.autoresizingMask = [.minXMargin]
+        gripView.addSubview(close)
+        grip.contentView = gripView
+
+        let body = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: activityWidthPoints, height: activityHeightPoints),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        body.backgroundColor = .clear
+        body.isOpaque = false
+        body.hasShadow = true
+        body.level = .floating
+        body.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        body.hidesOnDeactivate = false
+        body.ignoresMouseEvents = true
+        body.isReleasedWhenClosed = false
+        body.sharingType = sharing
+        let webView = WKWebView(frame: body.contentView?.bounds ?? .zero)
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
-        panel.contentView = webView
+        webView.wantsLayer = true
+        webView.layer?.cornerRadius = activityCornerRadius
+        webView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        webView.layer?.masksToBounds = true
+        body.contentView = webView
         if let screen = captureScreen() {
             // Top-left, because the shell rail owns the top-right corner and floats above this.
             let visible = screen.visibleFrame
-            panel.setFrameTopLeftPoint(NSPoint(x: visible.minX + 16, y: visible.maxY - 16))
+            grip.setFrameTopLeftPoint(NSPoint(x: visible.minX + 16, y: visible.maxY - 16))
         }
-        activityPanel = panel
+        // Flush under the grip; the child offset is fixed from here on.
+        body.setFrameTopLeftPoint(NSPoint(x: grip.frame.minX, y: grip.frame.minY))
+        grip.addChildWindow(body, ordered: .below)
+        activityPanel = grip
+        activityBodyPanel = body
         activityWebView = webView
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+    }
+
+    private func closeGlyph() -> NSImage {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        let symbol = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Hide activity")
+        return symbol?.withSymbolConfiguration(configuration) ?? NSImage()
+    }
+
+    @objc private func hideActivityFromGrip() {
+        hideActivity()
+    }
+
+    /// Both panels on screen, the body under the grip. Ordering the grip alone is not enough
+    /// after an `orderOut`, and ordering the body front would put it above its parent.
+    private func orderActivityFront() {
+        guard let activityPanel else { return }
+        activityPanel.orderFrontRegardless()
+        activityBodyPanel?.order(.below, relativeTo: activityPanel.windowNumber)
     }
 
     /// The menu's one line about the latest step; the activity window keeps the history.
@@ -464,20 +597,41 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     private func showActivity() {
-        guard let panel = activityPanel else { return }
-        panel.orderFrontRegardless()
+        guard activityPanel != nil else { return }
+        orderActivityFront()
         activityShown = true
         activityItem?.title = "Hide activity"
         syncRailVisibility()
         emitPreviewDemand()
+        emitActivityGrip()
     }
 
     private func hideActivity() {
         activityPanel?.orderOut(nil)
+        activityBodyPanel?.orderOut(nil)
         activityShown = false
         activityItem?.title = "Show activity"
         syncRailVisibility()
         emitPreviewDemand()
+        emitActivityGrip()
+    }
+
+    /// Where the grip is, so the Python side refuses model clicks on it: its frame in the
+    /// overlay's normalized 0-1000 space while the window is shown, null otherwise. Sent on
+    /// show, hide, and every move of a drag. The body needs no such report: it ignores the
+    /// mouse, so a click there lands on the desktop as intended.
+    private func emitActivityGrip() {
+        var region: Any = NSNull()
+        if activityShown, let frame = activityPanel?.frame, let screen = self.screen ?? captureScreen(),
+           let normalized = normalizedRegion(frame, on: screen) {
+            region = normalized
+        }
+        writeJSON(["event": "activityGrip", "region": region])
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard let moved = notification.object as? NSPanel, moved === activityPanel, activityShown else { return }
+        emitActivityGrip()
     }
 
     /// Send one call to the activity page, or hold it until the page finishes loading.
@@ -501,14 +655,6 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         let calls = pendingActivity
         pendingActivity = []
         for (function, payload) in calls { callActivity(function, payload) }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        guard let closing = notification.object as? NSPanel, closing === activityPanel else { return }
-        activityShown = false
-        activityItem?.title = "Show activity"
-        syncRailVisibility()
-        emitPreviewDemand()
     }
 
     /// A streamed frame: refresh the menu thumbnail and the activity window, leave the caption alone.
@@ -547,7 +693,13 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// clipped to the screen rather than required to sit inside it.
     private func stopItemRegion(on screen: NSScreen) -> [String: Double]? {
         guard let itemFrame = stopItem?.button?.window?.frame else { return nil }
-        let frame = itemFrame.intersection(screen.frame)
+        return normalizedRegion(itemFrame, on: screen)
+    }
+
+    /// A window frame in the overlay's normalized 0-1000 space, top-left origin, clipped to
+    /// the screen; nil when none of it is on this screen.
+    private func normalizedRegion(_ windowFrame: NSRect, on screen: NSScreen) -> [String: Double]? {
+        let frame = windowFrame.intersection(screen.frame)
         guard !frame.isEmpty else { return nil }
         // Some Swift/CoreFoundation combinations expose both CGFloat and Double arithmetic
         // candidates here. Convert before scaling so the dictionary's Double value type does
@@ -972,8 +1124,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         // capture is the whole desktop, so anything Yutori drew has to be out of the frame.
         // This is the fallback for a macOS that captures panels despite `sharingType = .none`;
         // otherwise the Python side never asks for it.
-        let windows = [panel, activityShown ? activityPanel : nil].compactMap { $0 }
-        if visible { windows.forEach { $0.orderFrontRegardless() } }
+        let windows = [panel, activityShown ? activityPanel : nil, activityShown ? activityBodyPanel : nil].compactMap { $0 }
+        if visible {
+            panel?.orderFrontRegardless()
+            if activityShown { orderActivityFront() }
+        }
         let effectiveDuration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = effectiveDuration
@@ -1034,10 +1189,16 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         stopItem = nil
         if let activityPanel {
             activityPanel.delegate = nil
+            if let activityBodyPanel { activityPanel.removeChildWindow(activityBodyPanel) }
             activityPanel.orderOut(nil)
             activityPanel.close()
         }
+        if let activityBodyPanel {
+            activityBodyPanel.orderOut(nil)
+            activityBodyPanel.close()
+        }
         activityPanel = nil
+        activityBodyPanel = nil
         activityWebView = nil
         railWebView = nil
         [panel, railPanel, probePanel].compactMap { $0 }.forEach {
