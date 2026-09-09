@@ -593,18 +593,14 @@ class MacOSPresentationController:
                         },
                     }
                 )
-            armed = await self._send_command({"op": "arm"})
-            if armed.get("state") != "armed":
-                raise MacOSPresentationError("Overlay did not arm.")
+            await self._send_command_expecting({"op": "arm"}, "armed", "Overlay did not arm.")
             self._status = replace(self._status, state="armed")
         except BaseException:
             await self._terminate_process()
             raise
 
     async def reveal(self) -> None:
-        reply = await self._send_command({"op": "reveal"})
-        if reply.get("state") != "visible":
-            raise MacOSPresentationError("Overlay did not reveal.")
+        await self._send_command_expecting({"op": "reveal"}, "visible", "Overlay did not reveal.")
         cursor = "hidden" if self._mode == "status" else "yutori"
         self._status = replace(self._status, available=True, state="active", cursor=cursor)
 
@@ -616,9 +612,7 @@ class MacOSPresentationController:
         command: dict[str, Any] = {"op": "thumbnail", "data": base64.b64encode(image_bytes).decode("ascii")}
         if caption is not None:
             command["caption"] = caption
-        reply = await self._send_command(command)
-        if reply.get("state") != "shown":
-            raise MacOSPresentationError("Status item did not show the thumbnail.")
+        await self._send_command_expecting(command, "shown", "Status item did not show the thumbnail.")
         if caption is not None:
             self._last_render["status"] = caption
         return True
@@ -714,9 +708,9 @@ class MacOSPresentationController:
         text = _status_line(event)
         if text is not None and self._last_render.get("status") != text:
             self._last_render["status"] = text
-            reply = await self._send_command({"op": "status", "text": text})
-            if reply.get("state") != "shown":
-                raise MacOSPresentationError("Status item did not accept the caption.")
+            await self._send_command_expecting(
+                {"op": "status", "text": text}, "shown", "Status item did not accept the caption."
+            )
 
     async def _present_transcript(self, event: dict[str, Any]) -> None:
         """Append this event to the activity window's conversation, if it has a row to show."""
@@ -766,9 +760,13 @@ class MacOSPresentationController:
         if capture_id <= self._capture_id:
             raise MacOSPresentationError("Capture IDs must increase monotonically.")
         self._capture_id = capture_id
-        reply = await self._send_command({"op": "captureHide", "capture_id": capture_id})
-        if reply.get("capture_id") != capture_id or reply.get("state") != "hidden":
-            raise MacOSPresentationError("Overlay did not hide for capture.")
+        await self._send_command_expecting(
+            {"op": "captureHide", "capture_id": capture_id},
+            "hidden",
+            "Overlay did not hide for capture.",
+            echo_key="capture_id",
+            echo_value=capture_id,
+        )
         return True
 
     @_fail_soft("capture_reveal_failed", False)
@@ -776,9 +774,13 @@ class MacOSPresentationController:
         if not self._status.available or capture_id != self._capture_id:
             return False
         self._validate_capture_geometry(width, height)
-        reply = await self._send_command({"op": "captureReveal", "capture_id": capture_id})
-        if reply.get("capture_id") != capture_id or reply.get("state") != "visible":
-            raise MacOSPresentationError("Overlay did not reveal after capture.")
+        await self._send_command_expecting(
+            {"op": "captureReveal", "capture_id": capture_id},
+            "visible",
+            "Overlay did not reveal after capture.",
+            echo_key="capture_id",
+            echo_value=capture_id,
+        )
         return True
 
     @_fail_soft("encoder_failed", None)  # Pillow JPEG remains available
@@ -936,6 +938,27 @@ class MacOSPresentationController:
         allow_stopping: bool = False,
     ) -> dict[str, Any]:
         return await self._send_envelope({"command": command}, timeout=timeout, allow_stopping=allow_stopping)
+
+    async def _send_command_expecting(
+        self,
+        command: dict[str, Any],
+        expected_state: str,
+        error_message: str,
+        *,
+        echo_key: "str | None" = None,
+        echo_value: Any = None,
+        timeout: float = _OPERATION_TIMEOUT_SECONDS,
+        allow_stopping: bool = False,
+    ) -> dict[str, Any]:
+        """Send `command` and raise `error_message` unless the reply's `state` is `expected_state`.
+
+        If `echo_key` is given, the reply must also echo `echo_value` under that key (used by the
+        capture ops to confirm the reply matches the `capture_id` just sent, not a stale one).
+        """
+        reply = await self._send_command(command, timeout=timeout, allow_stopping=allow_stopping)
+        if reply.get("state") != expected_state or (echo_key is not None and reply.get(echo_key) != echo_value):
+            raise MacOSPresentationError(error_message)
+        return reply
 
     async def _render_capsule(self) -> None:
         if self._queue_active:
