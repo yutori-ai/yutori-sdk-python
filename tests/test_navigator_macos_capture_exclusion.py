@@ -52,13 +52,22 @@ def _controller(**kwargs) -> MacOSPresentationController:
     return controller
 
 
-class _Host:
-    """A fake overlay host that records commands and answers the probe and the hide/reveal pair."""
+def _frame_reply(frame: bytes, **overrides) -> dict:
+    """The host's `captureDesktop` reply for a frame."""
+    with Image.open(io.BytesIO(frame)) as image:
+        width, height = image.size
+    return {"frame": {"data": base64.b64encode(frame).decode("ascii"), "width": width, "height": height, **overrides}}
 
-    def __init__(self, probe=PROBE_REPLY, show_state: str = "shown") -> None:
+
+class _Host:
+    """A fake overlay host that records commands and answers the probe, the hide/reveal pair, and captures."""
+
+    def __init__(self, probe=PROBE_REPLY, show_state: str = "shown", desktop=None) -> None:
         self.commands: list[dict] = []
         self.probe = probe
         self.show_state = show_state
+        # What `captureDesktop` answers: a reply dict, or an exception to raise.
+        self.desktop = desktop if desktop is not None else _frame_reply(_frame(False))
 
     async def __call__(self, command, **_kwargs):
         self.commands.append(command)
@@ -66,6 +75,10 @@ class _Host:
             if command["phase"] == "show":
                 return {"state": self.show_state, "probe": self.probe}
             return {"state": "hidden"}
+        if command["op"] == "captureDesktop":
+            if isinstance(self.desktop, Exception):
+                raise self.desktop
+            return self.desktop
         if command["op"] == "captureHide":
             return {"capture_id": command["capture_id"], "state": "hidden"}
         if command["op"] == "captureReveal":
@@ -125,8 +138,12 @@ async def test_verified_exclusion_skips_the_capture_hide(monkeypatch):
     assert await controller.before_capture(1) is False
     assert ("captureHide", None) not in host.ops
     assert controller.status.available and controller.status.state == "active"
+    assert controller.capture_source == "driver"
+    assert await controller.capture_desktop() is None
+    assert ("captureDesktop", None) not in host.ops
     assert controller.telemetry[-1] == {
         "type": "capture_exclusion",
+        "mechanism": "sharing",
         "state": "excluded",
         "matches": 0,
         "error_type": None,
@@ -161,6 +178,7 @@ async def test_a_failing_probe_is_advisory_and_still_hides_the_probe_panel(monke
     assert controller.status.available and controller.status.degradation_reason is None
     assert controller.telemetry[-1] == {
         "type": "capture_exclusion",
+        "mechanism": "sharing",
         "state": "unverifiable",
         "matches": None,
         "error_type": "RuntimeError",
@@ -187,21 +205,98 @@ async def test_probe_replies_without_geometry_or_with_a_mismatched_frame_are_unv
     assert host.ops == [("captureProbe", "show"), ("captureProbe", "hide")]
 
 
-async def test_status_mode_and_a_capturable_overlay_never_probe(monkeypatch):
+async def test_status_mode_never_probes(monkeypatch):
     status = _controller(mode="status")
     host = _Host()
     monkeypatch.setattr(status, "_send_command", host)
     assert await status.verify_capture_exclusion(await _capture_of(_frame(False))) == "unverified"
     assert host.ops == []
+    assert await status.capture_desktop() is None
 
-    capturable = _controller(exclude_from_capture=False)
+
+async def _driver_capture_never_called():
+    raise AssertionError("a recordable overlay probes through the host's capture, not the driver's")
+
+
+async def test_a_recordable_overlay_verifies_the_host_filter_and_then_serves_the_frames(monkeypatch):
+    controller = _controller(exclude_from_capture=False)
     host = _Host()
-    monkeypatch.setattr(capturable, "_send_command", host)
-    assert capturable.capture_exclusion == "disabled"
-    assert await capturable.verify_capture_exclusion(await _capture_of(_frame(False))) == "disabled"
-    assert host.ops == []
-    assert await capturable.before_capture(1) is True
-    assert host.ops == [("captureHide", None)]
+    monkeypatch.setattr(controller, "_send_command", host)
+    assert controller.capture_exclusion == "unverified" and controller.capture_source == "driver"
+
+    assert await controller.verify_capture_exclusion(_driver_capture_never_called) == "excluded"
+
+    assert host.ops == [("captureProbe", "show"), ("captureDesktop", None), ("captureProbe", "hide")]
+    assert controller.capture_source == "overlay"
+    assert controller.telemetry[-1] == {
+        "type": "capture_exclusion",
+        "mechanism": "filter",
+        "state": "excluded",
+        "matches": 0,
+        "error_type": None,
+    }
+    # From here on the frames come from the host and nothing is hidden.
+    frame = await controller.capture_desktop()
+    assert frame is not None and frame[1:] == (2000, 1200) and frame[0] == _frame(False)
+    assert await controller.before_capture(1) is False
+    assert ("captureHide", None) not in host.ops
+
+
+async def test_a_host_filter_that_leaks_the_probe_leaves_the_frames_to_the_driver(monkeypatch):
+    controller = _controller(exclude_from_capture=False)
+    host = _Host(desktop=_frame_reply(_frame(True)))
+    monkeypatch.setattr(controller, "_send_command", host)
+
+    assert await controller.verify_capture_exclusion(_driver_capture_never_called) == "leaked"
+
+    assert controller.capture_source == "driver"
+    assert controller.telemetry[-1]["mechanism"] == "filter" and controller.telemetry[-1]["matches"] == 16
+    assert await controller.capture_desktop() is None
+    assert await controller.before_capture(1) is True
+    assert host.ops[-1] == ("captureHide", None)
+
+
+async def test_a_failing_host_capture_hands_the_frames_back_to_the_driver_without_degrading(monkeypatch):
+    controller = _controller(exclude_from_capture=False)
+    host = _Host()
+    monkeypatch.setattr(controller, "_send_command", host)
+    assert await controller.verify_capture_exclusion(_driver_capture_never_called) == "excluded"
+
+    host.desktop = RuntimeError("screen recording permission revoked")
+    assert await controller.capture_desktop() is None
+
+    assert controller.capture_source == "driver"
+    assert controller.capture_exclusion == "unverifiable"
+    assert controller.status.available and controller.status.state == "active"
+    assert controller.telemetry[-1] == {"type": "capture_source", "source": "driver", "error_type": "RuntimeError"}
+    # Not asked again, and the old path is back: hide, capture through the driver, reveal.
+    host.desktop = _frame_reply(_frame(False))
+    assert await controller.capture_desktop() is None
+    assert host.ops.count(("captureDesktop", None)) == 2
+    assert await controller.before_capture(1) is True
+    assert await controller.after_capture(1, 2000, 1200) is True
+
+
+async def test_host_frames_of_another_shape_or_with_a_wrong_size_are_refused(monkeypatch):
+    # A frame that is not the driver's shape would break the model's coordinates.
+    controller = _controller(exclude_from_capture=False)
+    host = _Host(desktop=_frame_reply(_frame(False, size=(1000, 600))))
+    monkeypatch.setattr(controller, "_send_command", host)
+    assert await controller.verify_capture_exclusion(_driver_capture_never_called) == "unverifiable"
+    assert controller.telemetry[-1]["error_type"] == "MacOSPresentationError"
+    assert controller.capture_source == "driver"
+
+    for desktop in (
+        _frame_reply(_frame(False), width=1999),
+        {"frame": {"data": "", "width": 2000, "height": 1200}},
+        {"frame": "nope"},
+        {},
+    ):
+        controller = _controller(exclude_from_capture=False)
+        host = _Host(desktop=desktop)
+        monkeypatch.setattr(controller, "_send_command", host)
+        assert await controller.verify_capture_exclusion(_driver_capture_never_called) == "unverifiable", desktop
+        assert host.ops[-1] == ("captureProbe", "hide")
 
 
 class _DesktopTransport:
@@ -237,6 +332,10 @@ class _FakeController:
         self.kwargs = kwargs
         self.captures: list[tuple[bytes, int, int]] = []
         self.capture_exclusion = "unverified"
+        self.capture_source = "driver"
+        # What `capture_desktop` answers while the source is the overlay; None hands back to the driver.
+        self.host_frame: "tuple[bytes, int, int] | None" = (_frame(False), 2000, 1200)
+        self.host_captures = 0
         self.status = MacOSPresentationStatus(True, True, "active", "yutori")
         self.telemetry: tuple[dict, ...] = ()
         self.hides = 0
@@ -246,9 +345,21 @@ class _FakeController:
         pass
 
     async def verify_capture_exclusion(self, capture) -> str:
-        self.captures.append(await capture())
+        if self.kwargs["exclude_from_capture"]:
+            self.captures.append(await capture())
+        else:
+            self.capture_source = "overlay"
         self.capture_exclusion = "excluded"
         return self.capture_exclusion
+
+    async def capture_desktop(self):
+        if self.capture_source != "overlay":
+            return None
+        self.host_captures += 1
+        if self.host_frame is None:
+            self.capture_source = "driver"
+            self.capture_exclusion = "unverifiable"
+        return self.host_frame
 
     async def reveal(self) -> None:
         pass
@@ -258,7 +369,7 @@ class _FakeController:
 
     async def before_capture(self, _capture_id: int) -> bool:
         self.hides += 1
-        return False
+        return self.capture_exclusion != "excluded"
 
     async def after_capture(self, *_args) -> bool:
         return False
@@ -287,8 +398,32 @@ async def test_computer_verifies_exclusion_with_a_desktop_frame_before_revealing
         await computer.screenshot()
         assert controller.hides == 1
 
+
+async def test_a_recordable_overlay_serves_the_frames_and_the_driver_takes_over_when_it_cannot(monkeypatch):
     _FakeController.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeController)
+    transport = _DesktopTransport()
     async with MacOSComputer(
-        _DesktopTransport(), owns_transport=False, presentation=True, exclude_overlay_from_capture=False
-    ):
-        assert _FakeController.instances[-1].kwargs["exclude_from_capture"] is False
+        transport, owns_transport=False, presentation=True, exclude_overlay_from_capture=False
+    ) as computer:
+        controller = _FakeController.instances[-1]
+        assert controller.kwargs["exclude_from_capture"] is False
+        # The first frame is the driver's, before the overlay exists; the probe did not need another.
+        assert transport.calls.count("get_desktop_state") == 1 and controller.captures == []
+        assert controller.capture_source == "overlay"
+
+        observation = await computer.screenshot()
+        assert (observation.native_width, observation.native_height) == (2000, 1200)
+        assert controller.host_captures == 1 and transport.calls.count("get_desktop_state") == 1
+        await computer.screenshot()
+        assert controller.host_captures == 2 and transport.calls.count("get_desktop_state") == 1
+        assert controller.hides == 0
+
+        controller.host_frame = None
+        await computer.screenshot()
+        # The host could not: this frame and the next come from the driver, hidden around each.
+        assert controller.host_captures == 3 and transport.calls.count("get_desktop_state") == 2
+        assert controller.hides == 1 and controller.capture_source == "driver"
+        await computer.screenshot()
+        assert controller.host_captures == 3 and transport.calls.count("get_desktop_state") == 3
+        assert controller.hides == 2

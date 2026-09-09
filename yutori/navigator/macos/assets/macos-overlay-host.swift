@@ -1,7 +1,10 @@
 import AppKit
 import Carbon.HIToolbox
 import CoreVideo
+import ImageIO
 import QuartzCore
+import ScreenCaptureKit
+import UniformTypeIdentifiers
 import WebKit
 
 private let overlayProtocolVersion = 2
@@ -118,6 +121,32 @@ private func captureScreen() -> NSScreen? {
     return match ?? NSScreen.main
 }
 
+private enum DesktopCaptureError: LocalizedError {
+    case displayUnavailable
+    case selfNotShareable
+
+    var errorDescription: String? {
+        switch self {
+        case .displayUnavailable: return "The captured display is not shareable."
+        case .selfNotShareable: return "The overlay's windows are not listed as shareable content."
+        }
+    }
+}
+
+/// PNG bytes of a captured frame. No PNG filtering: the frame is transient and decoded once, so
+/// a fast encode matters more than its size on the pipe.
+private func pngData(_ image: CGImage) -> Data? {
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+        return nil
+    }
+    let properties: [CFString: Any] = [
+        kCGImagePropertyPNGDictionary: [kCGImagePropertyPNGCompressionFilter: 0],
+    ]
+    CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+    return CGImageDestinationFinalize(destination) ? data as Data : nil
+}
+
 private func writeJSON(_ value: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
     FileHandle.standardOutput.write(data)
@@ -137,7 +166,9 @@ private struct OverlayConfig: Decodable {
     let activityHtml: String?
     // Whether the panels opt out of screen capture (`NSWindow.sharingType = .none`), so a desktop
     // screenshot has no Yutori drawing in it without hiding anything first. Absent means yes;
-    // false keeps them capturable (for recording a run) and every capture hides them instead.
+    // false keeps them capturable (screen recordings and screen shares of the run show them) and
+    // the Python side takes the model's desktop frames through `captureDesktop`, which filters
+    // this process's windows out on the capturer's side instead.
     let excludeFromCapture: Bool?
 }
 
@@ -237,6 +268,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private var railPanel: NSPanel?
     // The capture-exclusion probe (see `captureProbe`), alive only between its show and hide.
     private var probePanel: NSPanel?
+    // The display filter `captureDesktop` reuses: the captured display minus this process's
+    // windows. Dropped after a failed capture so the next one rebuilds it from fresh content.
+    private var captureFilter: SCContentFilter?
     private var railWebView: WKWebView?
     private var railReady = false
     private var pendingRail: [String: Any]?
@@ -260,8 +294,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     /// Every panel Yutori draws opts out of screen capture unless the caller wants a recordable
-    /// run. The Python side checks with a probe that this macOS honours the opt-out, and hides
-    /// the panels around every capture (`captureHide`/`captureReveal`) when it does not.
+    /// run, in which case the model's frames come from `captureDesktop` with the panels filtered
+    /// out by the capturer. The Python side checks either mechanism with a probe, and hides the
+    /// panels around every capture (`captureHide`/`captureReveal`) when the check fails.
     private var sharing: NSWindow.SharingType {
         config.excludeFromCapture == false ? .readOnly : .none
     }
@@ -773,8 +808,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             "backing_scale": screen.backingScaleFactor,
             "hotkey": hotkeyAvailable,
             "capabilities": activityWebView == nil
-                ? ["capture", "encode", "shell_commands", "stop"]
-                : ["capture", "encode", "shell_commands", "stop", "transcript"],
+                ? ["capture", "desktop_capture", "encode", "shell_commands", "stop"]
+                : ["capture", "desktop_capture", "encode", "shell_commands", "stop", "transcript"],
         ]
         if stopItem != nil {
             ready["stop_control"] = "menu_bar"
@@ -915,6 +950,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         case "captureProbe":
             guard let phase = command["phase"] as? String else { return fail(id, "Missing probe phase.") }
             captureProbe(id: id, phase: phase)
+        case "captureDesktop":
+            captureDesktop(id: id)
         case "pulse":
             guard let point = command["point"] as? [String: Any] else { return fail(id, "Missing pulse point.") }
             callJavaScript(id: id, body: "return window.__n2OverlayPulse(point)", arguments: ["point": point])
@@ -1055,6 +1092,65 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         default:
             fail(id, "Unknown probe phase.")
         }
+    }
+
+    // MARK: Desktop capture
+
+    /// One frame of the captured display with every window of this process left out by the
+    /// capturer (`SCContentFilter(display:excludingApplications:)`), so the panels can stay
+    /// capturable -- visible in screen recordings and screen shares of the run -- while the
+    /// model's frame still carries no Yutori drawing. Same shape as the driver's frame: the main
+    /// display at native pixels, without the cursor. The reply carries the PNG and its pixel size.
+    private func captureDesktop(id: Int) {
+        guard !statusMode, screen != nil else { return fail(id, "Desktop capture needs the overlay display.") }
+        Task { @MainActor in
+            do {
+                let filter = try await self.desktopCaptureFilter()
+                let configuration = SCStreamConfiguration()
+                let scale = CGFloat(filter.pointPixelScale)
+                configuration.width = Int((filter.contentRect.width * scale).rounded())
+                configuration.height = Int((filter.contentRect.height * scale).rounded())
+                configuration.showsCursor = false
+                configuration.captureResolution = .best
+                let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+                // PNG encoding of a full Retina frame is the slow part; keep it off the main thread
+                // so the overlay keeps animating.
+                guard let png = await Task.detached(operation: { pngData(image) }).value else {
+                    return self.fail(id, "Desktop frame could not be encoded.")
+                }
+                writeJSON([
+                    "id": id,
+                    "ok": true,
+                    "frame": ["data": png.base64EncodedString(), "width": image.width, "height": image.height],
+                ])
+            } catch {
+                self.captureFilter = nil
+                self.fail(id, "Desktop capture failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func desktopCaptureFilter() async throws -> SCContentFilter {
+        if let captureFilter { return captureFilter }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let displayID = CGMainDisplayID()
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw DesktopCaptureError.displayUnavailable
+        }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        if let application = content.applications.first(where: { $0.processID == pid }) {
+            // By application: windows this process opens later (the activity window, the probe)
+            // are left out too, so the filter can be kept.
+            let filter = SCContentFilter(display: display, excludingApplications: [application], exceptingWindows: [])
+            captureFilter = filter
+            return filter
+        }
+        // Not listed as an application (no window of ours on screen yet): leave out the windows
+        // by ID for this one frame, and look again next time.
+        let own = Set(NSApp.windows.map { CGWindowID($0.windowNumber) })
+        let windows = content.windows.filter { own.contains($0.windowID) }
+        guard !windows.isEmpty else { throw DesktopCaptureError.selfNotShareable }
+        return SCContentFilter(display: display, excludingWindows: windows)
     }
 
     private func makeProbePanel(frame: NSRect) -> NSPanel {

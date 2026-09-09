@@ -373,7 +373,9 @@ class MacOSComputer:
         self.session = session or f"yutori-n2-{uuid.uuid4().hex[:12]}"
         self.presentation_requested = presentation
         self.show_stop_button = show_stop_button
-        # False keeps the overlay in screen recordings of the run; captures then hide it first.
+        # False keeps the overlay in screen recordings and screen shares of the run: the model's
+        # desktop frames then come from the overlay host, which leaves its own windows out of the
+        # capture (`presentation.capture_source == "overlay"`), and only fall back to hiding it.
         self.exclude_overlay_from_capture = exclude_overlay_from_capture
         self.allow_local_shell = allow_local_shell
         self.execution_deadline = execution_deadline
@@ -672,21 +674,8 @@ class MacOSComputer:
         capture_id = self._capture_id
         png_bytes = self._initial_png
         self._initial_png = None
-        hidden = False
         if png_bytes is None:
-            if self.presentation is not None:
-                hidden = await self.presentation.before_capture(capture_id)
-            try:
-                png_bytes, width, height = await self._capture_png()
-            finally:
-                if hidden and self.presentation is not None:
-                    geometry = (
-                        (width, height) if "width" in locals() and "height" in locals() else self._native_size or (1, 1)
-                    )
-                    await self.presentation.after_capture(
-                        capture_id,
-                        *geometry,
-                    )
+            png_bytes, width, height = await self._capture_observation_png(capture_id)
         else:
             assert self._native_size is not None
             width, height = self._native_size
@@ -1316,6 +1305,27 @@ class MacOSComputer:
         if self.window_mode:
             return await self._capture_window_png()
         return await self._capture_desktop_png()
+
+    async def _capture_observation_png(self, capture_id: int) -> tuple[bytes, int, int]:
+        """The model's frame: the driven window; else the overlay host's own desktop capture with its
+        windows left out; else the driver's desktop capture with the overlay hidden around it."""
+        if self.window_mode:
+            return await self._capture_window_png()
+        presentation = self.presentation
+        if presentation is not None:
+            frame = await self._await_with_cancellation(presentation.capture_desktop())
+            if frame is not None:
+                return frame
+        hidden = presentation is not None and await presentation.before_capture(capture_id)
+        frame = None
+        try:
+            frame = await self._capture_desktop_png()
+        finally:
+            if hidden:
+                assert presentation is not None
+                geometry = frame[1:] if frame is not None else self._native_size or (1, 1)
+                await presentation.after_capture(capture_id, *geometry)
+        return frame
 
     async def _capture_desktop_png(self) -> tuple[bytes, int, int]:
         last_error: "Exception | None" = None
