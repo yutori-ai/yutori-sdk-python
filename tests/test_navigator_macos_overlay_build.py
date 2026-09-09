@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -49,7 +50,7 @@ def test_prepare_is_atomic_cached_and_read_only_check_does_not_mutate(tmp_path, 
     prepared = prepare_macos_overlay(tmp_path)
     assert prepared.binary.read_bytes() == b"fake-mach-o"
     assert prepared.manifest["protocol_version"] == 2
-    assert prepared.manifest["renderer_protocol_version"] == 3
+    assert prepared.manifest["renderer_protocol_version"] == 4
     pointer = tmp_path / overlay_build._pointer_name()
     before = pointer.stat().st_mtime_ns
 
@@ -60,6 +61,16 @@ def test_prepare_is_atomic_cached_and_read_only_check_does_not_mutate(tmp_path, 
     compile_count = sum("-o" in command for command in commands)
     assert prepare_macos_overlay(tmp_path).manifest["key"] == prepared.manifest["key"]
     assert sum("-o" in command for command in commands) == compile_count
+
+
+def test_bundled_renderer_matches_the_protocol_v4_release():
+    assets = overlay_build._asset_directory()
+    provenance = json.loads(assets.joinpath("provenance.json").read_text(encoding="utf-8"))
+    renderer = assets.joinpath("navigator-overlay.iife.js").read_bytes()
+    assert provenance["renderer_protocol_version"] == overlay_build.RENDERER_PROTOCOL_VERSION == 4
+    assert provenance["renderer_distribution"] == "yutori-navigator-overlay-runtime==0.5.0"
+    assert provenance["renderer_source_commit"] == "e78194c988d3861662f040a600d8759ac635c5b6"
+    assert hashlib.sha256(renderer).hexdigest() == provenance["renderer_artifact_sha256"]
 
 
 def test_integrity_tampering_fails_closed(tmp_path, monkeypatch):

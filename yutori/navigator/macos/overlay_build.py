@@ -18,7 +18,7 @@ from typing import Any
 from ..._fileutils import atomic_write_text
 
 OVERLAY_PROTOCOL_VERSION = 2
-RENDERER_PROTOCOL_VERSION = 3
+RENDERER_PROTOCOL_VERSION = 4
 OVERLAY_DEPLOYMENT_TARGET = "14.0"
 _BINARY_NAME = "macos-overlay-host"
 _ASSET_NAMES = (
