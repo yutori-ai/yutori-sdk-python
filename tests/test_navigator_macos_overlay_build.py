@@ -127,6 +127,16 @@ def test_stop_item_region_explicitly_converts_cgfloat_arithmetic_to_double():
         assert f'"{key}": Double(' in region
 
 
+def test_menu_bar_icon_has_a_subtle_green_activity_dot():
+    source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
+    configuration = source.split("private func configureStatusButton", 1)[1].split("private func writeJSON", 1)[0]
+    assert 'string: "\\u{25CF}"' in configuration
+    assert ".foregroundColor: NSColor.systemGreen" in configuration
+    assert "activityDotFontPoints: CGFloat = 6" in source
+    assert source.count("configureStatusButton(button, toolTip:") == 2
+    assert source.count("statusItem(withLength: NSStatusItem.variableLength)") == 2
+
+
 def test_activity_shell_commands_do_not_inherit_the_phosphor_glow():
     """Dense command text must stay legible instead of blurring into a green bar."""
     css = overlay_build._asset_directory().joinpath("navigator-activity.css").read_text(encoding="utf-8")
