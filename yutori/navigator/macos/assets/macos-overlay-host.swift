@@ -92,6 +92,7 @@ private func configureStatusButton(_ button: NSStatusBarButton, toolTip: String)
         ]
     )
     button.toolTip = toolTip
+    button.setAccessibilityLabel(toolTip)
 }
 
 /// The display the driver captures (`CGMainDisplayID`), so the overlay, the activity window, and

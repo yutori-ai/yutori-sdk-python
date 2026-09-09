@@ -132,6 +132,7 @@ def test_menu_bar_icon_has_a_subtle_green_activity_dot():
     configuration = source.split("private func configureStatusButton", 1)[1].split("private func writeJSON", 1)[0]
     assert 'string: "\\u{25CF}"' in configuration
     assert ".foregroundColor: NSColor.systemGreen" in configuration
+    assert "button.setAccessibilityLabel(toolTip)" in configuration
     assert "activityDotFontPoints: CGFloat = 6" in source
     assert source.count("configureStatusButton(button, toolTip:") == 2
     assert source.count("statusItem(withLength: NSStatusItem.variableLength)") == 2
