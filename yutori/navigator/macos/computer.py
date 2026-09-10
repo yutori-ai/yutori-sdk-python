@@ -462,7 +462,7 @@ class MacOSComputer:
                 {"session": self.session, "capture_scope": "desktop"},
             )
             self._session_started = True
-            self._initial_png, width, height = await self._capture_png()
+            self._initial_png, width, height = await self._capture_desktop_png()
             self._native_size = (width, height)
             self._native_cursor = await self._select_native_cursor()
             if self.presentation_requested:
@@ -1300,11 +1300,6 @@ class MacOSComputer:
 
     async def _await_with_cancellation(self, awaitable: Awaitable[Any]) -> Any:
         return await race_against_cancellation(awaitable, self.cancellation)
-
-    async def _capture_png(self) -> tuple[bytes, int, int]:
-        if self.window_mode:
-            return await self._capture_window_png()
-        return await self._capture_desktop_png()
 
     async def _capture_observation_png(self, capture_id: int) -> tuple[bytes, int, int]:
         """The model's frame: the driven window; else the overlay host's own desktop capture with its
