@@ -22,7 +22,14 @@ from .overlay_build import (
     prepare_macos_overlay,
 )
 from .presentation import MacOSPresentationController, MacOSPresentationError
-from .sanitize import COMMAND_PREVIEW_MAX_CHARACTERS, sanitize_command_preview
+from .sanitize import (
+    COMMAND_PREVIEW_MAX_CHARACTERS,
+    OUTPUT_PREVIEW_MAX_CHARACTERS,
+    OUTPUT_PREVIEW_MAX_LINE_CHARACTERS,
+    OUTPUT_PREVIEW_MAX_LINES,
+    sanitize_command_preview,
+    sanitize_output_preview,
+)
 from .types import (
     CancellationLatch,
     MacOSActionOutcome,
@@ -38,6 +45,9 @@ from .windows import select_target_window, window_records
 
 __all__ = [
     "COMMAND_PREVIEW_MAX_CHARACTERS",
+    "OUTPUT_PREVIEW_MAX_CHARACTERS",
+    "OUTPUT_PREVIEW_MAX_LINE_CHARACTERS",
+    "OUTPUT_PREVIEW_MAX_LINES",
     "CancellationLatch",
     "FrontmostApp",
     "MacOSActionOutcome",
@@ -66,6 +76,7 @@ __all__ = [
     "frontmost_app",
     "prepare_macos_overlay",
     "sanitize_command_preview",
+    "sanitize_output_preview",
     "select_target_window",
     "unhide_application",
     "window_records",

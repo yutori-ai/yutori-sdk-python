@@ -99,13 +99,21 @@ ShellLifecycleState = Literal[
 
 @dataclass(frozen=True)
 class ShellPresentationEvent:
-    """Sanitized shell identity and lifecycle metadata; command output is excluded."""
+    """Sanitized shell identity, lifecycle metadata, and a bounded tail of its output.
+
+    ``output`` carries only what the run-command card can show -- the last couple of
+    lines, redacted by :func:`sanitize_output_preview` -- and only for a foreground
+    command that has printed something. It is a presentation tail, never the result:
+    the model is handed the full output separately, and nothing may reconstruct a
+    command's result by accumulating these.
+    """
 
     task_id: str
     command: str
     run_in_background: bool
     state: ShellLifecycleState
     exit_code: "int | None" = None
+    output: "str | None" = None
 
 
 class N2Presentation(Protocol):

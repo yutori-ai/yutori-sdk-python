@@ -559,7 +559,15 @@ async def test_stop_cancels_a_hung_target_recovery(monkeypatch):
     assert recovery_cancelled
 
 
-async def test_foreground_shell_preserves_contract_and_emits_no_output_to_presentation(tmp_path):
+async def test_foreground_shell_presents_a_redacted_output_tail(tmp_path):
+    """Output now reaches presentation -- bounded and redacted, never raw.
+
+    This deliberately reverses the older "no output to presentation" contract, so
+    an operator can watch a slow command print instead of a spinner. What has NOT
+    changed is the redaction: the secret in the command line must stay out of every
+    event, and it is the output side that matters most here, since a command's argv
+    is chosen by the model while its output is whatever the machine printed.
+    """
     computer = MacOSComputer(presentation=False, allow_local_shell=True)
     sink = PresentationSink()
     computer.presentation = sink
@@ -571,10 +579,63 @@ async def test_foreground_shell_preserves_contract_and_emits_no_output_to_presen
     assert result == os.path.expanduser("~")
     shell_events = [event["event"] for event in sink.events]
     assert computer.shell_events == tuple(shell_events)
-    assert [event.state for event in shell_events] == ["starting", "running", "completed"]
-    assert all(os.path.expanduser("~") not in repr(event) for event in shell_events)
+    # Two `running` events: the lifecycle one at launch, then the first output
+    # chunk. The first chunk is deliberately not throttled -- a command that prints
+    # once and exits should still show what it printed.
+    assert [event.state for event in shell_events] == ["starting", "running", "running", "completed"]
     assert all("topsecret" not in repr(event) for event in shell_events)
     assert all("[REDACTED]" in event.command for event in shell_events)
+    assert [event.output for event in shell_events[:2]] == [None, None]
+    assert shell_events[2].output == os.path.expanduser("~")
+    assert shell_events[-1].output == os.path.expanduser("~")
+
+
+async def test_presented_output_is_bounded_to_the_cards_last_lines():
+    computer = MacOSComputer(presentation=False, allow_local_shell=True)
+    sink = PresentationSink()
+    computer.presentation = sink
+    await computer.run_shell_command("printf 'a\\nb\\nc\\nd\\n'", timeout_seconds=5)
+    computer.presentation = None
+
+    # The END, not the beginning: the card shows a few lines, and a feed truncated
+    # at the head would freeze on the first thing printed.
+    assert sink.events[-1]["event"].output == "…c\nd"
+
+
+async def test_slow_command_streams_its_output_before_it_exits():
+    """The whole point: the card updates while the command is still running.
+
+    A command that prints, waits, prints, waits, then exits must produce output
+    events BEFORE its terminal one -- and each must carry the tail so far, not a
+    delta, so a dropped frame costs nothing.
+    """
+    computer = MacOSComputer(presentation=False, allow_local_shell=True)
+    sink = PresentationSink()
+    computer.presentation = sink
+    await computer.run_bash_command("printf 'first\\n'; sleep 0.6; printf 'second\\n'; sleep 0.6", timeout=10)
+    computer.presentation = None
+
+    events = [event["event"] for event in sink.events]
+    running_output = [event.output for event in events if event.state == "running" and event.output]
+    assert running_output, "no output reached the card while the command was running"
+    assert running_output[0] == "first"
+    # Cumulative, not a delta.
+    assert running_output[-1].endswith("second")
+    # And every one of them landed before the command reported its exit.
+    assert events[-1].state == "completed"
+    assert all(event.output is not None for event in events[-1:])
+
+
+async def test_presented_output_never_leaks_the_bash_cwd_sentinel():
+    computer = MacOSComputer(presentation=False, allow_local_shell=True)
+    sink = PresentationSink()
+    computer.presentation = sink
+    await computer.run_bash_command("printf 'done\\n'", timeout=5)
+    computer.presentation = None
+
+    assert await computer.run_bash_command("pwd", timeout=5)
+    for event in sink.events:
+        assert "__YUTORI_N2_BASH_CWD_" not in (event["event"].output or "")
 
 
 async def test_shell_preview_redacts_explicit_known_secrets():
@@ -618,13 +679,37 @@ async def test_bash_persists_working_directory_without_affecting_shell_command(t
 async def test_explicit_terminal_command_is_allowed_unchanged(monkeypatch):
     captured: list[tuple[tuple[str, ...], bytes]] = []
 
+    # Mirrors the asyncio subprocess surface the shell pump actually drives -- a
+    # stdin writer and an incrementally-read stdout -- rather than `communicate`,
+    # which the pump replaced so a running command's output can reach the card.
+    class Stdin:
+        def write(self, data):
+            captured.append((argv, data))
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            return None
+
+    class Stdout:
+        def __init__(self):
+            self._remaining = b"launched"
+
+        async def read(self, _limit):
+            chunk, self._remaining = self._remaining, b""
+            return chunk
+
     class Process:
         pid = 123
         returncode = 0
 
-        async def communicate(self, input_data):
-            captured.append((argv, input_data))
-            return b"launched", None
+        def __init__(self):
+            self.stdin = Stdin()
+            self.stdout = Stdout()
+
+        async def wait(self):
+            return self.returncode
 
     async def create(*command, **_kwargs):
         nonlocal argv

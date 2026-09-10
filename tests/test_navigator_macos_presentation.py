@@ -341,8 +341,19 @@ async def test_cancelled_request_does_not_poison_the_next_overlay_reply(monkeypa
     await host
 
 
-def _shell(task_id: str, command: str, state: str, *, background: bool = False, exit_code: "int | None" = None):
-    return {"type": "shell", "event": ShellPresentationEvent(task_id, command, background, state, exit_code)}
+def _shell(
+    task_id: str,
+    command: str,
+    state: str,
+    *,
+    background: bool = False,
+    exit_code: "int | None" = None,
+    output: "str | None" = None,
+):
+    return {
+        "type": "shell",
+        "event": ShellPresentationEvent(task_id, command, background, state, exit_code, output),
+    }
 
 
 def _rail_controller(monkeypatch):
@@ -376,6 +387,45 @@ def _rail_renders(commands: list[dict]) -> list[dict]:
 
 def _terminal_renders(operations: list[dict]) -> list[dict]:
     return [operation for operation in operations if operation.get("op") == "showTerminal"]
+
+
+async def test_running_output_extends_the_card_and_clears_between_commands(monkeypatch):
+    """A running command's tail rides the same card; a new command never inherits it."""
+    controller, operations, _commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("shell-1", "make build", "starting"))
+    await controller.present(_shell("shell-1", "make build", "running"))
+    # No output yet: the card stays command-only rather than reserving blank lines.
+    assert "output" not in _terminal_renders(operations)[-1]["presentation"]
+
+    await controller.present(_shell("shell-1", "make build", "running", output="compiling"))
+    assert _terminal_renders(operations)[-1]["presentation"] == {
+        "command": "make build",
+        "running": True,
+        "failed": False,
+        "output": "compiling",
+    }
+
+    # Cumulative, so a later tail replaces rather than appends.
+    await controller.present(_shell("shell-1", "make build", "running", output="compiling\nlinking"))
+    assert _terminal_renders(operations)[-1]["presentation"]["output"] == "compiling\nlinking"
+
+    # A different task starts clean, even though it is the same command text -- the
+    # card keys on task id, or a repeated command would open showing stale output.
+    await controller.present(_shell("shell-2", "make build", "running"))
+    assert "output" not in _terminal_renders(operations)[-1]["presentation"]
+
+
+async def test_finished_card_keeps_the_output_it_was_showing(monkeypatch):
+    """The terminal event carries the tail, so the card does not blank at the finish."""
+    controller, operations, _commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("shell-1", "make build", "running", output="compiling"))
+    await controller.present(_shell("shell-1", "make build", "completed", exit_code=0, output="done"))
+
+    presentation = _terminal_renders(operations)[-1]["presentation"]
+    assert presentation["running"] is False
+    assert presentation["output"] == "done"
 
 
 async def test_foreground_shell_command_is_a_run_command_card_at_the_cursor(monkeypatch):
