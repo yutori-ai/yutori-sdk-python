@@ -87,7 +87,7 @@ jobs:
       RELEASE_TAG: ${{ needs.tag.outputs.tag }}
       # Build against the interpreter setup-python pinned, never one uv
       # decides to download.
-      UV_PYTHON_DOWNLOADS: only-system
+      UV_PYTHON_PREFERENCE: only-system
     permissions:
       contents: read
     steps:

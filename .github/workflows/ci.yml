@@ -20,7 +20,7 @@ permissions:
 env:
   # setup-python owns the interpreter; this stops uv from quietly building
   # against a different one it downloaded for itself.
-  UV_PYTHON_DOWNLOADS: only-system
+  UV_PYTHON_PREFERENCE: only-system
 
 jobs:
   lint:
