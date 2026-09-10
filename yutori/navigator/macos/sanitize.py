@@ -121,6 +121,12 @@ def sanitize_output_preview(
     happened to print -- a ``cat`` of a dotfile, an SDK dumping its config.
     """
     text = str(output).replace("\r\n", "\n").replace("\r", "\n").expandtabs(4)
+    # Redact BEFORE any clipping, the same order `sanitize_command_preview` uses. A
+    # secret that straddles one of the cuts below would otherwise survive as a
+    # fragment its pattern no longer matches — the per-line cap in particular slices
+    # mid-token — and clipping afterwards is safe because `[REDACTED]` is already in
+    # place by then.
+    text = _redact(text, known_secrets, environment)
     # A trailing newline would otherwise spend one of very few visible lines on an
     # empty one, which on a two-line card halves the window.
     lines = text.rstrip("\n").split("\n")
@@ -144,5 +150,4 @@ def sanitize_output_preview(
         preview = preview[len(preview) - max_characters :]
         truncated = True
 
-    preview = _redact(preview, known_secrets, environment)
     return f"…{preview.lstrip()}" if truncated else preview

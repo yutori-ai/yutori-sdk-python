@@ -626,6 +626,34 @@ async def test_slow_command_streams_its_output_before_it_exits():
     assert all(event.output is not None for event in events[-1:])
 
 
+async def test_timeout_does_not_resurrect_the_card_as_running():
+    """A pending output frame must never land after the terminal event.
+
+    `except` runs before `finally`, so closing the output stream only in `finally`
+    let a queued `running` frame flush AFTER the card was marked timed out --
+    putting it back into its running state for the whole finished-card dwell.
+
+    The sink is deliberately SLOW: the race needs a frame still in flight when the
+    timeout fires, which a sink that returns immediately never leaves behind.
+    """
+
+    class SlowSink(PresentationSink):
+        async def present(self, event: dict[str, Any]) -> None:
+            if event.get("type") == "shell" and event["event"].output:
+                await asyncio.sleep(2.0)
+            await super().present(event)
+
+    computer = MacOSComputer(presentation=False, allow_local_shell=True)
+    sink = SlowSink()
+    computer.presentation = sink
+    with pytest.raises(TimeoutError):
+        await computer.run_bash_command("printf 'working\\n'; sleep 20", timeout=0.5)
+    computer.presentation = None
+
+    states = [event["event"].state for event in sink.events]
+    assert states[-1] == "timed_out", states
+
+
 async def test_presented_output_never_leaks_the_bash_cwd_sentinel():
     computer = MacOSComputer(presentation=False, allow_local_shell=True)
     sink = PresentationSink()

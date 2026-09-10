@@ -1835,10 +1835,18 @@ class MacOSComputer:
         )
         try:
             stdout = await self._communicate(process, timeout, command.encode(), stream.on_partial)
+        # Closed BEFORE each terminal event, never only in `finally`: an `except`
+        # block runs first, so a `finally`-only close would flush a pending `running`
+        # frame AFTER the card had already been marked timed out or cancelled --
+        # putting it back into its running state for the whole finished-card dwell.
+        # `close` is idempotent, so the `finally` below is the backstop for the paths
+        # that do not raise.
         except TimeoutError:
+            await stream.close()
             await self._present_shell(ShellPresentationEvent(task_id, preview, False, "timed_out"))
             raise
         except asyncio.CancelledError:
+            await stream.close()
             await self._present_shell(ShellPresentationEvent(task_id, preview, False, "cancelled"))
             raise
         finally:

@@ -92,3 +92,18 @@ def test_output_preview_caps_one_enormous_line():
 def test_output_preview_expands_tabs_and_normalizes_carriage_returns():
     assert sanitize_output_preview("a\tb", max_lines=2) == "a   b"
     assert sanitize_output_preview("a\r\nb", max_lines=2) == "a\nb"
+
+
+def test_output_preview_redacts_before_clipping_so_a_straddling_secret_cannot_leak():
+    """Redaction must precede every cut, or a secret sliced by one survives.
+
+    The per-line cap is the dangerous one: it slices mid-token, and the surviving
+    prefix no longer matches the pattern that would have removed it.
+    """
+    secret = "supersecretvalue123"
+    line = "fetched with " + "a" * 25 + " " + secret
+
+    preview = sanitize_output_preview(line, known_secrets=secret, max_lines=2, max_line_characters=45)
+
+    assert not any(secret[:length] in preview for length in range(6, len(secret) + 1))
+    assert "REDA" in preview
