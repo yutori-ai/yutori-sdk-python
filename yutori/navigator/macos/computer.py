@@ -36,7 +36,7 @@ from .polling import (
 from .presentation import MacOSPresentationController
 from .preview import WindowPreviewStreamer
 from .process_lifecycle import cancel_and_drain, race_against_cancellation, race_sleep_against_cancellation
-from .sanitize import COMMAND_PRESENTATION_MAX_CHARACTERS, sanitize_command_preview
+from .sanitize import sanitize_command_preview
 from .transport import (
     CuaDriverConnectionError,
     CuaDriverToolError,
@@ -1729,11 +1729,7 @@ class MacOSComputer:
     ) -> Any:
         self._require_local_shell()
         raw_presentation_command = presentation_command or command
-        preview = sanitize_command_preview(
-            raw_presentation_command,
-            known_secrets=self._known_secrets,
-            max_characters=COMMAND_PRESENTATION_MAX_CHARACTERS,
-        )
+        preview = sanitize_command_preview(raw_presentation_command, known_secrets=self._known_secrets)
         task_id = f"shell-{uuid.uuid4().hex[:8]}"
         await self._present_shell(ShellPresentationEvent(task_id, preview, False, "starting"))
         started_at = time.monotonic()
@@ -1767,9 +1763,7 @@ class MacOSComputer:
         return (rendered, reported_cwd) if cwd_sentinel else rendered
 
     async def _run_background_shell(self, command: str) -> str:
-        preview = sanitize_command_preview(
-            command, known_secrets=self._known_secrets, max_characters=COMMAND_PRESENTATION_MAX_CHARACTERS
-        )
+        preview = sanitize_command_preview(command, known_secrets=self._known_secrets)
         task_id = f"bash-{uuid.uuid4().hex[:8]}"
         await self._present_shell(ShellPresentationEvent(task_id, preview, True, "starting"))
         descriptor, output_path_text = tempfile.mkstemp(prefix=f"yutori-n2-{task_id}-", suffix=".log")

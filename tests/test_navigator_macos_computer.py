@@ -585,21 +585,6 @@ async def test_shell_preview_redacts_explicit_known_secrets():
     assert all(secret not in event.command for event in computer.shell_events)
 
 
-async def test_shell_presentation_carries_the_whole_command_not_the_telemetry_preview():
-    """The panel beside the cursor wraps freely, so a long command reaches it in full.
-
-    The 160-character bound stays on the one-line identity used for diagnostics and
-    telemetry; what the operator reads on screen is allowed to run to a dozen lines.
-    """
-    from yutori.navigator.macos import COMMAND_PRESENTATION_MAX_CHARACTERS, COMMAND_PREVIEW_MAX_CHARACTERS
-
-    command = "printf %s " + " ".join(f"word{index:03d}" for index in range(40))
-    assert COMMAND_PREVIEW_MAX_CHARACTERS < len(command) <= COMMAND_PRESENTATION_MAX_CHARACTERS
-    computer = MacOSComputer(presentation=False, allow_local_shell=True)
-    await computer.run_shell_command(command, timeout_seconds=5)
-    assert all(event.command == command for event in computer.shell_events)
-
-
 async def test_bash_does_not_load_api_keys_from_login_profiles(tmp_path, monkeypatch):
     secret = "yt-profile-secret-abcdefghijklmnop"
     (tmp_path / ".bash_profile").write_text(f"export YUTORI_API_KEY={secret}\n")
