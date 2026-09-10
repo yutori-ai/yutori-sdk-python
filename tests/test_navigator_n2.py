@@ -1169,9 +1169,11 @@ async def test_agent_defaults_to_latest_tool_set_and_preserves_native_observatio
     # The task opens the transcript, so a presentation shows the conversation from its first message.
     assert [event["type"] for event in presentation.events] == [
         "task",
+        "request",
         "reasoning",
         "batch_member",
         "action_done",
+        "request",
         "final",
     ]
     assert presentation.events[0]["text"] == "task"

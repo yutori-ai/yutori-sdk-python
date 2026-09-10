@@ -142,6 +142,29 @@ async def test_reasoning_action_and_batch_map_to_renderer_operations(monkeypatch
     )
 
 
+async def test_model_request_clears_completed_step_reasoning(monkeypatch):
+    controller = _active_controller()
+    envelopes: list[dict] = []
+
+    async def send_envelope(envelope, **_kwargs):
+        envelopes.append(envelope)
+        return {"ok": True}
+
+    monkeypatch.setattr(controller, "_send_envelope", send_envelope)
+
+    await controller.present({"type": "request"})
+    await controller.present({"type": "reasoning", "text": "Apply the form changes"})
+    await controller.present({"type": "action_done", "call_id": "c1"})
+    await controller.present({"type": "request"})
+
+    operations = [envelope["operation"] for envelope in envelopes if "operation" in envelope]
+    assert operations == [
+        {"op": "clearThought"},
+        {"op": "showThought", "markdown": "Apply the form changes"},
+        {"op": "clearThought"},
+    ]
+
+
 async def test_capture_ids_are_monotonic_and_a_stale_transition_degrades(monkeypatch):
     restored = False
 
@@ -598,6 +621,9 @@ async def test_send_operation_skips_unchanged_dedupe_eligible_renders_but_not_ot
     first = await controller._send_operation({"op": "showThought", "markdown": "a"})
     repeat = await controller._send_operation({"op": "showThought", "markdown": "a"})
     changed = await controller._send_operation({"op": "showThought", "markdown": "b"})
+    await controller._send_operation({"op": "clearThought"})
+    await controller._send_operation({"op": "clearThought"})
+    await controller._send_operation({"op": "showThought", "markdown": "b"})
     # "mount" is not in the dedupe-eligible op set, so it is always sent even when unchanged.
     await controller._send_operation({"op": "mount", "snapshot": {}})
     await controller._send_operation({"op": "mount", "snapshot": {}})
@@ -607,6 +633,8 @@ async def test_send_operation_skips_unchanged_dedupe_eligible_renders_but_not_ot
     assert changed == {"ok": True}
     assert envelopes == [
         {"operation": {"op": "showThought", "markdown": "a"}},
+        {"operation": {"op": "showThought", "markdown": "b"}},
+        {"operation": {"op": "clearThought"}},
         {"operation": {"op": "showThought", "markdown": "b"}},
         {"operation": {"op": "mount", "snapshot": {}}},
         {"operation": {"op": "mount", "snapshot": {}}},
