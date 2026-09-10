@@ -201,19 +201,19 @@ def test_detect_sdk_install_plan_uses_uv_for_pep621_project(tmp_path: Path, monk
 
 def test_detect_sdk_install_plan_uses_poetry_for_poetry_project(tmp_path: Path, monkeypatch):
     # No Python range anywhere in the project: Poetry would reject `yutori`
-    # (Requires-Python >=3.9) against its implicit "any Python", so the SDK's
+    # (Requires-Python >=3.10) against its implicit "any Python", so the SDK's
     # range is stated on the dependency.
     (tmp_path / "pyproject.toml").write_text("[tool.poetry]\nname='demo'\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     with (
         patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
-        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.10"),
     ):
         plan = detect_sdk_install_plan()
 
     assert plan.reason == "Detected a Poetry project in the current directory."
-    assert plan.command == ("/usr/bin/poetry", "add", "--python", ">=3.9", "yutori")
+    assert plan.command == ("/usr/bin/poetry", "add", "--python", ">=3.10", "yutori")
     assert plan.default is True
     assert plan.availability_error is None
 
@@ -227,7 +227,7 @@ def test_detect_sdk_install_plan_poetry_project_with_python_range_omits_python_f
 
     with (
         patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
-        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.10"),
     ):
         plan = detect_sdk_install_plan()
 
@@ -246,7 +246,7 @@ def test_detect_sdk_install_plan_prefers_poetry_for_pep621_project_managed_by_po
 
     with (
         patch("yutori.cli.commands.install_flow._which", return_value="/usr/bin/poetry"),
-        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.10"),
     ):
         plan = detect_sdk_install_plan()
 
@@ -260,11 +260,11 @@ def test_detect_sdk_install_plan_flags_missing_poetry(tmp_path: Path, monkeypatc
 
     with (
         patch("yutori.cli.commands.install_flow._which", return_value=None),
-        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.9"),
+        patch("yutori.cli.commands.install_flow._yutori_requires_python", return_value=">=3.10"),
     ):
         plan = detect_sdk_install_plan()
 
-    assert plan.command == ("poetry", "add", "--python", ">=3.9", "yutori")
+    assert plan.command == ("poetry", "add", "--python", ">=3.10", "yutori")
     assert plan.availability_error == "`poetry` is required for Poetry project installs."
 
 

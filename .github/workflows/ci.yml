@@ -6,72 +6,97 @@ on:
   pull_request:
 
 # A new push to a PR makes the in-flight run for the previous commit
-# irrelevant, so stop paying for its 12 matrix jobs. Pushes to main are never
+# irrelevant, so stop paying for its matrix jobs. Pushes to main are never
 # cancelled: every commit there keeps its own status.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# No job here writes anything back to the repository, so drop the default
+# token down to a read-only one.
+permissions:
+  contents: read
+
+env:
+  # setup-python owns the interpreter; this stops uv from quietly building
+  # against a different one it downloaded for itself.
+  UV_PYTHON_PREFERENCE: only-system
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-      # No pip cache here on purpose. This job installs only ruff, but it
-      # would share the 3.12 cache key with test/package (setup-python keys on
-      # python version + pyproject.toml hash) and usually wins the race to
-      # write it, leaving those jobs to restore a cache with none of their
-      # dependencies in it.
-      - run: pip install ruff
-      - run: ruff check .
+          persist-credentials: false
+      # ruff-action fetches the standalone binary, so this job needs neither a
+      # Python interpreter nor the project's dependencies. The version is
+      # pinned: an unpinned linter turns an upstream release into a red main.
+      - uses: astral-sh/ruff-action@v4.1.0
+        with:
+          version: "0.16.6"
+          args: check
 
+  # One job per interpreter runs the source tests, builds the distributions,
+  # and tests those exact distributions. Splitting this into separate `test`
+  # and `package` jobs doubled the matrix and made every packaging job repeat
+  # the checkout, the interpreter setup, and the dependency install for the
+  # sake of one extra pytest marker.
   test:
+    name: test (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e ".[dev]"
-      - run: pytest -m "not slow"
+          persist-credentials: false
 
-  # Every supported interpreter must build the source, wheel, and an extracted
-  # sdist-derived wheel. This catches packaging regressions that source tests
-  # alone cannot see.
-  package:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-    steps:
-      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e ".[dev]" twine
-      - name: Wheel content test
-        run: pytest -m slow
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+          # Every matrix leg resolves a different set of wheels. Without a
+          # per-interpreter suffix they all share one cache key, and whichever
+          # job wins the race to save it leaves the rest restoring a cache
+          # built for someone else's Python.
+          cache-suffix: py${{ matrix.python-version }}
+
+      - name: Install the project
+        run: uv pip install --system -e ".[dev]" twine
+
+      - name: Test the source tree
+        run: pytest -m "not slow"
+
+      # `--installer uv` keeps `python -m build`'s PEP 517 isolation while
+      # provisioning the build environment from the uv cache instead of a cold
+      # pip install of setuptools.
       - name: Build and validate metadata
         run: |
-          python -m build
+          python -m build --installer uv
           twine check dist/*
+
+      # The slow packaging tests build their own distributions when pointed at
+      # no directory. Handing them the ones just built covers the same sdist,
+      # wheel, and sdist-derived-wheel assertions with one build instead of two,
+      # and checks the artifacts this job actually produced.
+      - name: Test the built distributions
+        env:
+          YUTORI_TEST_DISTRIBUTIONS_DIR: ${{ github.workspace }}/dist
+        run: pytest -m slow
 
   install-sh:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Verify install.sh matches template + assets + version
         run: bash scripts/check_install_sh_fresh.sh
       - name: Syntax-check shell scripts
