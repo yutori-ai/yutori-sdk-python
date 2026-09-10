@@ -7,11 +7,6 @@ import re
 from collections.abc import Iterable, Mapping
 
 COMMAND_PREVIEW_MAX_CHARACTERS = 160
-# What the operator sees on screen -- the "run command" panel beside the cursor and the
-# activity window's transcript -- is meant to be read in full, so it gets a longer bound
-# than the one-line identity kept for diagnostics and telemetry. The panel wraps at
-# roughly 46 monospace characters, so this is about a dozen lines at most.
-COMMAND_PRESENTATION_MAX_CHARACTERS = 600
 REDACTION = "[REDACTED]"
 
 _SECRET_NAME = r"(?:api[_-]?key|token|secret|password|passwd|credential|private[_-]?key)"

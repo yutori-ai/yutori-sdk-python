@@ -385,10 +385,10 @@ async def test_foreground_shell_command_is_shown_in_the_rail_and_the_capsule(mon
     assert rail[-1]["commands"][0]["command"] == "ls -la ~/Documents"
     assert rail[-1]["commands"][0]["run_in_background"] is False
     assert rail[-1]["overflow"] == 0
-    # The panel beside the cursor carries the command text; the capsule only names the step.
-    thoughts = [operation["markdown"] for operation in operations if operation.get("op") == "showThought"]
-    assert any(thought.startswith("Run command") for thought in thoughts)
-    assert not any("ls -la" in thought for thought in thoughts)
+    assert any(
+        operation.get("op") == "showThought" and "Run command · $ ls -la ~/Documents" in operation["markdown"]
+        for operation in operations
+    )
 
     await controller.present(_shell("shell-1", "ls -la ~/Documents", "completed", exit_code=0))
     finished = _rail_renders(commands)[-1]["commands"][0]
