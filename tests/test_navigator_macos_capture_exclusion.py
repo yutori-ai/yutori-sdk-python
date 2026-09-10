@@ -427,3 +427,25 @@ async def test_a_recordable_overlay_serves_the_frames_and_the_driver_takes_over_
         await computer.screenshot()
         assert controller.host_captures == 3 and transport.calls.count("get_desktop_state") == 3
         assert controller.hides == 2
+
+
+async def test_host_window_ids_ride_on_the_desktop_capture_command(monkeypatch):
+    """A host application's panels are left out of the model's frame like the host's own windows."""
+    controller = _controller(exclude_from_capture=False, exclude_capture_window_ids=(101, 202))
+    host = _Host()
+    monkeypatch.setattr(controller, "_send_command", host)
+    controller._capture_source = "overlay"
+    frame = await controller.capture_desktop()
+    assert frame is not None
+    capture = next(command for command in host.commands if command["op"] == "captureDesktop")
+    assert capture["excludeWindowIDs"] == [101, 202]
+
+
+async def test_without_host_window_ids_the_capture_command_stays_bare(monkeypatch):
+    controller = _controller(exclude_from_capture=False)
+    host = _Host()
+    monkeypatch.setattr(controller, "_send_command", host)
+    controller._capture_source = "overlay"
+    assert await controller.capture_desktop() is not None
+    capture = next(command for command in host.commands if command["op"] == "captureDesktop")
+    assert "excludeWindowIDs" not in capture
