@@ -91,8 +91,9 @@ const shellSpan = (className, text) => {
 };
 
 // One phosphor "run command" panel per shell the model is running, newest on
-// top, stacked under the menu bar so the operator can read what is being
-// sent to this Mac without following the cursor capsule.
+// top, stacked under the menu bar. This rail carries the commands with no
+// cursor of their own to hang a run-command card off -- a foreground run's
+// background commands -- so nothing sent to this Mac runs unseen.
 window.__n2ShellCommands = ({ commands, overflow }) => {
   const rail = document.getElementById("n2-shell-rail");
   rail.replaceChildren();
