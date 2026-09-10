@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
+from collections.abc import Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,12 @@ from .process_lifecycle import cancel_and_drain, drain_stream, spawn_rpc_subproc
 
 _RPC_TIMEOUT_SECONDS = 30.0
 _PROCESS_EXIT_TIMEOUT_SECONDS = 3.0
+# A host application that embeds cua-driver (see the driver's EMBEDDING contract) names its
+# own binary and the private socket of the daemon it spawned. The binary override wins over
+# package and PATH discovery; the socket turns every ``cua-driver mcp`` spawn into a proxy to
+# that daemon, so the host's TCC grants apply instead of the standalone CuaDriver.app's.
+ENV_DRIVER_BINARY = "YUTORI_CUA_DRIVER_BINARY"
+ENV_DRIVER_SOCKET = "YUTORI_CUA_DRIVER_SOCKET"
 
 
 class CuaDriverError(RuntimeError):
@@ -62,6 +70,12 @@ def inline_image_data(result: dict[str, Any]) -> "str | None":
 
 
 def find_cua_driver_binary() -> Path:
+    override = os.environ.get(ENV_DRIVER_BINARY)
+    if override:
+        candidate = Path(override)
+        if not candidate.is_file():
+            raise CuaDriverError(f"{ENV_DRIVER_BINARY} names a missing cua-driver binary: {candidate}")
+        return candidate
     try:
         from cua_driver import get_binary_path
 
@@ -79,6 +93,18 @@ def find_cua_driver_binary() -> Path:
     raise CuaDriverError("cua-driver is not installed; install `yutori[macos]` or run `yutori-mcp computer-use setup`.")
 
 
+def embedded_daemon_arguments(socket_path: "str | None" = None) -> list[str]:
+    """``cua-driver mcp`` arguments that attach the proxy to a host-owned embedded daemon.
+
+    Empty when no socket is configured: the proxy then auto-launches or joins the standalone
+    CuaDriver.app daemon exactly as before.
+    """
+    path = socket_path if socket_path is not None else os.environ.get(ENV_DRIVER_SOCKET)
+    if not path:
+        return []
+    return ["--embedded", "--socket", path]
+
+
 class CuaDriverTransport:
     """One serialized, restartable MCP session over a persistent subprocess."""
 
@@ -86,9 +112,14 @@ class CuaDriverTransport:
         self,
         binary: "str | Path | None" = None,
         *,
+        arguments: "Sequence[str] | None" = None,
         request_timeout_seconds: float = _RPC_TIMEOUT_SECONDS,
     ) -> None:
         self.binary = Path(binary) if binary is not None else None
+        # Extra ``cua-driver mcp`` arguments. None defers to the environment so an embedding
+        # host configures every transport the SDK creates without threading a parameter
+        # through MacOSComputer; an explicit sequence (even empty) is used verbatim.
+        self.arguments = list(arguments) if arguments is not None else embedded_daemon_arguments()
         self.request_timeout_seconds = request_timeout_seconds
         self._process: "asyncio.subprocess.Process | None" = None
         self._stderr_task: "asyncio.Task[None] | None" = None
@@ -106,7 +137,7 @@ class CuaDriverTransport:
         self._closing = False
         binary = self.binary or find_cua_driver_binary()
         try:
-            self._process = await spawn_rpc_subprocess(str(binary), "mcp")
+            self._process = await spawn_rpc_subprocess(str(binary), "mcp", *self.arguments)
         except OSError as error:
             raise CuaDriverConnectionError(f"Failed to start cua-driver: {error}") from error
         self._stderr_task = asyncio.create_task(self._drain_stderr())
