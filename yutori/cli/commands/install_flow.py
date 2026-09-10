@@ -553,7 +553,7 @@ def _pyproject_declared_keys(path: Path) -> set[str]:
 
     Table headers appear as-is (``"tool.poetry"``); ``key = value`` lines
     appear prefixed by their table (``"project.requires-python"``,
-    ``"tool.poetry.dependencies.python"``). The installer supports Python 3.9+,
+    ``"tool.poetry.dependencies.python"``). The installer supports Python 3.10+,
     so it cannot rely on stdlib ``tomllib``; this is enough to recognize the
     canonical project formats and whether they pin a Python range, without
     parsing arbitrary TOML values.

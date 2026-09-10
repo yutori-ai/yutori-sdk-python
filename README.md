@@ -1,7 +1,7 @@
 # Yutori Python SDK & CLI
 
 [![PyPI version](https://img.shields.io/pypi/v/yutori.svg)](https://pypi.org/project/yutori/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 The official Python SDK and CLI for the [Yutori API](https://docs.yutori.com) — build agents that monitor, research, and browse the web, and operate computers with [Yutori](https://yutori.com/api).
 
@@ -25,7 +25,7 @@ curl -fsSL https://yutori.com/install.sh | bash
 
 Installs the global `yutori` CLI via `uv tool install` and prompts to add the SDK to your project, run `yutori auth login`, register the MCP server, install workflow skills, and verify with a browsing task.
 
-Python 3.9+ is required for the SDK.
+Python 3.10+ is required for the SDK.
 
 <details>
 <summary>Non-interactive install (CI, pipe, AI coding agent)</summary>
