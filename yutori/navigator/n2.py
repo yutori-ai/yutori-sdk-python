@@ -1469,6 +1469,7 @@ class N2ComputerAgent:
         return await _await_model_response(self.computer, awaitable)
 
     async def _predict_step(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        await _present(self.presentation, {"type": "request"})
         api_kwargs = self.completion_request(items=items)
         completion_messages = api_kwargs["messages"]
 

@@ -690,6 +690,10 @@ class MacOSPresentationController:
                 self._reasoning = text.strip()
                 self._clear_action_labels()
                 await self._render_capsule()
+        elif event_type == "request":
+            self._reasoning = ""
+            self._clear_action_labels()
+            await self._render_capsule()
         elif event_type in {"action", "batch_member"}:
             await self._present_action(event)
         elif event_type == "action_done":
@@ -999,17 +1003,16 @@ class MacOSPresentationController:
                 future.cancel()
 
     async def _send_operation(self, operation: dict[str, Any], *, allow_stopping: bool = False) -> dict[str, Any]:
-        dedupe_key = str(operation.get("op"))
-        if dedupe_key in {"showThought", "clearThought", "previewAction", "moveCursor"} and not self._render_changed(
-            dedupe_key, operation
-        ):
+        operation_name = str(operation.get("op"))
+        dedupe_key = "thought" if operation_name in {"showThought", "clearThought"} else operation_name
+        if dedupe_key in {"thought", "previewAction", "moveCursor"} and not self._render_changed(dedupe_key, operation):
             return {"ok": True}
         return await self._send_envelope({"operation": operation}, allow_stopping=allow_stopping)
 
     def _render_changed(self, key: str, payload: Any) -> bool:
         """Return whether `payload` differs from the last render cached under `key`, updating the cache.
 
-        Shared by `_send_operation` (deduping showThought/clearThought/previewAction/moveCursor) and
+        Shared by `_send_operation` (deduping thought/previewAction/moveCursor state) and
         `_render_shell_rail` (deduping the shell rail's commands/overflow payload) -- both compare a
         canonical JSON signature against `self._last_render` before sending.
         """
