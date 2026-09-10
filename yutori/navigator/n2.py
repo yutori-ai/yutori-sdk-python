@@ -524,7 +524,7 @@ def _require_action_method(
     return method
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _function_accepts_kwarg(func: Any, name: str) -> bool:
     try:
         params = inspect.signature(func).parameters
