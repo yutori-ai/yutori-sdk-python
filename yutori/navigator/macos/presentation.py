@@ -666,12 +666,23 @@ class MacOSPresentationController:
     def _clear_action_labels(self) -> None:
         """Reset the capsule's action-status and active-key labels.
 
-        Shared by the ``reasoning``, ``action_done``, and ``final`` branches of
+        Shared by the ``reasoning``, ``action_done``, ``request``, and ``final`` branches of
         :meth:`present`, each of which clears both fields immediately before
         re-rendering the capsule.
         """
         self._action_status = ""
         self._active_keys = None
+
+    async def _clear_reasoning_and_render(self) -> None:
+        """Drop any stale reasoning/action labels and re-render the capsule.
+
+        Shared by the ``request`` branch of :meth:`present` (clearing a completed step's
+        reasoning before the next model call) and the ``final`` branch (clearing it once the
+        run ends) -- both reset the capsule to the same idle state.
+        """
+        self._reasoning = ""
+        self._clear_action_labels()
+        await self._render_capsule()
 
     @_fail_soft_cancellable
     async def present(self, event: dict[str, Any]) -> None:
@@ -691,9 +702,7 @@ class MacOSPresentationController:
                 self._clear_action_labels()
                 await self._render_capsule()
         elif event_type == "request":
-            self._reasoning = ""
-            self._clear_action_labels()
-            await self._render_capsule()
+            await self._clear_reasoning_and_render()
         elif event_type in {"action", "batch_member"}:
             await self._present_action(event)
         elif event_type == "action_done":
@@ -703,9 +712,7 @@ class MacOSPresentationController:
             self._clear_action_labels()
             await self._render_capsule()
         elif event_type == "final":
-            self._reasoning = ""
-            self._clear_action_labels()
-            await self._render_capsule()
+            await self._clear_reasoning_and_render()
         elif event_type == "shell":
             shell_event = event.get("event")
             if isinstance(shell_event, ShellPresentationEvent):
