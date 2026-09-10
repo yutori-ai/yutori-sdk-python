@@ -40,10 +40,11 @@ _PROCESS_EXIT_TIMEOUT_SECONDS = 1
 _OVERLAY_LEAD_SECONDS = 0.15
 _SHELL_MINIMUM_DWELL_SECONDS = 0.9
 _SHELL_TERMINAL_HOLD_SECONDS = 0.9
-# The shell rail at the top-right keeps a finished command on screen long enough
-# to read: the capsule's 0.9s hold is tuned for a glance at the cursor, not for an
-# operator checking what just ran on their Mac.
-_SHELL_RAIL_TERMINAL_HOLD_SECONDS = 4.0
+# A finished command stays on screen long enough to read on whichever surface carried
+# it -- the run-command card by the cursor in a foreground run, the rail under the menu
+# bar otherwise. The capsule's 0.9s hold is tuned for a glance at a status word, not for
+# an operator checking what just ran on their Mac.
+_SHELL_COMMAND_TERMINAL_HOLD_SECONDS = 4.0
 _SHELL_RAIL_ROWS = 3
 _SHELL_TERMINAL_STATES = frozenset({"completed", "failed", "timed_out", "cancelled"})
 _NORMALIZED_SCALE = 1000
@@ -500,6 +501,8 @@ class MacOSPresentationController:
         self._reasoning = ""
         self._action_status = ""
         self._terminal_command = ""
+        self._terminal_running = False
+        self._terminal_failed = False
         self._active_keys: "list[str] | None" = None
         self._queue_active = False
         self._batch_is_last = False
@@ -665,15 +668,21 @@ class MacOSPresentationController:
         return self.blocking_surface(point) is not None
 
     def _clear_action_labels(self) -> None:
-        """Reset the capsule's action-status, terminal-command, and active-key labels.
+        """Reset the capsule's action-status and active-key labels and the run-command card.
 
         Shared by the ``reasoning``, ``action_done``, ``request``, and ``final`` branches of
-        :meth:`present`, each of which clears these three fields immediately
-        before re-rendering the capsule.
+        :meth:`present`, each of which clears all three immediately before re-rendering the
+        capsule -- and that re-render is what takes a finished card off the screen.
         """
         self._action_status = ""
-        self._terminal_command = ""
         self._active_keys = None
+        self._reset_terminal()
+
+    def _reset_terminal(self) -> None:
+        """Unstage the run-command card so the next render falls back to the capsule."""
+        self._terminal_command = ""
+        self._terminal_running = False
+        self._terminal_failed = False
 
     async def _clear_reasoning_and_render(self) -> None:
         """Drop any stale reasoning/action labels and re-render the capsule.
@@ -1013,7 +1022,11 @@ class MacOSPresentationController:
 
     async def _send_operation(self, operation: dict[str, Any], *, allow_stopping: bool = False) -> dict[str, Any]:
         operation_name = str(operation.get("op"))
-        dedupe_key = "thought" if operation_name in {"showThought", "clearThought"} else operation_name
+        # showTerminal replaces the capsule in the renderer, so it shares the capsule's
+        # dedupe slot -- otherwise the clearThought that takes a finished card down would
+        # be suppressed as a repeat of the clearThought that preceded the card.
+        capsule_ops = {"showThought", "clearThought", "showTerminal"}
+        dedupe_key = "thought" if operation_name in capsule_ops else operation_name
         if dedupe_key in {"thought", "previewAction", "moveCursor"} and not self._render_changed(dedupe_key, operation):
             return {"ok": True}
         return await self._send_envelope({"operation": operation}, allow_stopping=allow_stopping)
@@ -1064,15 +1077,7 @@ class MacOSPresentationController:
     async def _render_capsule(self) -> None:
         if self._queue_active:
             return
-        text = " · ".join(
-            part
-            for part in (
-                self._action_status,
-                f"$ {self._terminal_command}" if self._terminal_command else "",
-                self._reasoning,
-            )
-            if part
-        )
+        text = " · ".join(part for part in (self._action_status, self._reasoning) if part)
         if not text and not self._active_keys:
             await self._send_operation({"op": "clearThought"})
             return
@@ -1080,6 +1085,31 @@ class MacOSPresentationController:
         if self._active_keys:
             operation["keys"] = self._active_keys
         await self._send_operation(operation)
+
+    async def _render_terminal(self) -> None:
+        """Morph the cursor badge into the renderer's run-command card.
+
+        Placement belongs to the renderer: the card hangs off the cursor with the same
+        edge-aware flipping the thought capsule gets, so the command reads where the
+        operator is already looking rather than under the menu bar. With no command
+        staged this falls back to the capsule, whose ``showThought``/``clearThought``
+        is what takes a finished card down.
+        """
+        if not self._terminal_command:
+            await self._render_capsule()
+            return
+        if self._queue_active:
+            return
+        await self._send_operation(
+            {
+                "op": "showTerminal",
+                "presentation": {
+                    "command": self._terminal_command,
+                    "running": self._terminal_running,
+                    "failed": self._terminal_failed,
+                },
+            }
+        )
 
     async def _present_action(self, event: dict[str, Any]) -> None:
         name = str(event.get("name") or "")
@@ -1113,8 +1143,8 @@ class MacOSPresentationController:
         if batch:
             status = f"{int(batch.get('index') or 0) + 1} of {len(batch.get('members') or [])} · {status}"
         self._action_status = status
-        self._terminal_command = ""
         self._active_keys = visual.get("keys")
+        self._reset_terminal()
 
         viewport = self._viewport
         if viewport is None:
@@ -1163,28 +1193,50 @@ class MacOSPresentationController:
         )
 
     async def _present_shell(self, event: ShellPresentationEvent) -> None:
+        """Foreground: the run-command card by the cursor. Background: the rail.
+
+        A foreground command has a cursor to hang off, so the renderer's card carries it
+        and the rail stays out of the way -- one command on screen once, where the
+        operator is already looking. A background command has no cursor moment of its
+        own, so the rail under the menu bar remains its only surface.
+        """
         self._record_shell(event)
-        await self._track_shell_rail(event)
         if event.run_in_background:
+            await self._track_shell_rail(event)
             return
 
         if event.state in {"starting", "running"}:
             self._shell_started_at.setdefault(event.task_id, time.monotonic())
-            self._action_status = "Run command"
-            self._terminal_command = event.command
+            # The card's own header says "RUN COMMAND", so the capsule keeps only the
+            # reasoning; the badge under the card is reset before the card covers it.
+            self._action_status = ""
             self._active_keys = None
-            await self._render_capsule()
             await self._send_operation(
                 {
                     "op": "previewAction",
                     "presentation": {"badge": {"type": "loop"}, "queue": None, "transientEffects": []},
                 }
             )
+            self._terminal_command = event.command
+            self._terminal_running = True
+            self._terminal_failed = False
+            await self._render_terminal()
             return
 
         started_at = self._shell_started_at.pop(event.task_id, time.monotonic())
         remaining = _SHELL_MINIMUM_DWELL_SECONDS - (time.monotonic() - started_at)
         if remaining > 0 and not await self._sleep(remaining):
+            return
+        # The finished command reads in two beats, because the card and the capsule are
+        # the same box in the renderer and cannot share it: the card holds with its caret
+        # stopped (tinted, if the command did not exit clean) long enough to read the
+        # command, then it gives the box back to a one-line verdict carrying the exit
+        # code -- which reads better as a number beside the cursor than inside a card
+        # whose body is the command itself.
+        self._terminal_running = False
+        self._terminal_failed = event.state != "completed"
+        await self._render_terminal()
+        if not await self._sleep(_SHELL_COMMAND_TERMINAL_HOLD_SECONDS):
             return
         labels = {
             "completed": "Command completed",
@@ -1195,19 +1247,19 @@ class MacOSPresentationController:
         self._action_status = labels.get(event.state, "Command finished")
         if event.exit_code is not None:
             self._action_status = f"{self._action_status} · exit {event.exit_code}"
-        self._terminal_command = ""
+        self._reset_terminal()
         await self._render_capsule()
         await self._sleep(_SHELL_TERMINAL_HOLD_SECONDS)
         self._clear_action_labels()
         await self._render_capsule()
 
     async def _track_shell_rail(self, event: ShellPresentationEvent) -> None:
-        """Mirror every shell lifecycle event, foreground or background, into the rail.
+        """Mirror a shell lifecycle event into the rail under the menu bar.
 
-        The capsule by the cursor only shows a foreground command for the ~1s it
-        takes to run, which is too brief for an operator to read; the rail under
-        the menu bar keeps each command visible while it runs and for a hold
-        after it finishes, so the operator can see what was sent to their Mac.
+        The rail carries the commands with no cursor of their own to hang a card off:
+        every command in a status-mode run, and a foreground run's background commands.
+        It keeps each one visible while it runs and for a hold after it finishes, so a
+        command sent to the operator's Mac is never invisible.
         """
         self._shell_rail[event.task_id] = event
         await self._render_shell_rail()
@@ -1226,7 +1278,7 @@ class MacOSPresentationController:
         await self._send_command({"op": "shellCommands", "commands": commands, "overflow": overflow})
 
     async def _remove_from_shell_rail_after_hold(self, task_id: str, terminal: ShellPresentationEvent) -> None:
-        if not await self._sleep(_SHELL_RAIL_TERMINAL_HOLD_SECONDS):
+        if not await self._sleep(_SHELL_COMMAND_TERMINAL_HOLD_SECONDS):
             return
         if self._shell_rail.get(task_id) == terminal:
             self._shell_rail.pop(task_id, None)

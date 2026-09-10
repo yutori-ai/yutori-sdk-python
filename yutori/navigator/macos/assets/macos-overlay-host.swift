@@ -459,10 +459,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// The click-through shell rail a background run gets, in its own borderless panel.
     ///
     /// A window-scope run drives one window and paints nothing on the desktop, but it still
-    /// runs commands on this Mac -- and those should be visible without opening a window, the
-    /// same way a foreground run shows them under the menu bar. The panel ignores mouse events
-    /// and never takes focus, and window-scope capture sees only the target window, so neither
-    /// the operator's work nor the model's view is disturbed.
+    /// runs commands on this Mac -- and those should be visible without opening a window. It
+    /// has no cursor to hang a run-command card off, which is where a foreground run shows
+    /// the command it is waiting on, so the rail is the surface. The panel ignores mouse
+    /// events and never takes focus, and window-scope capture sees only the target window,
+    /// so neither the operator's work nor the model's view is disturbed.
     private func createRailPanel(on screen: NSScreen) {
         let panel = NSPanel(
             contentRect: screen.frame,

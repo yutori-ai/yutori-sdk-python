@@ -374,58 +374,109 @@ def _rail_renders(commands: list[dict]) -> list[dict]:
     return [command for command in commands if command.get("op") == "shellCommands"]
 
 
-async def test_foreground_shell_command_is_shown_in_the_rail_and_the_capsule(monkeypatch):
+def _terminal_renders(operations: list[dict]) -> list[dict]:
+    return [operation for operation in operations if operation.get("op") == "showTerminal"]
+
+
+async def test_foreground_shell_command_is_a_run_command_card_at_the_cursor(monkeypatch):
+    """A foreground command rides the renderer's cursor-attached card, not the rail."""
     controller, operations, commands, sleeps = _rail_controller(monkeypatch)
 
     await controller.present(_shell("shell-1", "ls -la ~/Documents", "starting"))
     await controller.present(_shell("shell-1", "ls -la ~/Documents", "running"))
 
-    rail = _rail_renders(commands)
-    assert [entry["state"] for render in rail for entry in render["commands"]] == ["starting", "running"]
-    assert rail[-1]["commands"][0]["command"] == "ls -la ~/Documents"
-    assert rail[-1]["commands"][0]["run_in_background"] is False
-    assert rail[-1]["overflow"] == 0
-    assert any(
-        operation.get("op") == "showThought" and "Run command · $ ls -la ~/Documents" in operation["markdown"]
+    assert _terminal_renders(operations)[-1] == {
+        "op": "showTerminal",
+        "presentation": {"command": "ls -la ~/Documents", "running": True, "failed": False},
+    }
+    # One command on screen once: the rail is for commands with no cursor to hang off.
+    assert _rail_renders(commands) == []
+    # The card's header carries "RUN COMMAND", so the capsule does not repeat the command.
+    assert not any(
+        operation.get("op") == "showThought" and "ls -la ~/Documents" in operation["markdown"]
         for operation in operations
     )
 
     await controller.present(_shell("shell-1", "ls -la ~/Documents", "completed", exit_code=0))
-    finished = _rail_renders(commands)[-1]["commands"][0]
-    assert (finished["state"], finished["exit_code"]) == ("completed", 0)
-    assert controller._shell_rail_removals
-    await asyncio.gather(*controller._shell_rail_removals)
-    assert _rail_renders(commands)[-1] == {"op": "shellCommands", "commands": [], "overflow": 0}
-    assert 4.0 in sleeps
+
+    assert _terminal_renders(operations)[-1]["presentation"] == {
+        "command": "ls -la ~/Documents",
+        "running": False,
+        "failed": False,
+    }
+    # The card holds long enough to read, then hands the box back to the exit code.
+    assert sleeps.count(4.0) == 1
+    thoughts = [operation for operation in operations if operation.get("op") == "showThought"]
+    assert thoughts[-1]["markdown"] == "Command completed · exit 0"
+    assert operations[-1] == {"op": "clearThought"}
 
 
-async def test_shell_rail_lists_newest_first_with_overflow_and_keeps_background_commands(monkeypatch):
+async def test_a_failed_foreground_command_tints_the_card_before_reporting_its_exit(monkeypatch):
+    controller, operations, _commands, _sleeps = _rail_controller(monkeypatch)
+
+    await controller.present(_shell("shell-1", "false", "running"))
+    await controller.present(_shell("shell-1", "false", "failed", exit_code=1))
+
+    assert _terminal_renders(operations)[-1]["presentation"] == {
+        "command": "false",
+        "running": False,
+        "failed": True,
+    }
+    thoughts = [operation for operation in operations if operation.get("op") == "showThought"]
+    assert thoughts[-1]["markdown"] == "Command failed · exit 1"
+
+
+async def test_the_next_step_takes_a_staged_card_down(monkeypatch):
+    """`clearThought` shares the card's dedupe slot, so it is never suppressed as a repeat."""
+    controller = _active_controller()
+    sent: list[dict] = []
+
+    async def send_envelope(payload, **_kwargs):
+        if "operation" in payload:
+            sent.append(payload["operation"])
+        return {"ok": True}
+
+    monkeypatch.setattr(controller, "_send_envelope", send_envelope)
+
+    await controller.present({"type": "request"})
+    await controller.present(_shell("shell-1", "pwd", "running"))
+    await controller.present({"type": "request"})
+
+    assert [operation["op"] for operation in sent if operation["op"] != "previewAction"] == [
+        "clearThought",
+        "showTerminal",
+        "clearThought",
+    ]
+    assert controller._terminal_command == ""
+
+
+async def test_shell_rail_lists_newest_first_with_overflow_and_keeps_running_commands(monkeypatch):
     controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
 
     await controller.present(_shell("bash-1", "sleep 30", "running", background=True))
-    await controller.present(_shell("shell-2", "pwd", "running"))
-    await controller.present(_shell("shell-3", "whoami", "running"))
-    await controller.present(_shell("shell-4", "date", "running"))
+    await controller.present(_shell("bash-2", "pwd", "running", background=True))
+    await controller.present(_shell("bash-3", "whoami", "running", background=True))
+    await controller.present(_shell("bash-4", "date", "running", background=True))
 
     render = _rail_renders(commands)[-1]
-    assert [entry["task_id"] for entry in render["commands"]] == ["shell-4", "shell-3", "shell-2"]
+    assert [entry["task_id"] for entry in render["commands"]] == ["bash-4", "bash-3", "bash-2"]
     assert render["overflow"] == 1
     assert not controller._shell_rail_removals
 
-    await controller.present(_shell("shell-4", "date", "failed", exit_code=1))
+    await controller.present(_shell("bash-4", "date", "failed", exit_code=1, background=True))
     await asyncio.gather(*controller._shell_rail_removals)
     render = _rail_renders(commands)[-1]
-    assert [entry["task_id"] for entry in render["commands"]] == ["shell-3", "shell-2", "bash-1"]
+    assert [entry["task_id"] for entry in render["commands"]] == ["bash-3", "bash-2", "bash-1"]
     assert render["commands"][-1]["run_in_background"] is True
     assert render["overflow"] == 0
-    assert controller.background_counts == {"started": 1, "completed": 0, "failed": 0, "cancelled": 0}
+    assert controller.background_counts == {"started": 4, "completed": 0, "failed": 1, "cancelled": 0}
 
 
 async def test_shell_rail_does_not_resend_an_unchanged_render(monkeypatch):
     controller, _operations, commands, _sleeps = _rail_controller(monkeypatch)
 
-    await controller.present(_shell("shell-1", "pwd", "running"))
-    await controller.present(_shell("shell-1", "pwd", "running"))
+    await controller.present(_shell("bash-1", "pwd", "running", background=True))
+    await controller.present(_shell("bash-1", "pwd", "running", background=True))
 
     assert len(_rail_renders(commands)) == 1
 
