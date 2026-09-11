@@ -108,7 +108,7 @@ class MemoToolSuite:
     @staticmethod
     async def read_jsonl(file_path: str) -> list[dict]:
         try:
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 content = f.read()
             return [json.loads(line) for line in content.splitlines()]
         except FileNotFoundError:
@@ -149,7 +149,7 @@ class MemoToolSuite:
         return f"Successfully added options to question {question_index}"
 
     async def list_records(self) -> str:
-        with open(self.file_path, "r") as f:
+        with open(self.file_path) as f:
             content = f.read()
         return f"Memo file path: {self.file_path}\nRecords:\n{content}"
 
