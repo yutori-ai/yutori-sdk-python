@@ -34,6 +34,7 @@ from .types import (
 
 _READY_TIMEOUT_SECONDS = 15
 _OPERATION_TIMEOUT_SECONDS = 5
+_STATUS_METRICS_TIMEOUT_SECONDS = 0.25
 _ENCODE_TIMEOUT_SECONDS = 30
 # The host's own desktop capture: ScreenCaptureKit plus a PNG encode of a full Retina frame.
 _CAPTURE_TIMEOUT_SECONDS = 15
@@ -648,7 +649,10 @@ class MacOSPresentationController:
         if not self._status.available or self._stopping:
             return False
         try:
-            reply = await self._send_command({"op": "metrics", **asdict(metrics)})
+            reply = await self._send_command(
+                {"op": "metrics", **asdict(metrics)},
+                timeout=_STATUS_METRICS_TIMEOUT_SECONDS,
+            )
         except asyncio.CancelledError:
             raise
         except Exception as error:  # noqa: BLE001 - status telemetry is cosmetic

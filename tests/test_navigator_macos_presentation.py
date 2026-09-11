@@ -572,9 +572,11 @@ def test_status_metrics_validate_counts_timings_and_cache_subset():
 async def test_both_status_items_accept_typed_metrics(monkeypatch, controller_factory):
     controller = controller_factory()
     commands: list[dict] = []
+    timeouts: list[float] = []
 
-    async def send_command(command, **_kwargs):
+    async def send_command(command, **kwargs):
         commands.append(command)
+        timeouts.append(kwargs["timeout"])
         return {"ok": True, "state": "shown"}
 
     monkeypatch.setattr(controller, "_send_command", send_command)
@@ -599,6 +601,7 @@ async def test_both_status_items_accept_typed_metrics(monkeypatch, controller_fa
             "request_in_flight": True,
         }
     ]
+    assert timeouts == [0.25]
 
 
 async def test_status_metrics_failure_keeps_the_presentation_available(monkeypatch):
