@@ -594,12 +594,12 @@ async def test_presented_output_is_bounded_to_the_cards_last_lines():
     computer = MacOSComputer(presentation=False, allow_local_shell=True)
     sink = PresentationSink()
     computer.presentation = sink
-    await computer.run_shell_command("printf 'a\\nb\\nc\\nd\\n'", timeout_seconds=5)
+    await computer.run_shell_command("printf 'a\\nb\\nc\\nd\\ne\\nf\\n'", timeout_seconds=5)
     computer.presentation = None
 
     # The END, not the beginning: the card shows a few lines, and a feed truncated
     # at the head would freeze on the first thing printed.
-    assert sink.events[-1]["event"].output == "…c\nd"
+    assert sink.events[-1]["event"].output == "…c\nd\ne\nf"
 
 
 async def test_slow_command_streams_its_output_before_it_exits():

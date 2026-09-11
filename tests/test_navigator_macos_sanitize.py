@@ -45,7 +45,7 @@ def test_output_preview_keeps_the_last_lines_not_the_first():
     # The opposite end from a command preview, because this is a feed: a
     # head-truncated one freezes on its first screenful for the rest of the run.
     assert sanitize_output_preview(feed, max_lines=2) == "…line 39\nline 40"
-    assert sanitize_output_preview(feed) == "…line 39\nline 40"
+    assert sanitize_output_preview(feed) == "…line 37\nline 38\nline 39\nline 40"
 
 
 def test_output_preview_caps_each_line_to_one_rendered_row():

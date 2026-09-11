@@ -12,14 +12,13 @@ COMMAND_PREVIEW_MAX_CHARACTERS = 160
 # than fits is not merely wasteful: the clip keeps the TOP of what it is handed, so
 # the overflow that gets hidden is the NEWEST output — the opposite of what a feed
 # should drop.
-# MUST equal the vendored renderer's output-block row count. They move together or
+# MUST equal the vendored renderer's `terminal.outputLines`. They move together or
 # the newest output is what gets hidden: the block clips from the bottom, so sending
 # more lines than the renderer shows silently drops the tail — the opposite end from
 # the one a feed should lose. The bundled renderer
-# (`yutori-navigator-overlay-runtime==0.5.0`, see `assets/provenance.json`) clips at
-# two, so this is two. Raising it means releasing a renderer that shows more rows and
-# re-vendoring it here in the same change.
-OUTPUT_PREVIEW_MAX_LINES = 2
+# (`yutori-navigator-overlay-runtime==0.5.1`, see `assets/provenance.json`) shows
+# four, so this is four.
+OUTPUT_PREVIEW_MAX_LINES = 4
 # The card wraps (`white-space: pre-wrap; overflow-wrap: anywhere`), so the budget is
 # RENDERED rows, not logical lines: one long line silently eats several rows and
 # pushes the newest lines out of the clip. Each line is therefore capped to one row.
