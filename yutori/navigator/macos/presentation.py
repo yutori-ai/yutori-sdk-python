@@ -503,6 +503,8 @@ class MacOSPresentationController:
         self._terminal_command = ""
         self._terminal_running = False
         self._terminal_failed = False
+        self._terminal_output = ""
+        self._terminal_task_id = ""
         self._active_keys: "list[str] | None" = None
         self._queue_active = False
         self._batch_is_last = False
@@ -683,6 +685,8 @@ class MacOSPresentationController:
         self._terminal_command = ""
         self._terminal_running = False
         self._terminal_failed = False
+        self._terminal_output = ""
+        self._terminal_task_id = ""
 
     async def _clear_reasoning_and_render(self) -> None:
         """Drop any stale reasoning/action labels and re-render the capsule.
@@ -1107,6 +1111,11 @@ class MacOSPresentationController:
                     "command": self._terminal_command,
                     "running": self._terminal_running,
                     "failed": self._terminal_failed,
+                    # Omitted rather than sent empty: the renderer draws the output
+                    # block only when there is output, so a command that has printed
+                    # nothing yet keeps the card at command-only height instead of
+                    # reserving two blank lines it may never fill.
+                    **({"output": self._terminal_output} if self._terminal_output else {}),
                 },
             }
         )
@@ -1217,6 +1226,14 @@ class MacOSPresentationController:
                     "presentation": {"badge": {"type": "loop"}, "queue": None, "transientEffects": []},
                 }
             )
+            # Keyed on task_id, not on the command text: the same command run twice
+            # in a row is two tasks, and matching on text would let the second one
+            # open showing the first one's output.
+            if event.task_id != self._terminal_task_id:
+                self._terminal_task_id = event.task_id
+                self._terminal_output = ""
+            if event.output is not None:
+                self._terminal_output = event.output
             self._terminal_command = event.command
             self._terminal_running = True
             self._terminal_failed = False
@@ -1235,6 +1252,8 @@ class MacOSPresentationController:
         # whose body is the command itself.
         self._terminal_running = False
         self._terminal_failed = event.state != "completed"
+        if event.output is not None:
+            self._terminal_output = event.output
         await self._render_terminal()
         if not await self._sleep(_SHELL_COMMAND_TERMINAL_HOLD_SECONDS):
             return

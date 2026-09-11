@@ -36,7 +36,7 @@ from .polling import (
 from .presentation import MacOSPresentationController
 from .preview import WindowPreviewStreamer
 from .process_lifecycle import cancel_and_drain, race_against_cancellation, race_sleep_against_cancellation
-from .sanitize import sanitize_command_preview
+from .sanitize import sanitize_command_preview, sanitize_output_preview
 from .transport import (
     CuaDriverConnectionError,
     CuaDriverToolError,
@@ -58,6 +58,13 @@ from .windows import select_target_window, window_records
 _CAPTURE_ATTEMPTS = 3
 _CAPTURE_RETRY_SECONDS = 0.25
 _SHELL_RESULT_MAX_CHARACTERS = 8_000
+# Read granularity for a running command's output. Small enough that a command
+# printing a line at a time reaches the card promptly rather than a buffer at a
+# time; the throttle below, not this, is what bounds how often the card repaints.
+_SHELL_READ_CHUNK_BYTES = 4_096
+# Minimum gap between two run-command card repaints. The card shows two lines, so
+# repainting faster than this only costs IPC and makes the text unreadable.
+_SHELL_OUTPUT_THROTTLE_SECONDS = 0.4
 _SHELL_RESULT_TRUNCATION_SUFFIX = "\n[result truncated]"
 _SHELL_EMPTY_SUCCESS_OUTPUT = "Command exited with code 0 and produced no output."
 _MAX_OBSERVATION_LONG_SIDE = 1920
@@ -300,6 +307,82 @@ def _format_shell_result(output: str, exit_code: int) -> str:
     if not output:
         return marker
     return f"{output}{'' if output.endswith(chr(10)) else chr(10)}{marker}"
+
+
+class _ShellOutputStream:
+    """Feeds a running command's output to the run-command card.
+
+    Sits between the pump (which calls back inline, synchronously, from inside the
+    read loop) and the presentation sink (which is async and talks to another
+    process). Three things it has to get right, none of which belong in either:
+
+    * **Never block the read.** ``on_partial`` schedules and returns; a slow or
+      wedged overlay must not stall the command whose output it is showing.
+    * **Never outlive the command.** ``close`` stops accepting and awaits what is
+      already scheduled, so the caller can emit the terminal event knowing no stale
+      tail follows it.
+    * **Never leak the wrapper.** A bash command carries a cwd sentinel that the
+      caller only splits off at the end; a partial that happened to catch it would
+      put ``__YUTORI_N2_BASH_CWD_…`` on screen.
+
+    A presentation failure is swallowed: the card is cosmetic, and the command's
+    real result is returned to the model regardless.
+    """
+
+    def __init__(
+        self,
+        *,
+        present: "Callable[[str], Awaitable[None]]",
+        sanitize: "Callable[[str], str]",
+        cwd_sentinel: "str | None",
+        throttle_seconds: float = _SHELL_OUTPUT_THROTTLE_SECONDS,
+        clock: "Callable[[], float]" = time.monotonic,
+    ) -> None:
+        self._present = present
+        self._sanitize = sanitize
+        self._cwd_sentinel = cwd_sentinel
+        self._throttle_seconds = throttle_seconds
+        self._clock = clock
+        self._pending: "asyncio.Task[None] | None" = None
+        self._last_sent = ""
+        self._last_at = 0.0
+        self._closed = False
+
+    def on_partial(self, accumulated: bytes) -> None:
+        if self._closed:
+            return
+        now = self._clock()
+        if self._last_at and now - self._last_at < self._throttle_seconds:
+            return
+        text = accumulated.decode("utf-8", errors="replace")
+        if self._cwd_sentinel:
+            text, _ = _split_bash_cwd(text, self._cwd_sentinel)
+        preview = self._sanitize(text)
+        # Unchanged tails are the common case for a command that has gone quiet
+        # between reads; repainting the card with identical text only restarts its
+        # reveal.
+        if not preview or preview == self._last_sent:
+            return
+        self._last_sent = preview
+        self._last_at = now
+        if self._pending is not None and not self._pending.done():
+            # The overlay has not kept up. Dropping this frame is correct: the next
+            # one carries the whole tail anyway, and queueing would build a backlog
+            # of stale frames behind a sink that is already slow.
+            return
+        self._pending = asyncio.create_task(self._deliver(preview))
+
+    async def _deliver(self, preview: str) -> None:
+        with suppress(Exception):
+            await self._present(preview)
+
+    async def close(self) -> None:
+        self._closed = True
+        pending = self._pending
+        self._pending = None
+        if pending is not None:
+            with suppress(asyncio.CancelledError, Exception):
+                await pending
 
 
 def _bash_cwd_wrapper(command: str, sentinel: str) -> str:
@@ -1743,22 +1826,53 @@ class MacOSComputer:
         )
         self._foreground_processes.add(process)
         await self._present_shell(ShellPresentationEvent(task_id, preview, False, "running"))
+        stream = _ShellOutputStream(
+            present=lambda text: self._present_shell(
+                ShellPresentationEvent(task_id, preview, False, "running", output=text)
+            ),
+            sanitize=lambda text: sanitize_output_preview(text, known_secrets=self._known_secrets),
+            cwd_sentinel=cwd_sentinel,
+        )
         try:
-            stdout = await self._communicate(process, timeout, command.encode())
+            stdout = await self._communicate(process, timeout, command.encode(), stream.on_partial)
+        # Closed BEFORE each terminal event, never only in `finally`: an `except`
+        # block runs first, so a `finally`-only close would flush a pending `running`
+        # frame AFTER the card had already been marked timed out or cancelled --
+        # putting it back into its running state for the whole finished-card dwell.
+        # `close` is idempotent, so the `finally` below is the backstop for the paths
+        # that do not raise.
         except TimeoutError:
+            await stream.close()
             await self._present_shell(ShellPresentationEvent(task_id, preview, False, "timed_out"))
             raise
         except asyncio.CancelledError:
+            await stream.close()
             await self._present_shell(ShellPresentationEvent(task_id, preview, False, "cancelled"))
             raise
         finally:
             self._foreground_processes.discard(process)
             self._timings["shell_ms"] += (time.monotonic() - started_at) * 1000
+            # No further partial may be presented, and any still in flight has to land
+            # before the terminal event below -- a stale tail arriving after it would
+            # repaint the card over the finished command's own last lines.
+            await stream.close()
         text = stdout.decode("utf-8", errors="replace") if stdout else ""
         output, reported_cwd = _split_bash_cwd(text, cwd_sentinel) if cwd_sentinel else (text, None)
         exit_code = int(process.returncode or 0)
         state = "completed" if exit_code == 0 else "failed"
-        await self._present_shell(ShellPresentationEvent(task_id, preview, False, state, exit_code))
+        await self._present_shell(
+            ShellPresentationEvent(
+                task_id,
+                preview,
+                False,
+                state,
+                exit_code,
+                # Carried on the terminal event too: without it the card would blank
+                # its output at the exact moment the command finished, which reads as
+                # losing the answer rather than delivering it.
+                output=sanitize_output_preview(output, known_secrets=self._known_secrets) or None,
+            )
+        )
         rendered = _format_shell_result(output, exit_code)
         return (rendered, reported_cwd) if cwd_sentinel else rendered
 
@@ -1809,13 +1923,84 @@ class MacOSComputer:
             f"Cancel with: kill -- -{identity.group}"
         )
 
+    async def _pump(
+        self,
+        process: asyncio.subprocess.Process,
+        input_data: bytes,
+        on_partial: "Callable[[bytes], None] | None",
+    ) -> bytes:
+        """``process.communicate``, except the caller sees the output as it arrives.
+
+        Why not ``communicate``: it returns once, at exit, so a command that runs for
+        a minute shows the operator a spinner for a minute. Reading incrementally is
+        the whole feature -- everything else in this file already existed.
+
+        The stdin write stays CONCURRENT with the read, which is the one thing
+        ``communicate`` does that a naive write-then-read gets wrong: a script larger
+        than the pipe buffer whose child starts printing immediately deadlocks, each
+        side blocked on the other. ``stderr`` is merged into ``stdout`` at spawn
+        (:meth:`_spawn_supervised_shell`), so there is exactly one stream to read and
+        no interleaving question.
+
+        ``on_partial`` is advisory and receives the output SO FAR (cumulative, not a
+        delta) -- a presentation tail is idempotent, so a dropped one costs nothing
+        and a caller cannot be made to reassemble a sequence. It is called inline, so
+        it must be cheap and must not raise; the return value is unaffected either
+        way.
+        """
+
+        async def write_stdin() -> None:
+            if process.stdin is None:
+                return
+            try:
+                process.stdin.write(input_data)
+                await process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                # The command exited without reading its script. Its output, and its
+                # exit code, are still what the caller wants.
+                pass
+            finally:
+                with suppress(BrokenPipeError, ConnectionResetError):
+                    process.stdin.close()
+
+        async def read_stdout() -> bytes:
+            if process.stdout is None:
+                return b""
+            chunks: list[bytes] = []
+            while True:
+                chunk = await process.stdout.read(_SHELL_READ_CHUNK_BYTES)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if on_partial is not None:
+                    on_partial(b"".join(chunks))
+            return b"".join(chunks)
+
+        writer = asyncio.create_task(write_stdin())
+        try:
+            stdout = await read_stdout()
+            # Awaited, not cancelled: the write is how the command RECEIVES its
+            # script, so tearing it down because the read finished first would run a
+            # different command than the caller asked for. It cannot hang past the
+            # read -- a child that closed stdout makes the next write fail, and
+            # `write_stdin` swallows that -- and `_communicate`'s own timeout kills
+            # the process group if it somehow does.
+            await writer
+        except BaseException:
+            await cancel_and_drain(writer)
+            raise
+        # Reap, so `process.returncode` is set for the exit-code read that follows.
+        await process.wait()
+        return stdout
+
     async def _communicate(
         self,
         process: asyncio.subprocess.Process,
         timeout: "float | None",
         input_data: bytes,
+        on_partial: "Callable[[bytes], None] | None" = None,
     ) -> bytes:
-        communication = asyncio.create_task(process.communicate(input_data))
+        communication = asyncio.create_task(self._pump(process, input_data, on_partial))
         cancellation = asyncio.create_task(self.cancellation.wait())
         effective_timeout = timeout
         if self.execution_deadline is not None:
@@ -1828,8 +2013,7 @@ class MacOSComputer:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if communication in done:
-                stdout, _ = communication.result()
-                return stdout or b""
+                return communication.result()
             self._kill_process_group(process)
             await process.wait()
             if cancellation in done:
