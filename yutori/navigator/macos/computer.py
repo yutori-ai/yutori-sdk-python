@@ -1840,14 +1840,13 @@ class MacOSComputer:
         # frame AFTER the card had already been marked timed out or cancelled --
         # putting it back into its running state for the whole finished-card dwell.
         # `close` is idempotent, so the `finally` below is the backstop for the paths
-        # that do not raise.
-        except TimeoutError:
+        # that do not raise. Both branches close-present-then-reraise identically;
+        # only the reported lifecycle state differs by which was actually raised --
+        # the same shape `_spawn_supervised_shell` above uses for its own split.
+        except (TimeoutError, asyncio.CancelledError) as error:
             await stream.close()
-            await self._present_shell(ShellPresentationEvent(task_id, preview, False, "timed_out"))
-            raise
-        except asyncio.CancelledError:
-            await stream.close()
-            await self._present_shell(ShellPresentationEvent(task_id, preview, False, "cancelled"))
+            state = "cancelled" if isinstance(error, asyncio.CancelledError) else "timed_out"
+            await self._present_shell(ShellPresentationEvent(task_id, preview, False, state))
             raise
         finally:
             self._foreground_processes.discard(process)
