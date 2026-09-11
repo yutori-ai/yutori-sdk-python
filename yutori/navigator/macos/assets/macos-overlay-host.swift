@@ -952,7 +952,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             guard let phase = command["phase"] as? String else { return fail(id, "Missing probe phase.") }
             captureProbe(id: id, phase: phase)
         case "captureDesktop":
-            captureDesktop(id: id)
+            // Window IDs a host application asks to leave out of the model's frame as well: its
+            // own panels (an activity window, say) stay visible on screen and in recordings,
+            // exactly like this process's windows, without ever reaching the model.
+            let hostWindowIDs = (command["excludeWindowIDs"] as? [Int] ?? []).map { CGWindowID($0) }
+            captureDesktop(id: id, excludingHostWindows: Set(hostWindowIDs))
         case "pulse":
             guard let point = command["point"] as? [String: Any] else { return fail(id, "Missing pulse point.") }
             callJavaScript(id: id, body: "return window.__n2OverlayPulse(point)", arguments: ["point": point])
@@ -1102,11 +1106,11 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// capturable -- visible in screen recordings and screen shares of the run -- while the
     /// model's frame still carries no Yutori drawing. Same shape as the driver's frame: the main
     /// display at native pixels, without the cursor. The reply carries the PNG and its pixel size.
-    private func captureDesktop(id: Int) {
+    private func captureDesktop(id: Int, excludingHostWindows hostWindowIDs: Set<CGWindowID> = []) {
         guard !statusMode, screen != nil else { return fail(id, "Desktop capture needs the overlay display.") }
         Task { @MainActor in
             do {
-                let filter = try await self.desktopCaptureFilter()
+                let filter = try await self.desktopCaptureFilter(excludingHostWindows: hostWindowIDs)
                 let configuration = SCStreamConfiguration()
                 let scale = CGFloat(filter.pointPixelScale)
                 configuration.width = Int((filter.contentRect.width * scale).rounded())
@@ -1131,26 +1135,30 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         }
     }
 
-    private func desktopCaptureFilter() async throws -> SCContentFilter {
-        if let captureFilter { return captureFilter }
+    private func desktopCaptureFilter(excludingHostWindows hostWindowIDs: Set<CGWindowID> = []) async throws -> SCContentFilter {
+        if hostWindowIDs.isEmpty, let captureFilter { return captureFilter }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let displayID = CGMainDisplayID()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw DesktopCaptureError.displayUnavailable
         }
         let pid = ProcessInfo.processInfo.processIdentifier
-        if let application = content.applications.first(where: { $0.processID == pid }) {
+        if hostWindowIDs.isEmpty, let application = content.applications.first(where: { $0.processID == pid }) {
             // By application: windows this process opens later (the activity window, the probe)
             // are left out too, so the filter can be kept.
             let filter = SCContentFilter(display: display, excludingApplications: [application], exceptingWindows: [])
             captureFilter = filter
             return filter
         }
-        // Not listed as an application (no window of ours on screen yet): leave out the windows
-        // by ID for this one frame, and look again next time.
+        // By window: this process's windows plus the host's, for this one frame. A filter cannot
+        // exclude an application and extra windows at once, and the host's set can change between
+        // frames, so it is rebuilt per capture. Host windows that are gone are simply not found.
+        // Without host windows this is also the path taken before this process is listed as an
+        // application (no window of ours on screen yet).
         let own = Set(NSApp.windows.map { CGWindowID($0.windowNumber) })
-        let windows = content.windows.filter { own.contains($0.windowID) }
-        guard !windows.isEmpty else { throw DesktopCaptureError.selfNotShareable }
+        let excluded = own.union(hostWindowIDs)
+        let windows = content.windows.filter { excluded.contains($0.windowID) }
+        guard windows.contains(where: { own.contains($0.windowID) }) else { throw DesktopCaptureError.selfNotShareable }
         return SCContentFilter(display: display, excludingWindows: windows)
     }
 

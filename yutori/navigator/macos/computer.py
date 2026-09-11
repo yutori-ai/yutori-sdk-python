@@ -444,6 +444,7 @@ class MacOSComputer:
         target_window: "MacOSWindowTarget | None" = None,
         allow_foreground_fallback: bool = False,
         exclude_overlay_from_capture: bool = True,
+        exclude_capture_window_ids: "Sequence[int]" = (),
     ) -> None:
         if transport is not None and owns_transport is None:
             raise ValueError("owns_transport must be explicit when transport is injected")
@@ -460,6 +461,9 @@ class MacOSComputer:
         # desktop frames then come from the overlay host, which leaves its own windows out of the
         # capture (`presentation.capture_source == "overlay"`), and only fall back to hiding it.
         self.exclude_overlay_from_capture = exclude_overlay_from_capture
+        # A host application's own window IDs (CGWindowID) to keep out of the model's desktop
+        # frames, on top of the overlay host's own windows; they stay on screen and recordable.
+        self.exclude_capture_window_ids = tuple(int(window_id) for window_id in exclude_capture_window_ids)
         self.allow_local_shell = allow_local_shell
         self.execution_deadline = execution_deadline
         self.cancellation = cancellation or CancellationLatch()
@@ -1341,6 +1345,7 @@ class MacOSComputer:
             show_stop_button=self.show_stop_button,
             restore_native_cursor=self._restore_native_cursor,
             exclude_from_capture=self.exclude_overlay_from_capture,
+            exclude_capture_window_ids=self.exclude_capture_window_ids,
         )
         try:
             await controller.start()

@@ -1855,3 +1855,31 @@ async def test_window_scope_without_a_status_item_has_no_streamer(monkeypatch):
     async with _bound_window_computer(WindowFakeTransport()) as computer:
         assert computer.preview_frames_sent == 0
     assert not _FakeStreamer.instances
+
+
+async def test_host_window_ids_reach_the_presentation_controller(monkeypatch):
+    """The computer hands a host's window ids to the controller that captures the model's frames."""
+    seen: dict = {}
+
+    class _RecordingController:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+        async def start(self):
+            raise RuntimeError("stop before the overlay is needed")
+
+        async def stop(self):
+            return None
+
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _RecordingController)
+    computer = MacOSComputer(transport=FakeTransport(), owns_transport=False, exclude_capture_window_ids=[101, 202])
+    assert computer.exclude_capture_window_ids == (101, 202)
+    monkeypatch.setattr(computer, "_restore_native_cursor", _noop_restore)
+    await computer._start_presentation(2000, 1200)
+    assert seen["exclude_capture_window_ids"] == (101, 202)
+    assert seen["exclude_from_capture"] is True
+    assert computer.presentation is None
+
+
+async def _noop_restore():
+    return "current"
