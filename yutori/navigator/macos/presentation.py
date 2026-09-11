@@ -500,11 +500,7 @@ class MacOSPresentationController:
         self._last_render: dict[str, str] = {}
         self._reasoning = ""
         self._action_status = ""
-        self._terminal_command = ""
-        self._terminal_running = False
-        self._terminal_failed = False
-        self._terminal_output = ""
-        self._terminal_task_id = ""
+        self._reset_terminal()
         self._active_keys: "list[str] | None" = None
         self._queue_active = False
         self._batch_is_last = False
