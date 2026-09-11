@@ -229,8 +229,8 @@ private func statusMetricsImage(
         let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 5.5, weight: .medium)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .semibold)
         let columns: [(String, String, CGFloat, CGFloat)] = [
-            ("IN", compactCount(metrics.inputTokens), 23, 17),
-            ("CACHE", compactCount(metrics.cachedInputTokens), 43, 34),
+            ("IN", compactCount(metrics.inputTokens), 20, 24),
+            ("CACHE", compactCount(metrics.cachedInputTokens), 45, 32),
             ("OUT", compactCount(metrics.outputTokens), 80, 20),
             ("RTT", compactRTT(metrics.latestRTTMilliseconds), 111, 31),
         ]
