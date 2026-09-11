@@ -28,6 +28,7 @@ from .types import (
     CancellationLatch,
     MacOSPresentationCapabilities,
     MacOSPresentationStatus,
+    MacOSStatusMetrics,
     ShellPresentationEvent,
 )
 
@@ -641,6 +642,19 @@ class MacOSPresentationController:
         if caption is not None:
             self._last_render["status"] = caption
         return True
+
+    async def update_status_metrics(self, metrics: MacOSStatusMetrics) -> bool:
+        """Update the run-scoped menu-bar metrics without risking the presentation or run."""
+        if not self._status.available or self._stopping:
+            return False
+        try:
+            reply = await self._send_command({"op": "metrics", **asdict(metrics)})
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - status telemetry is cosmetic
+            self._telemetry.append({"type": "status_metrics_failed", "error_type": type(error).__name__})
+            return False
+        return reply.get("state") == "shown"
 
     def blocking_surface(self, point: tuple[float, float]) -> "str | None":
         """Which Yutori control a model input at this point (0-1000 space) would land on.

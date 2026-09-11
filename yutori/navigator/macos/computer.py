@@ -48,6 +48,7 @@ from .types import (
     CancellationLatch,
     MacOSActionOutcome,
     MacOSPresentationStatus,
+    MacOSStatusMetrics,
     MacOSWindowTarget,
     N2Observation,
     ShellPresentationEvent,
@@ -1301,6 +1302,12 @@ class MacOSComputer:
 
     def add_polling_time(self, milliseconds: float) -> None:
         self._timings["polling_ms"] += milliseconds
+
+    async def update_status_metrics(self, metrics: MacOSStatusMetrics) -> bool:
+        """Update the run-scoped status item when its optional presentation is available."""
+        if self.presentation is None:
+            return False
+        return await self.presentation.update_status_metrics(metrics)
 
     async def _start_status_presentation(self) -> None:
         """Window scope: the menu bar item, the shell rail, and the activity window's transcript."""

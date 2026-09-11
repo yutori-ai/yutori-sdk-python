@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import math
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -51,6 +52,40 @@ class MacOSPresentationStatus:
     degradation_reason: "str | None" = None
     codec: "str | None" = None
     fallback: "str | None" = None
+
+
+@dataclass(frozen=True)
+class MacOSStatusMetrics:
+    """Counts and timings shown by the run-scoped macOS status item."""
+
+    input_tokens: "int | None" = None
+    cached_input_tokens: "int | None" = None
+    output_tokens: "int | None" = None
+    latest_rtt_ms: "float | None" = None
+    rtt_samples_ms: tuple[float, ...] = ()
+    request_in_flight: bool = False
+
+    def __post_init__(self) -> None:
+        counts = (self.input_tokens, self.cached_input_tokens, self.output_tokens)
+        if any(
+            value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0)
+            for value in counts
+        ):
+            raise ValueError("status metric token counts must be non-negative integers or None")
+        if (
+            self.input_tokens is not None
+            and self.cached_input_tokens is not None
+            and self.cached_input_tokens > self.input_tokens
+        ):
+            raise ValueError("cached input tokens cannot exceed input tokens")
+        timings = (*self.rtt_samples_ms, *((self.latest_rtt_ms,) if self.latest_rtt_ms is not None else ()))
+        if any(
+            not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0
+            for value in timings
+        ):
+            raise ValueError("status metric RTT values must be finite non-negative numbers")
+        if not isinstance(self.request_in_flight, bool):
+            raise ValueError("request_in_flight must be a bool")
 
 
 @dataclass(frozen=True)
