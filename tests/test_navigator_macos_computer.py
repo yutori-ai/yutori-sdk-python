@@ -1855,3 +1855,32 @@ async def test_window_scope_without_a_status_item_has_no_streamer(monkeypatch):
     async with _bound_window_computer(WindowFakeTransport()) as computer:
         assert computer.preview_frames_sent == 0
     assert not _FakeStreamer.instances
+
+
+async def test_keypress_speaks_the_driver_key_vocabulary():
+    """n2's canonical key names cross the RPC boundary as names cua-driver's macOS keycode table knows.
+
+    The table spells the page keys `pageup`/`pagedown`, and it reads `delete` as kVK_Delete (erase LEFT),
+    so the forward delete the model means has to travel as `forward_delete`. `backspace`, modifiers, and
+    names the table already knows pass through untouched.
+    """
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, verify_focus=False) as computer:
+        await computer.keypress("page_up")
+        await computer.keypress("page_down")
+        await computer.keypress("delete")
+        await computer.keypress("backspace")
+        await computer.keypress("Return")
+        await computer.keypress(["cmd", "delete"])
+        await computer.keypress(["shift", "page_down"])
+    assert [call["key"] for call in _arguments(transport, "press_key")] == [
+        "pageup",
+        "pagedown",
+        "forward_delete",
+        "backspace",
+        "Return",
+    ]
+    assert [call["keys"] for call in _arguments(transport, "hotkey")] == [
+        ["cmd", "forward_delete"],
+        ["shift", "pagedown"],
+    ]

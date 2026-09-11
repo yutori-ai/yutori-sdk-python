@@ -74,6 +74,13 @@ _VCS_DIRECTORIES = {".git", ".hg", ".svn"}
 _GLOB_RESULT_LIMIT = 100
 _DELIVERY_BACKGROUND = "background"
 _DELIVERY_FOREGROUND = "foreground"
+# n2 emits the Linux key vocabulary its training desktop used, and `n2_actions` canonicalizes
+# it to `page_up`/`page_down`/`delete`. cua-driver's macOS keycode table
+# (platform-macos/src/input/keyboard.rs) only knows the page keys as `pageup`/`pagedown`, and it
+# reads `delete` as kVK_Delete, which erases LEFT; the forward delete the model means is
+# `forward_delete`. Rewritten here, at the RPC boundary, because this is the only handler that
+# speaks cua-driver: the X11 adapters consume the canonical names unchanged.
+_DRIVER_KEY_NAMES = {"page_up": "pageup", "page_down": "pagedown", "delete": "forward_delete"}
 # Driver refusal codes that mean the driven window is gone (or never belonged to the
 # target process) versus ones that only invalidate the frame the coordinates came from.
 _WINDOW_LOSS_CODES = frozenset({"window_id_not_found", "window_owner_pid_mismatch"})
@@ -917,6 +924,7 @@ class MacOSComputer:
         sequence = [keys] if isinstance(keys, str) else list(keys)
         if self._emulated_held_keys:
             sequence = self._merged_modifiers(sequence)
+        sequence = [_DRIVER_KEY_NAMES.get(key.lower(), key) for key in sequence]
         await self._guard_frontmost("press_key" if len(sequence) == 1 else "hotkey")
         if len(sequence) == 1:
             await self._mutate("press_key", self._action_args(key=sequence[0]))
