@@ -203,7 +203,10 @@ private func statusMetricsImage(
     markRotation: CGFloat,
     markGreenFraction: CGFloat
 ) -> NSImage {
-    let foreground = NSColor.labelColor.resolvedColor(with: appearance)
+    var foreground = NSColor.labelColor
+    appearance.performAsCurrentDrawingAppearance {
+        foreground = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? NSColor.labelColor
+    }
     let muted = foreground.withAlphaComponent(0.58)
     let faint = foreground.withAlphaComponent(0.2)
     let markColor = foreground.blended(withFraction: markGreenFraction, of: yutoriGreen) ?? foreground
