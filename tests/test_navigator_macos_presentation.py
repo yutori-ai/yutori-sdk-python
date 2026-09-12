@@ -14,6 +14,7 @@ from yutori.navigator.macos.presentation import MacOSPresentationController, Mac
 from yutori.navigator.macos.types import (
     MacOSPresentationCapabilities,
     MacOSPresentationStatus,
+    MacOSStatusMetrics,
     ShellPresentationEvent,
 )
 
@@ -552,6 +553,67 @@ def _status_controller() -> MacOSPresentationController:
     controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
     controller._viewport = (0, 0)
     return controller
+
+
+def test_status_metrics_validate_counts_timings_and_cache_subset():
+    assert MacOSStatusMetrics(input_tokens=12, cached_input_tokens=4, rtt_samples_ms=(120.5,))
+    for invalid in (
+        {"input_tokens": -1},
+        {"input_tokens": 3, "cached_input_tokens": 4},
+        {"latest_rtt_ms": float("inf")},
+        {"rtt_samples_ms": (-1,)},
+        {"request_in_flight": 1},
+    ):
+        with pytest.raises(ValueError):
+            MacOSStatusMetrics(**invalid)
+
+
+@pytest.mark.parametrize("controller_factory", [_active_controller, _status_controller])
+async def test_both_status_items_accept_typed_metrics(monkeypatch, controller_factory):
+    controller = controller_factory()
+    commands: list[dict] = []
+    timeouts: list[float] = []
+
+    async def send_command(command, **kwargs):
+        commands.append(command)
+        timeouts.append(kwargs["timeout"])
+        return {"ok": True, "state": "shown"}
+
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    metrics = MacOSStatusMetrics(
+        input_tokens=1200,
+        cached_input_tokens=800,
+        output_tokens=75,
+        latest_rtt_ms=340.5,
+        rtt_samples_ms=(100.0, 340.5),
+        request_in_flight=True,
+    )
+
+    assert await controller.update_status_metrics(metrics) is True
+    assert commands == [
+        {
+            "op": "metrics",
+            "input_tokens": 1200,
+            "cached_input_tokens": 800,
+            "output_tokens": 75,
+            "latest_rtt_ms": 340.5,
+            "rtt_samples_ms": (100.0, 340.5),
+            "request_in_flight": True,
+        }
+    ]
+    assert timeouts == [0.25]
+
+
+async def test_status_metrics_failure_keeps_the_presentation_available(monkeypatch):
+    controller = _status_controller()
+
+    async def fail(_command, **_kwargs):
+        raise MacOSPresentationError("bad metrics")
+
+    monkeypatch.setattr(controller, "_send_command", fail)
+    assert await controller.update_status_metrics(MacOSStatusMetrics()) is False
+    assert controller.status.available
+    assert controller.telemetry[-1] == {"type": "status_metrics_failed", "error_type": "MacOSPresentationError"}
 
 
 def test_status_mode_handshake_skips_geometry_and_never_has_a_stop_region():

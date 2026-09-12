@@ -9,11 +9,16 @@ import WebKit
 
 private let overlayProtocolVersion = 2
 
-// The Yutori mark, from the platform dashboard's yutori-mark.svg (viewBox -2 -2 117 114),
+// The Yutori mark, from brand/logos/yloop/yloop-mark-light.svg (viewBox 0 0 361 350),
 // with its two filled subpaths emitted as CGPath calls because AppKit has no SVG parser.
-private let yutoriMarkViewBox = CGRect(x: -2, y: -2, width: 117, height: 114)
+private let yutoriMarkViewBox = CGRect(x: 0, y: 0, width: 361, height: 350)
 private let menuBarIconPoints: CGFloat = 18
-private let activityDotFontPoints: CGFloat = 6
+private let statusMetricsWidthPoints: CGFloat = 148
+private let statusMetricsHeightPoints: CGFloat = 22
+private let statusMarkPoints: CGFloat = 16
+private let statusMarkFadeSeconds = 0.16
+private let statusHistogramBins = 7
+private let yutoriGreen = NSColor(srgbRed: 0x19 / 255, green: 0xb3 / 255, blue: 0x85 / 255, alpha: 1)
 // Status mode (background window-scope runs): the menu shows the latest frame at this width.
 private let thumbnailWidthPoints: CGFloat = 360
 private let thumbnailMaxHeightPoints: CGFloat = 420
@@ -41,25 +46,25 @@ private let pendingActivityCallLimit = 500
 
 private func yutoriMarkGlyph() -> CGPath {
     let path = CGMutablePath()
-    path.move(to: CGPoint(x: 101.976, y: 0.821))
-    path.addCurve(to: CGPoint(x: 112.792, y: 4.268), control1: CGPoint(x: 106.955, y: -1.13), control2: CGPoint(x: 111.542, y: 0.545))
-    path.addCurve(to: CGPoint(x: 107.458, y: 13.782), control1: CGPoint(x: 114.212, y: 8.495), control2: CGPoint(x: 111.387, y: 11.998))
-    path.addCurve(to: CGPoint(x: 41.788, y: 75.917), control1: CGPoint(x: 74.847, y: 28.593), control2: CGPoint(x: 41.789, y: 54.809))
-    path.addCurve(to: CGPoint(x: 56.307, y: 94.026), control1: CGPoint(x: 41.788, y: 89.734), control2: CGPoint(x: 49.874, y: 94.026))
-    path.addCurve(to: CGPoint(x: 70.874, y: 75.917), control1: CGPoint(x: 62.74, y: 94.026), control2: CGPoint(x: 70.874, y: 89.735))
-    path.addCurve(to: CGPoint(x: 61.224, y: 53.963), control1: CGPoint(x: 70.874, y: 67.866), control2: CGPoint(x: 65.997, y: 59.825))
-    path.addCurve(to: CGPoint(x: 72.341, y: 43.538), control1: CGPoint(x: 61.248, y: 53.934), control2: CGPoint(x: 66.374, y: 47.82))
-    path.addCurve(to: CGPoint(x: 86.633, y: 75.917), control1: CGPoint(x: 81.107, y: 53.662), control2: CGPoint(x: 86.633, y: 63.68))
-    path.addCurve(to: CGPoint(x: 56.307, y: 110), control1: CGPoint(x: 86.633, y: 95.549), control2: CGPoint(x: 73.925, y: 110))
-    path.addCurve(to: CGPoint(x: 25.982, y: 75.917), control1: CGPoint(x: 38.688, y: 110), control2: CGPoint(x: 25.982, y: 95.549))
-    path.addCurve(to: CGPoint(x: 101.976, y: 0.821), control1: CGPoint(x: 25.982, y: 44.34), control2: CGPoint(x: 73.673, y: 11.912))
+    path.move(to: CGPoint(x: 324.467, y: 2.613))
+    path.addCurve(to: CGPoint(x: 358.884, y: 13.581), control1: CGPoint(x: 340.311, y: -3.596), control2: CGPoint(x: 354.905, y: 1.734))
+    path.addCurve(to: CGPoint(x: 341.912, y: 43.852), control1: CGPoint(x: 363.401, y: 27.03), control2: CGPoint(x: 354.415, y: 38.174))
+    path.addCurve(to: CGPoint(x: 132.964, y: 241.555), control1: CGPoint(x: 238.148, y: 90.978), control2: CGPoint(x: 132.964, y: 174.393))
+    path.addCurve(to: CGPoint(x: 179.159, y: 299.175), control1: CGPoint(x: 132.964, y: 285.52), control2: CGPoint(x: 158.691, y: 299.174))
+    path.addCurve(to: CGPoint(x: 225.509, y: 241.555), control1: CGPoint(x: 199.628, y: 299.175), control2: CGPoint(x: 225.509, y: 285.52))
+    path.addCurve(to: CGPoint(x: 194.802, y: 171.7), control1: CGPoint(x: 225.509, y: 215.939), control2: CGPoint(x: 209.99, y: 190.354))
+    path.addCurve(to: CGPoint(x: 230.176, y: 138.53), control1: CGPoint(x: 194.802, y: 171.7), control2: CGPoint(x: 211.143, y: 152.187))
+    path.addCurve(to: CGPoint(x: 275.65, y: 241.555), control1: CGPoint(x: 258.067, y: 170.742), control2: CGPoint(x: 275.649, y: 202.62))
+    path.addCurve(to: CGPoint(x: 179.157, y: 350), control1: CGPoint(x: 275.65, y: 304.019), control2: CGPoint(x: 235.216, y: 350))
+    path.addCurve(to: CGPoint(x: 82.667, y: 241.555), control1: CGPoint(x: 123.099, y: 349.999), control2: CGPoint(x: 82.667, y: 304.019))
+    path.addCurve(to: CGPoint(x: 324.467, y: 2.613), control1: CGPoint(x: 82.667, y: 141.081), control2: CGPoint(x: 234.413, y: 37.904))
     path.closeSubpath()
-    path.move(to: CGPoint(x: 0.372, y: 4.272))
-    path.addCurve(to: CGPoint(x: 11.19, y: 0.826), control1: CGPoint(x: 1.623, y: 0.549), control2: CGPoint(x: 6.21, y: -1.125))
-    path.addCurve(to: CGPoint(x: 51.019, y: 23.596), control1: CGPoint(x: 22.754, y: 5.358), control2: CGPoint(x: 37.556, y: 13.453))
-    path.addCurve(to: CGPoint(x: 39.908, y: 33.718), control1: CGPoint(x: 44.765, y: 28.489), control2: CGPoint(x: 39.924, y: 33.701))
-    path.addCurve(to: CGPoint(x: 5.706, y: 13.786), control1: CGPoint(x: 29.529, y: 26.092), control2: CGPoint(x: 17.588, y: 19.182))
-    path.addCurve(to: CGPoint(x: 0.372, y: 4.272), control1: CGPoint(x: 1.777, y: 12.001), control2: CGPoint(x: -1.047, y: 8.499))
+    path.move(to: CGPoint(x: 1.185, y: 13.595))
+    path.addCurve(to: CGPoint(x: 35.602, y: 2.628), control1: CGPoint(x: 5.164, y: 1.748), control2: CGPoint(x: 19.758, y: -3.581))
+    path.addCurve(to: CGPoint(x: 162.332, y: 75.076), control1: CGPoint(x: 72.399, y: 17.048), control2: CGPoint(x: 119.496, y: 42.803))
+    path.addCurve(to: CGPoint(x: 126.982, y: 107.284), control1: CGPoint(x: 142.457, y: 90.626), control2: CGPoint(x: 127.068, y: 107.191))
+    path.addCurve(to: CGPoint(x: 18.157, y: 43.866), control1: CGPoint(x: 93.956, y: 83.022), control2: CGPoint(x: 55.962, y: 61.035))
+    path.addCurve(to: CGPoint(x: 1.185, y: 13.595), control1: CGPoint(x: 5.655, y: 38.188), control2: CGPoint(x: -3.332, y: 27.043))
     path.closeSubpath()
     return path
 }
@@ -92,21 +97,289 @@ private func stopMenuBarIcon() -> NSImage {
     return image
 }
 
-/// Keep the Yutori mark templated for menu-bar contrast, then add a small color-preserving
-/// activity dot beside it. The status item exists only for the lifetime of an active run.
-private func configureStatusButton(_ button: NSStatusBarButton, toolTip: String) {
-    button.image = stopMenuBarIcon()
-    button.imagePosition = .imageLeading
-    button.attributedTitle = NSAttributedString(
-        string: "\u{25CF}",
-        attributes: [
-            .foregroundColor: NSColor.systemGreen,
-            .font: NSFont.systemFont(ofSize: activityDotFontPoints, weight: .medium),
-            .baselineOffset: 1,
-        ]
+private struct StatusMetrics: Decodable {
+    let inputTokens: Int?
+    let cachedInputTokens: Int?
+    let outputTokens: Int?
+    let latestRTTMilliseconds: Double?
+    let rttSamplesMilliseconds: [Double]
+    let requestInFlight: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case cachedInputTokens = "cached_input_tokens"
+        case outputTokens = "output_tokens"
+        case latestRTTMilliseconds = "latest_rtt_ms"
+        case rttSamplesMilliseconds = "rtt_samples_ms"
+        case requestInFlight = "request_in_flight"
+    }
+
+    static let empty = StatusMetrics(
+        inputTokens: nil,
+        cachedInputTokens: nil,
+        outputTokens: nil,
+        latestRTTMilliseconds: nil,
+        rttSamplesMilliseconds: [],
+        requestInFlight: false
     )
-    button.toolTip = toolTip
-    button.setAccessibilityLabel(toolTip)
+
+    var isValid: Bool {
+        let counts = [inputTokens, cachedInputTokens, outputTokens].compactMap { $0 }
+        let timings = rttSamplesMilliseconds + [latestRTTMilliseconds].compactMap { $0 }
+        return counts.allSatisfy { $0 >= 0 }
+            && timings.allSatisfy { $0.isFinite && $0 >= 0 }
+            && (inputTokens == nil || cachedInputTokens == nil || cachedInputTokens! <= inputTokens!)
+    }
+
+    var accessibilitySummary: String? {
+        var parts: [String] = []
+        if let inputTokens { parts.append("Input \(inputTokens) tokens") }
+        if let cachedInputTokens { parts.append("cached input \(cachedInputTokens) tokens") }
+        if let outputTokens { parts.append("output \(outputTokens) tokens") }
+        if let latestRTTMilliseconds { parts.append("round trip \(Int(latestRTTMilliseconds.rounded())) milliseconds") }
+        if requestInFlight { parts.append("model request in flight") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+}
+
+private func decodedStatusMetrics(_ command: [String: Any]) -> StatusMetrics? {
+    guard
+        let data = try? JSONSerialization.data(withJSONObject: command),
+        let metrics = try? JSONDecoder().decode(StatusMetrics.self, from: data),
+        metrics.isValid
+    else { return nil }
+    return metrics
+}
+
+private func compactCount(_ value: Int?) -> String {
+    guard let value else { return "—" }
+    if value < 1_000 { return String(value) }
+    let suffixes = [(1_000_000_000, "b"), (1_000_000, "m"), (1_000, "k")]
+    let (scale, suffix) = suffixes.first { value >= $0.0 }!
+    let scaled = Double(value) / Double(scale)
+    return (scaled < 10 ? String(format: "%.1f", scaled) : String(Int(scaled.rounded()))) + suffix
+}
+
+private func compactRTT(_ value: Double?) -> String {
+    guard let value else { return "—" }
+    if value < 1_000 { return "\(Int(value.rounded()))ms" }
+    return String(format: value < 10_000 ? "%.1fs" : "%.0fs", value / 1_000)
+}
+
+private func histogram(_ samples: [Double]) -> (counts: [Int], latestBin: Int?) {
+    var counts = Array(repeating: 0, count: statusHistogramBins)
+    guard let minimum = samples.min(), let maximum = samples.max() else { return (counts, nil) }
+    if minimum == maximum {
+        counts[statusHistogramBins / 2] = samples.count
+        return (counts, statusHistogramBins / 2)
+    }
+    let width = (maximum - minimum) / Double(statusHistogramBins)
+    func bin(for sample: Double) -> Int {
+        min(statusHistogramBins - 1, max(0, Int((sample - minimum) / width)))
+    }
+    for sample in samples { counts[bin(for: sample)] += 1 }
+    return (counts, samples.last.map(bin))
+}
+
+private func drawStatusText(
+    _ text: String,
+    in rect: NSRect,
+    font: NSFont,
+    color: NSColor,
+    alignment: NSTextAlignment = .center
+) {
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = alignment
+    NSAttributedString(
+        string: text,
+        attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+    ).draw(in: rect)
+}
+
+private func statusMetricsImage(
+    metrics: StatusMetrics,
+    appearance: NSAppearance,
+    markGreenFraction: CGFloat
+) -> NSImage {
+    var foreground = NSColor.labelColor
+    appearance.performAsCurrentDrawingAppearance {
+        foreground = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? NSColor.labelColor
+    }
+    let muted = foreground.withAlphaComponent(0.58)
+    let faint = foreground.withAlphaComponent(0.2)
+    let markColor = foreground.blended(withFraction: markGreenFraction, of: yutoriGreen) ?? foreground
+    let image = NSImage(size: NSSize(width: statusMetricsWidthPoints, height: statusMetricsHeightPoints), flipped: true) {
+        rect in
+        guard let context = NSGraphicsContext.current?.cgContext else { return false }
+        let markRect = CGRect(x: 1, y: 4, width: 14, height: 14)
+        let markScale = min(markRect.width / yutoriMarkViewBox.width, markRect.height / yutoriMarkViewBox.height)
+        context.saveGState()
+        context.translateBy(x: markRect.minX, y: markRect.minY)
+        context.scaleBy(x: markScale, y: markScale)
+        context.addPath(yutoriMarkGlyph())
+        context.setFillColor(markColor.cgColor)
+        context.fillPath()
+        context.restoreGState()
+
+        let tokenFont = NSFont.monospacedDigitSystemFont(ofSize: 6.5, weight: .semibold)
+        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 5.5, weight: .medium)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .semibold)
+        drawStatusText(
+            "IN \(compactCount(metrics.inputTokens))",
+            in: NSRect(x: 19, y: 1, width: 70, height: 9),
+            font: tokenFont,
+            color: foreground,
+            alignment: .left
+        )
+        drawStatusText(
+            "CACHE \(compactCount(metrics.cachedInputTokens)) OUT \(compactCount(metrics.outputTokens))",
+            in: NSRect(x: 19, y: 10, width: 70, height: 9),
+            font: tokenFont,
+            color: foreground,
+            alignment: .left
+        )
+        faint.setFill()
+        NSBezierPath(rect: NSRect(x: 92, y: 4, width: 1, height: 14)).fill()
+        drawStatusText(
+            "RTT",
+            in: NSRect(x: 97, y: 1, width: 24, height: 8),
+            font: labelFont,
+            color: muted,
+            alignment: .left
+        )
+        drawStatusText(
+            compactRTT(metrics.latestRTTMilliseconds),
+            in: NSRect(x: 97, y: 9, width: 24, height: 10),
+            font: valueFont,
+            color: foreground,
+            alignment: .left
+        )
+
+        let distribution = histogram(metrics.rttSamplesMilliseconds)
+        let maximumCount = max(1, distribution.counts.max() ?? 0)
+        for index in 0..<statusHistogramBins {
+            let count = distribution.counts[index]
+            let height = count == 0 ? 2 : 2 + 11 * CGFloat(count) / CGFloat(maximumCount)
+            let color = index == distribution.latestBin ? yutoriGreen : (count == 0 ? faint : muted)
+            color.setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: 124 + CGFloat(index * 3), y: 18 - height, width: 2, height: height),
+                xRadius: 1,
+                yRadius: 1
+            ).fill()
+        }
+        return true
+    }
+    image.isTemplate = false
+    return image
+}
+
+private final class StatusMetricsRenderer {
+    private weak var button: NSStatusBarButton?
+    private var metrics = StatusMetrics.empty
+    private var toolTip: String
+    private var timer: Timer?
+    private var appearanceObservation: NSKeyValueObservation?
+    private var motionObservation: NSObjectProtocol?
+    private var markGreenFrom: CGFloat = 0
+    private var markGreenTo: CGFloat = 0
+    private var markFadeStartedAt = CACurrentMediaTime()
+
+    init(button: NSStatusBarButton, toolTip: String) {
+        self.button = button
+        self.toolTip = toolTip
+        button.image = stopMenuBarIcon()
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.title = ""
+        appearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            self?.redraw()
+        }
+        motionObservation = NotificationCenter.default.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.applyMotionPreference() }
+        redraw()
+    }
+
+    deinit {
+        timer?.invalidate()
+        if let motionObservation { NotificationCenter.default.removeObserver(motionObservation) }
+    }
+
+    func update(_ metrics: StatusMetrics) {
+        let now = CACurrentMediaTime()
+        markGreenFrom = currentMarkGreen(at: now)
+        markGreenTo = metrics.requestInFlight ? 1 : 0
+        markFadeStartedAt = now
+        self.metrics = metrics
+        animateColorChange()
+    }
+
+    func updateToolTip(_ text: String) {
+        toolTip = text
+        updateAccessibility()
+    }
+
+    private func applyMotionPreference() {
+        timer?.invalidate()
+        timer = nil
+        markGreenFrom = markGreenTo
+        redraw()
+    }
+
+    private func animateColorChange() {
+        timer?.invalidate()
+        timer = nil
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, markGreenFrom != markGreenTo else {
+            markGreenFrom = markGreenTo
+            redraw()
+            return
+        }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.redraw()
+            if CACurrentMediaTime() - self.markFadeStartedAt >= statusMarkFadeSeconds {
+                timer.invalidate()
+                self.timer = nil
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func currentMarkGreen(at now: CFTimeInterval) -> CGFloat {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return markGreenTo }
+        let progress = min(1, max(0, (now - markFadeStartedAt) / statusMarkFadeSeconds))
+        return markGreenFrom + (markGreenTo - markGreenFrom) * CGFloat(progress)
+    }
+
+    private func redraw() {
+        guard let button else { return }
+        let now = CACurrentMediaTime()
+        button.image = statusMetricsImage(
+            metrics: metrics,
+            appearance: button.effectiveAppearance,
+            markGreenFraction: currentMarkGreen(at: now)
+        )
+        updateAccessibility()
+    }
+
+    private func updateAccessibility() {
+        guard let button else { return }
+        let label = metrics.accessibilitySummary.map { "\(toolTip). \($0)." } ?? toolTip
+        button.toolTip = toolTip
+        button.setAccessibilityLabel(label)
+        button.image?.accessibilityDescription = label
+    }
+}
+
+private func configureStatusButton(_ button: NSStatusBarButton, toolTip: String) -> StatusMetricsRenderer {
+    StatusMetricsRenderer(button: button, toolTip: toolTip)
 }
 
 /// The display the driver captures (`CGMainDisplayID`), so the overlay, the activity window, and
@@ -242,6 +515,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     // the Stop action. Its on-screen frame is reported as `stop_region` so the Python
     // side keeps refusing model clicks on it.
     private var stopItem: NSStatusItem?
+    private var statusMetricsRenderer: StatusMetricsRenderer?
     // Status mode only: the menu's caption line and the live thumbnail of the driven window.
     private var statusMode = false
     private var statusCaptionItem: NSMenuItem?
@@ -356,9 +630,12 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     }
 
     private func createStopMenuBarItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: statusMetricsWidthPoints)
         if let button = item.button {
-            configureStatusButton(button, toolTip: "Yutori n2 is controlling this Mac. Stop with ⇧⌘Esc.")
+            statusMetricsRenderer = configureStatusButton(
+                button,
+                toolTip: "Yutori n2 is controlling this Mac. Stop with ⇧⌘Esc."
+            )
         }
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -389,9 +666,9 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private func startStatusMode() {
         statusMode = true
         let title = config.title ?? "Yutori n2 is working in the background"
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: statusMetricsWidthPoints)
         if let button = item.button {
-            configureStatusButton(button, toolTip: title)
+            statusMetricsRenderer = configureStatusButton(button, toolTip: title)
         }
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -439,7 +716,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         callActivity("__n2ActivityCaption", ["text": "Waiting for the first frame"])
         let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
         state = "armed"
-        var capabilities = ["thumbnail", "status", "stop", "preview"]
+        var capabilities = ["thumbnail", "status", "metrics", "stop", "preview"]
         if railWebView != nil { capabilities.append("shell_commands") }
         if activityWebView != nil { capabilities.append("transcript") }
         writeJSON([
@@ -606,7 +883,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// The menu's one line about the latest step; the activity window keeps the history.
     private func showCaption(_ text: String) {
         statusCaptionItem?.title = text
-        stopItem?.button?.toolTip = text
+        statusMetricsRenderer?.updateToolTip(text)
     }
 
     // MARK: Activity window
@@ -933,6 +1210,10 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         case "status":
             guard statusMode, let text = command["text"] as? String else { return fail(id, "Invalid status text.") }
             showCaption(text)
+            reply(id, state: "shown")
+        case "metrics":
+            guard let metrics = decodedStatusMetrics(command) else { return fail(id, "Invalid status metrics.") }
+            statusMetricsRenderer?.update(metrics)
             reply(id, state: "shown")
         case "transcript":
             // The transcript is advisory: a row that the page rejects must not fail a run,
@@ -1284,6 +1565,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         displayLinks.removeAll()
         if let stopItem { NSStatusBar.system.removeStatusItem(stopItem) }
         stopItem = nil
+        statusMetricsRenderer = nil
         if let activityPanel {
             activityPanel.delegate = nil
             if let activityBodyPanel { activityPanel.removeChildWindow(activityBodyPanel) }

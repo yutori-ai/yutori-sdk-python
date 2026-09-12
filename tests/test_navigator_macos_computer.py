@@ -30,7 +30,7 @@ from yutori.navigator.macos.computer import (
 from yutori.navigator.macos.frontmost import FrontmostApp
 from yutori.navigator.macos.polling import FramePollResult
 from yutori.navigator.macos.transport import CuaDriverToolError, CuaDriverUncertainActionError
-from yutori.navigator.macos.types import MacOSPresentationStatus, MacOSWindowTarget, N2Observation
+from yutori.navigator.macos.types import MacOSPresentationStatus, MacOSStatusMetrics, MacOSWindowTarget, N2Observation
 
 
 def _png(width: int = 2560, height: int = 1600, color: tuple[int, int, int] = (15, 25, 35)) -> bytes:
@@ -1258,6 +1258,7 @@ class _FakeStatusController:
         self.previews: list[bytes] = []
         self.on_preview_demand = None
         self.events: list[dict[str, Any]] = []
+        self.metrics: list[MacOSStatusMetrics] = []
         self.stopped = False
         self.status = MacOSPresentationStatus(True, True, "active", "hidden")
         self.telemetry: tuple[dict[str, Any], ...] = ()
@@ -1280,6 +1281,10 @@ class _FakeStatusController:
 
     async def present(self, event: dict[str, Any]) -> None:
         self.events.append(event)
+
+    async def update_status_metrics(self, metrics: MacOSStatusMetrics) -> bool:
+        self.metrics.append(metrics)
+        return True
 
     async def before_capture(self, _capture_id: int) -> bool:
         return False
@@ -1314,11 +1319,19 @@ async def test_window_scope_shows_a_menu_bar_status_item_with_the_latest_frame(m
         with Image.open(io.BytesIO(thumbnail)) as image:
             assert image.format == "JPEG" and image.size == (400, 300)
         assert caption == f"Frame 1 of Calculator (pid {PID}, window 7)"
+        metrics = MacOSStatusMetrics(input_tokens=10, request_in_flight=True)
+        assert await computer.update_status_metrics(metrics) is True
+        assert controller.metrics == [metrics]
         assert computer.presentation_status.state == "active" and computer.presentation_status.cursor == "hidden"
     assert controller.stopped
     assert _arguments(transport, "set_agent_cursor_enabled") == [{"session": computer.session, "enabled": False}]
     assert "set_agent_cursor_theme" not in _names(transport)
     assert "get_desktop_state" not in _names(transport)
+
+
+async def test_status_metrics_are_a_noop_without_presentation():
+    computer = MacOSComputer(FakeTransport(), owns_transport=False, presentation=False)
+    assert await computer.update_status_metrics(MacOSStatusMetrics()) is False
 
 
 async def test_window_scope_status_item_failure_is_fail_soft(monkeypatch):
