@@ -199,7 +199,7 @@ class CuaSandboxComputer(ShellFileToolsMixin, PointerKeyLifecycleMixin):
         timeout_seconds: int = 10,
     ) -> str:
         prefix = f"cd {shlex.quote(cwd)} && " if cwd else ""
-        return _shell_result(await self.sandbox.shell.run(f"{prefix}{command}", timeout=timeout_seconds))
+        return _shell_result(await self.run_sandbox_shell(f"{prefix}{command}", timeout_seconds=timeout_seconds))
 
     async def run_bash_command(
         self,
