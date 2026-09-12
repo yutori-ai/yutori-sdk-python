@@ -142,12 +142,14 @@ def test_menu_bar_uses_the_compact_fixed_metrics_renderer_for_both_status_items(
     source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
     configuration = source.split("private func configureStatusButton", 1)[1].split("private func writeJSON", 1)[0]
     assert "StatusMetricsRenderer(button: button, toolTip: toolTip)" in configuration
-    assert "statusMetricsWidthPoints: CGFloat = 188" in source
+    assert "statusMetricsWidthPoints: CGFloat = 148" in source
     assert "statusMetricsHeightPoints: CGFloat = 22" in source
     assert "statusMarkPoints: CGFloat = 16" in source
     assert "statusMarkFadeSeconds = 0.16" in source
     assert "statusHistogramBins = 7" in source
     assert "statusHistogramBins / 2" in source
+    assert '"IN \\(compactCount(metrics.inputTokens))"' in source
+    assert '"CACHE \\(compactCount(metrics.cachedInputTokens)) OUT \\(compactCount(metrics.outputTokens))"' in source
     assert "context.rotate" not in source
     assert "accessibilityDisplayShouldReduceMotion" in source
     assert "button.observe(\\.effectiveAppearance" in source

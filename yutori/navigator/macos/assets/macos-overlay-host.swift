@@ -13,7 +13,7 @@ private let overlayProtocolVersion = 2
 // with its two filled subpaths emitted as CGPath calls because AppKit has no SVG parser.
 private let yutoriMarkViewBox = CGRect(x: 0, y: 0, width: 361, height: 350)
 private let menuBarIconPoints: CGFloat = 18
-private let statusMetricsWidthPoints: CGFloat = 188
+private let statusMetricsWidthPoints: CGFloat = 148
 private let statusMetricsHeightPoints: CGFloat = 22
 private let statusMarkPoints: CGFloat = 16
 private let statusMarkFadeSeconds = 0.16
@@ -211,7 +211,7 @@ private func statusMetricsImage(
     let image = NSImage(size: NSSize(width: statusMetricsWidthPoints, height: statusMetricsHeightPoints), flipped: true) {
         rect in
         guard let context = NSGraphicsContext.current?.cgContext else { return false }
-        let markRect = CGRect(x: 1, y: 3, width: statusMarkPoints, height: statusMarkPoints)
+        let markRect = CGRect(x: 1, y: 4, width: 14, height: 14)
         let markScale = min(markRect.width / yutoriMarkViewBox.width, markRect.height / yutoriMarkViewBox.height)
         context.saveGState()
         context.translateBy(x: markRect.minX, y: markRect.minY)
@@ -221,20 +221,39 @@ private func statusMetricsImage(
         context.fillPath()
         context.restoreGState()
 
+        let tokenFont = NSFont.monospacedDigitSystemFont(ofSize: 6.5, weight: .semibold)
         let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 5.5, weight: .medium)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .semibold)
-        let columns: [(String, String, CGFloat, CGFloat)] = [
-            ("IN", compactCount(metrics.inputTokens), 20, 24),
-            ("CACHE", compactCount(metrics.cachedInputTokens), 45, 32),
-            ("OUT", compactCount(metrics.outputTokens), 80, 20),
-            ("RTT", compactRTT(metrics.latestRTTMilliseconds), 111, 31),
-        ]
-        for (label, value, x, width) in columns {
-            drawStatusText(label, in: NSRect(x: x, y: 0, width: width, height: 8), font: labelFont, color: muted)
-            drawStatusText(value, in: NSRect(x: x, y: 9, width: width, height: 10), font: valueFont, color: foreground)
-        }
+        drawStatusText(
+            "IN \(compactCount(metrics.inputTokens))",
+            in: NSRect(x: 19, y: 1, width: 70, height: 9),
+            font: tokenFont,
+            color: foreground,
+            alignment: .left
+        )
+        drawStatusText(
+            "CACHE \(compactCount(metrics.cachedInputTokens)) OUT \(compactCount(metrics.outputTokens))",
+            in: NSRect(x: 19, y: 10, width: 70, height: 9),
+            font: tokenFont,
+            color: foreground,
+            alignment: .left
+        )
         faint.setFill()
-        NSBezierPath(rect: NSRect(x: 105, y: 4, width: 1, height: 14)).fill()
+        NSBezierPath(rect: NSRect(x: 92, y: 4, width: 1, height: 14)).fill()
+        drawStatusText(
+            "RTT",
+            in: NSRect(x: 97, y: 1, width: 24, height: 8),
+            font: labelFont,
+            color: muted,
+            alignment: .left
+        )
+        drawStatusText(
+            compactRTT(metrics.latestRTTMilliseconds),
+            in: NSRect(x: 97, y: 9, width: 24, height: 10),
+            font: valueFont,
+            color: foreground,
+            alignment: .left
+        )
 
         let distribution = histogram(metrics.rttSamplesMilliseconds)
         let maximumCount = max(1, distribution.counts.max() ?? 0)
@@ -244,7 +263,7 @@ private func statusMetricsImage(
             let color = index == distribution.latestBin ? yutoriGreen : (count == 0 ? faint : muted)
             color.setFill()
             NSBezierPath(
-                roundedRect: NSRect(x: 147 + CGFloat(index * 6), y: 18 - height, width: 4, height: height),
+                roundedRect: NSRect(x: 124 + CGFloat(index * 3), y: 18 - height, width: 2, height: height),
                 xRadius: 1,
                 yRadius: 1
             ).fill()
