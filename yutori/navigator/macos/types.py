@@ -36,7 +36,7 @@ class MacOSPresentationCapabilities:
     viewport_height: int
     backing_scale: float
     hotkey: bool
-    stop_region: "tuple[float, float, float, float] | None"
+    stop_region: tuple[float, float, float, float] | None
 
 
 @dataclass(frozen=True)
@@ -47,10 +47,10 @@ class MacOSPresentationStatus:
     available: bool
     state: str
     cursor: str
-    capabilities: "MacOSPresentationCapabilities | None" = None
-    degradation_reason: "str | None" = None
-    codec: "str | None" = None
-    fallback: "str | None" = None
+    capabilities: MacOSPresentationCapabilities | None = None
+    degradation_reason: str | None = None
+    codec: str | None = None
+    fallback: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,8 @@ class MacOSWindowTarget:
 
     pid: int
     window_id: int
-    title: "str | None" = None
-    app_name: "str | None" = None
+    title: str | None = None
+    app_name: str | None = None
 
     def describe(self) -> str:
         name = self.app_name or "target application"
@@ -73,13 +73,13 @@ class MacOSActionOutcome:
 
     tool: str
     requested_delivery: str
-    effect: "str | None"
-    route: "str | None"
-    reported_delivery: "str | None"
+    effect: str | None
+    route: str | None
+    reported_delivery: str | None
     escalated: bool
-    refusal_code: "str | None"
-    recommended: "str | None" = None
-    escalation_reason: "str | None" = None
+    refusal_code: str | None
+    recommended: str | None = None
+    escalation_reason: str | None = None
 
     @property
     def landed(self) -> bool:
@@ -112,8 +112,8 @@ class ShellPresentationEvent:
     command: str
     run_in_background: bool
     state: ShellLifecycleState
-    exit_code: "int | None" = None
-    output: "str | None" = None
+    exit_code: int | None = None
+    output: str | None = None
 
 
 class N2Presentation(Protocol):
@@ -138,13 +138,13 @@ class CancellationLatch:
     """Latch one cancellation cause, resolving same-loop requests by priority."""
 
     def __init__(self) -> None:
-        self._cause: "str | None" = None
-        self._pending: "str | None" = None
+        self._cause: str | None = None
+        self._pending: str | None = None
         self._commit_scheduled = False
         self._event = asyncio.Event()
 
     @property
-    def cause(self) -> "str | None":
+    def cause(self) -> str | None:
         return self._cause or self._pending
 
     @property
