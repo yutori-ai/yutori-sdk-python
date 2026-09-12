@@ -137,6 +137,37 @@ async def test_transport_attaches_to_the_embedded_daemon_named_by_the_environmen
     assert spawned == [str(binary), "mcp", "--embedded", "--socket", "/tmp/host.sock"]
 
 
+async def test_start_reports_the_installed_sdk_version_in_the_initialize_handshake(tmp_path, monkeypatch):
+    """Regression test: this handshake field once carried a hand-written version string
+    that had already gone stale against the installed package (see ``_SDK_VERSION``)."""
+    binary = tmp_path / "cua-driver"
+    binary.touch()
+    transport = CuaDriverTransport(binary=binary, arguments=())
+    initialize_params = {}
+
+    async def spawn(*_argv: str):
+        return SimpleNamespace(returncode=None, stderr=None)
+
+    async def record_request(method, params=None, *, timeout_seconds=None):
+        if method == "initialize":
+            initialize_params.update(params)
+        return {}
+
+    async def no_notify(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(transport_module, "spawn_rpc_subprocess", spawn)
+    monkeypatch.setattr(transport, "_request", record_request)
+    monkeypatch.setattr(transport, "_notify", no_notify)
+
+    await transport.start()
+
+    assert initialize_params["clientInfo"] == {
+        "name": "yutori-python-sdk",
+        "version": transport_module._SDK_VERSION,
+    }
+
+
 async def test_transport_explicit_arguments_override_the_environment(tmp_path, monkeypatch):
     binary = tmp_path / "cua-driver"
     binary.touch()

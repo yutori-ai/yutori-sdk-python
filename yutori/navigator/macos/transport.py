@@ -11,10 +11,16 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from ..._version import installed_yutori_version
 from .process_lifecycle import cancel_and_drain, drain_stream, spawn_rpc_subprocess, terminate_process_gracefully
 
 _RPC_TIMEOUT_SECONDS = 30.0
 _PROCESS_EXIT_TIMEOUT_SECONDS = 3.0
+# Resolved once at import time (not per handshake): reported to cua-driver as the
+# initiating client's version in the MCP "initialize" call below. Advisory only --
+# cua-driver does not gate behavior on it -- but it previously hard-coded a version
+# string that had already gone stale, so this now tracks the installed package.
+_SDK_VERSION = installed_yutori_version()
 # A host application that embeds cua-driver (see the driver's EMBEDDING contract) names its
 # own binary and the private socket of the daemon it spawned. The binary override wins over
 # package and PATH discovery; the socket turns every ``cua-driver mcp`` spawn into a proxy to
@@ -147,7 +153,7 @@ class CuaDriverTransport:
                 {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": {"name": "yutori-python-sdk", "version": "0.9.4"},
+                    "clientInfo": {"name": "yutori-python-sdk", "version": _SDK_VERSION},
                 },
             )
             await self._notify("notifications/initialized")

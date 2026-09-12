@@ -26,7 +26,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, metadata, version
+from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +37,7 @@ from rich.markup import escape
 from rich.prompt import Confirm
 from rich.table import Table
 
+from yutori._version import installed_yutori_version
 from yutori.auth.credentials import resolve_api_key
 from yutori.auth.flow import get_auth_status, run_login_flow
 from yutori.auth.types import REGISTRATION_STATE_MESSAGES, AuthStatus
@@ -417,10 +418,7 @@ def python_has_pip(interpreter: str, env: Mapping[str, str] | None = None) -> bo
 
 
 def _yutori_version() -> str:
-    try:
-        return version("yutori")
-    except PackageNotFoundError:
-        return "unknown"
+    return installed_yutori_version(default="unknown")
 
 
 def _yutori_requires_python() -> str | None:
