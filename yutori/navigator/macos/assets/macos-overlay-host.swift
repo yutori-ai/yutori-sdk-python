@@ -16,7 +16,6 @@ private let menuBarIconPoints: CGFloat = 18
 private let statusMetricsWidthPoints: CGFloat = 188
 private let statusMetricsHeightPoints: CGFloat = 22
 private let statusMarkPoints: CGFloat = 16
-private let statusMarkPeriodSeconds = 1.2
 private let statusMarkFadeSeconds = 0.16
 private let statusHistogramBins = 7
 private let yutoriGreen = NSColor(srgbRed: 0x19 / 255, green: 0xb3 / 255, blue: 0x85 / 255, alpha: 1)
@@ -200,7 +199,6 @@ private func drawStatusText(
 private func statusMetricsImage(
     metrics: StatusMetrics,
     appearance: NSAppearance,
-    markRotation: CGFloat,
     markGreenFraction: CGFloat
 ) -> NSImage {
     var foreground = NSColor.labelColor
@@ -216,9 +214,6 @@ private func statusMetricsImage(
         let markRect = CGRect(x: 1, y: 3, width: statusMarkPoints, height: statusMarkPoints)
         let markScale = min(markRect.width / yutoriMarkViewBox.width, markRect.height / yutoriMarkViewBox.height)
         context.saveGState()
-        context.translateBy(x: markRect.midX, y: markRect.midY)
-        context.rotate(by: markRotation)
-        context.translateBy(x: -markRect.midX, y: -markRect.midY)
         context.translateBy(x: markRect.minX, y: markRect.minY)
         context.scaleBy(x: markScale, y: markScale)
         context.addPath(yutoriMarkGlyph())
@@ -285,8 +280,7 @@ private final class StatusMetricsRenderer {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in self?.configureTimer() }
-        configureTimer()
+        ) { [weak self] _ in self?.applyMotionPreference() }
         redraw()
     }
 
@@ -301,7 +295,7 @@ private final class StatusMetricsRenderer {
         markGreenTo = metrics.requestInFlight ? 1 : 0
         markFadeStartedAt = now
         self.metrics = metrics
-        redraw()
+        animateColorChange()
     }
 
     func updateToolTip(_ text: String) {
@@ -309,15 +303,32 @@ private final class StatusMetricsRenderer {
         updateAccessibility()
     }
 
-    private func configureTimer() {
+    private func applyMotionPreference() {
         timer?.invalidate()
         timer = nil
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        markGreenFrom = markGreenTo
+        redraw()
+    }
+
+    private func animateColorChange() {
+        timer?.invalidate()
+        timer = nil
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, markGreenFrom != markGreenTo else {
             markGreenFrom = markGreenTo
             redraw()
             return
         }
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.redraw() }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.redraw()
+            if CACurrentMediaTime() - self.markFadeStartedAt >= statusMarkFadeSeconds {
+                timer.invalidate()
+                self.timer = nil
+            }
+        }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
@@ -331,13 +342,9 @@ private final class StatusMetricsRenderer {
     private func redraw() {
         guard let button else { return }
         let now = CACurrentMediaTime()
-        let rotation = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            ? 0
-            : CGFloat((now.truncatingRemainder(dividingBy: statusMarkPeriodSeconds) / statusMarkPeriodSeconds) * 2 * .pi)
         button.image = statusMetricsImage(
             metrics: metrics,
             appearance: button.effectiveAppearance,
-            markRotation: rotation,
             markGreenFraction: currentMarkGreen(at: now)
         )
         updateAccessibility()
