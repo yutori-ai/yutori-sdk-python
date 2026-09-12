@@ -304,6 +304,23 @@ async def test_public_cua_adapter_labels_jpeg_screenshots_correctly() -> None:
         assert image.format == "JPEG"
 
 
+async def test_public_cua_adapter_run_shell_command_goes_through_run_sandbox_shell() -> None:
+    """`run_shell_command` must reuse the `run_sandbox_shell` hook the file tools rely on
+    instead of calling ``sandbox.shell.run`` a second, independent way."""
+    calls: list[tuple[str, int]] = []
+
+    class Shell:
+        async def run(self, command: str, timeout: int = 30) -> SimpleNamespace:
+            calls.append((command, timeout))
+            return SimpleNamespace(stdout="ok\n", stderr="", returncode=0)
+
+    computer = CuaSandboxComputer(SimpleNamespace(shell=Shell()))
+    output = await computer.run_shell_command("pwd", cwd="/tmp", timeout_seconds=5)
+
+    assert calls == [("cd /tmp && pwd", 5)]
+    assert output == "ok\n"
+
+
 async def test_public_cua_adapter_executes_all_current_batch_actions() -> None:
     sandbox = FakeSandbox()
     computer = CuaSandboxComputer(sandbox)
