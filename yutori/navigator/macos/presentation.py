@@ -560,7 +560,7 @@ class MacOSPresentationController:
 
     @property
     def background_counts(self) -> dict[str, int]:
-        counts = {state: 0 for state in ("started", "completed", "failed", "cancelled")}
+        counts = dict.fromkeys(("started", "completed", "failed", "cancelled"), 0)
         for event in self._telemetry:
             if event.get("type") != "background_command":
                 continue
