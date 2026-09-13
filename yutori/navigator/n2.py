@@ -50,7 +50,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any, Protocol, Union
+from typing import Any, Protocol
 
 from .macos.process_lifecycle import race_against_cancellation
 from .macos.sanitize import sanitize_command_preview
@@ -118,7 +118,7 @@ BROWSER_ACTION_HANDLERS = {"goto_url": "goto_url"}
 CUSTOM_TOOL_ACTION = "run_custom_tool"
 CUSTOM_ACTION_HANDLERS = {CUSTOM_TOOL_ACTION: "run_custom_tool"}
 
-ConfirmationCallback = Callable[[dict], Union[bool, Awaitable[bool]]]
+ConfirmationCallback = Callable[[dict], bool | Awaitable[bool]]
 
 # Loop budgets; each is a constructor keyword.
 N2_MAX_COMPLETION_TOKENS = 20_480
