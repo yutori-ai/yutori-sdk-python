@@ -16,7 +16,7 @@ import copy
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, Union
+from typing import Any, Protocol
 
 from .n2_actions import is_strict_int
 
@@ -104,7 +104,7 @@ class N2CompactionContext:
     prepare_messages: PrepareMessages
     request_kwargs: dict[str, Any]
     await_response: AwaitResponse
-    previous_request_id: Optional[str] = None
+    previous_request_id: str | None = None
 
 
 @dataclass
@@ -112,15 +112,15 @@ class N2CompactionResult:
     """A successful trajectory rewrite and the compaction call that produced it."""
 
     items: list[dict[str, Any]]
-    request_id: Optional[str] = None
+    request_id: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
-    checkpoint: Optional[str] = None
+    checkpoint: str | None = None
     attempts: int = 0
     removed_item_count: int = 0
     retained_item_count: int = 0
 
 
-N2CompactorOutput = Optional[Union[list[dict[str, Any]], N2CompactionResult]]
+N2CompactorOutput = list[dict[str, Any]] | N2CompactionResult | None
 
 
 class N2Compactor(Protocol):
@@ -144,7 +144,7 @@ class N2Compactor(Protocol):
         completions: Any,
         model: str,
         tool_set: str,
-        context: Optional[N2CompactionContext] = None,
+        context: N2CompactionContext | None = None,
     ) -> N2CompactorOutput: ...
 
 
@@ -244,7 +244,7 @@ def _split_for_tail(
     if not assistant_starts:
         return items, []
 
-    tail_start: Optional[int] = None
+    tail_start: int | None = None
     tail_tokens = 0
     segment_end = len(items)
     for turns_back in range(1, min(keep_last_n_turns, len(assistant_starts)) + 1):
@@ -262,7 +262,7 @@ def _split_for_tail(
     return items[:tail_start], items[tail_start:]
 
 
-def _latest_inline_image_url(value: Any) -> Optional[str]:
+def _latest_inline_image_url(value: Any) -> str | None:
     """Return the last base64 image URL nested in a trajectory value."""
 
     if isinstance(value, list):
@@ -307,7 +307,7 @@ def _strip_code_fences(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _extract_tagged_summary(text: str) -> Optional[str]:
+def _extract_tagged_summary(text: str) -> str | None:
     stripped = _strip_code_fences(text)
     open_index = stripped.find(COMPACTED_SUMMARY_OPEN_TAG)
     close_index = stripped.rfind(COMPACTED_SUMMARY_CLOSE_TAG)
@@ -398,7 +398,7 @@ class N2InlineCompactor:
         """Reset state for a new ``N2ComputerAgent.run()`` conversation."""
 
         self.compaction_count = 0
-        self.last_result: Optional[N2CompactionResult] = None
+        self.last_result: N2CompactionResult | None = None
         self._awaiting_post_compaction_baseline = False
 
     async def compact(
@@ -409,7 +409,7 @@ class N2InlineCompactor:
         completions: Any,
         model: str,
         tool_set: str,
-        context: Optional[N2CompactionContext] = None,
+        context: N2CompactionContext | None = None,
     ) -> N2CompactorOutput:
         if self._awaiting_post_compaction_baseline:
             # The first actor call after a successful rewrite establishes the

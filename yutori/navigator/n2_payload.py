@@ -21,7 +21,7 @@ from __future__ import annotations
 import base64
 import copy
 import io
-from typing import Any, Optional
+from typing import Any
 
 from PIL import Image
 
@@ -107,7 +107,7 @@ OLDER_IMAGE_OMITTED_TEXT = "[older image omitted]"
 """The text left where a pruned screenshot used to be."""
 
 
-def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[str] = None) -> None:
+def _strip_images_from_message(message: dict[str, Any], omitted_text: str | None = None) -> None:
     content = message.get("content")
     if not isinstance(content, list):
         return
@@ -137,15 +137,14 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: Optional[s
     message["content"] = merged
 
 
-serialized_messages_bytes = estimate_messages_size_bytes
 # estimate_messages_size_bytes only relies on its argument being
 # JSON-serializable, so the same function measures a single content part too —
 # no need for a second, identically-bodied helper.
-_serialized_bytes = estimate_messages_size_bytes
+serialized_messages_bytes = estimate_messages_size_bytes
 
 
 def retain_n2_image_window(
-    messages: list[dict[str, Any]], *, omitted_text: Optional[str] = OLDER_IMAGE_OMITTED_TEXT
+    messages: list[dict[str, Any]], *, omitted_text: str | None = OLDER_IMAGE_OMITTED_TEXT
 ) -> list[dict[str, Any]]:
     """Copy messages and strip images outside the two newest image messages.
 
@@ -224,7 +223,7 @@ def prune_n2_screenshots_to_budget(
         part = _drop_first_image(content)
         if part is None:
             continue
-        size_bytes -= _serialized_bytes(part) + 1
+        size_bytes -= serialized_messages_bytes(part) + 1
         dropped += 1
 
     size_bytes = serialized_messages_bytes(messages)
