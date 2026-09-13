@@ -137,12 +137,6 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: str | None
     message["content"] = merged
 
 
-# estimate_messages_size_bytes only relies on its argument being
-# JSON-serializable, so the same function measures a single content part too —
-# no need for a second, identically-bodied helper.
-serialized_messages_bytes = estimate_messages_size_bytes
-
-
 def retain_n2_image_window(
     messages: list[dict[str, Any]], *, omitted_text: str | None = OLDER_IMAGE_OMITTED_TEXT
 ) -> list[dict[str, Any]]:
@@ -195,7 +189,7 @@ def prune_n2_screenshots_to_budget(
     Raises:
         ValueError: if the request cannot fit even with one frame left.
     """
-    size_bytes = serialized_messages_bytes(messages)
+    size_bytes = estimate_messages_size_bytes(messages)
     if size_bytes <= max_messages_bytes:
         return 0
 
@@ -223,17 +217,19 @@ def prune_n2_screenshots_to_budget(
         part = _drop_first_image(content)
         if part is None:
             continue
-        size_bytes -= serialized_messages_bytes(part) + 1
+        # estimate_messages_size_bytes only relies on its argument being
+        # JSON-serializable, so it measures a single content part just as well.
+        size_bytes -= estimate_messages_size_bytes(part) + 1
         dropped += 1
 
-    size_bytes = serialized_messages_bytes(messages)
+    size_bytes = estimate_messages_size_bytes(messages)
     for content in image_contents[:-1]:
         if size_bytes <= max_messages_bytes:
             break
         if _drop_first_image(content) is None:
             continue
         dropped += 1
-        size_bytes = serialized_messages_bytes(messages)
+        size_bytes = estimate_messages_size_bytes(messages)
 
     if size_bytes > max_messages_bytes:
         raise ValueError(
