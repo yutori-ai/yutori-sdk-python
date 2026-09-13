@@ -1427,7 +1427,9 @@ class MacOSComputer:
                 return _decode_inline_frame(result, "get_desktop_state")
             except (ValueError, OSError, MacOSComputerError) as error:
                 last_error = error
-        raise MacOSComputerError(f"get_desktop_state returned no usable frame after 3 attempts: {last_error}")
+        raise MacOSComputerError(
+            f"get_desktop_state returned no usable frame after {_CAPTURE_ATTEMPTS} attempts: {last_error}"
+        )
 
     async def _capture_window_png(self) -> tuple[bytes, int, int]:
         """Grab the driven window only, following it if the driver says the window went away."""
@@ -1469,7 +1471,9 @@ class MacOSComputer:
                 continue
             self._window_capture = (width, height)
             return pixels, width, height
-        raise MacOSComputerError(f"get_window_state returned no usable frame after 3 attempts: {last_error}")
+        raise MacOSComputerError(
+            f"get_window_state returned no usable frame after {_CAPTURE_ATTEMPTS} attempts: {last_error}"
+        )
 
     def _require_window_target(self) -> MacOSWindowTarget:
         if self._target_window is None:
