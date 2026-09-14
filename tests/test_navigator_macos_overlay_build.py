@@ -148,10 +148,12 @@ def test_menu_bar_uses_the_compact_fixed_metrics_renderer_for_both_status_items(
     assert "statusMarkFadeSeconds = 0.16" in source
     assert "statusHistogramBins = 7" in source
     assert "statusHistogramBins / 2" in source
-    assert '"IN \\(compactCount(metrics.inputTokens))"' in source
-    assert "NSRect(x: 19, y: 1, width: 30, height: 9)" in source
-    assert '"CACHE \\(compactCount(metrics.cachedInputTokens))"' in source
-    assert "NSRect(x: 49, y: 1, width: 40, height: 9)" in source
+    assert '"IN"' in source
+    assert "NSRect(x: 19, y: 1, width: 7, height: 9)" in source
+    assert "NSRect(x: 28, y: 1, width: 20, height: 9)" in source
+    assert '"CACHE"' in source
+    assert "NSRect(x: 49, y: 1, width: 21, height: 9)" in source
+    assert "NSRect(x: 71, y: 1, width: 20, height: 9)" in source
     assert '"OUT \\(compactCount(metrics.outputTokens))"' in source
     assert "context.rotate" not in source
     assert "accessibilityDisplayShouldReduceMotion" in source
