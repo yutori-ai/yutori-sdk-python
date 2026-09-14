@@ -148,8 +148,8 @@ def test_menu_bar_uses_the_compact_fixed_metrics_renderer_for_both_status_items(
     assert "statusMarkFadeSeconds = 0.16" in source
     assert "statusHistogramBins = 7" in source
     assert "statusHistogramBins / 2" in source
-    assert '"IN \\(compactCount(metrics.inputTokens))"' in source
-    assert '"CACHE \\(compactCount(metrics.cachedInputTokens)) OUT \\(compactCount(metrics.outputTokens))"' in source
+    assert '"IN \\(compactCount(metrics.inputTokens)) CACHE \\(compactCount(metrics.cachedInputTokens))"' in source
+    assert '"OUT \\(compactCount(metrics.outputTokens))"' in source
     assert "context.rotate" not in source
     assert "accessibilityDisplayShouldReduceMotion" in source
     assert "button.observe(\\.effectiveAppearance" in source

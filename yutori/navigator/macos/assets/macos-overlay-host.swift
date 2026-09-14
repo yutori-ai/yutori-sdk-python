@@ -225,14 +225,14 @@ private func statusMetricsImage(
         let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 5.5, weight: .medium)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .semibold)
         drawStatusText(
-            "IN \(compactCount(metrics.inputTokens))",
+            "IN \(compactCount(metrics.inputTokens)) CACHE \(compactCount(metrics.cachedInputTokens))",
             in: NSRect(x: 19, y: 1, width: 70, height: 9),
             font: tokenFont,
             color: foreground,
             alignment: .left
         )
         drawStatusText(
-            "CACHE \(compactCount(metrics.cachedInputTokens)) OUT \(compactCount(metrics.outputTokens))",
+            "OUT \(compactCount(metrics.outputTokens))",
             in: NSRect(x: 19, y: 10, width: 70, height: 9),
             font: tokenFont,
             color: foreground,
