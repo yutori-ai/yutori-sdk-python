@@ -52,6 +52,7 @@ from .types import (
     MacOSWindowTarget,
     N2Observation,
     ShellPresentationEvent,
+    normalize_window_ids,
 )
 from .visibility import unhide_application
 from .windows import select_target_window, window_records
@@ -471,7 +472,7 @@ class MacOSComputer:
         self.exclude_overlay_from_capture = exclude_overlay_from_capture
         # A host application's own window IDs (CGWindowID) to keep out of the model's desktop
         # frames, on top of the overlay host's own windows; they stay on screen and recordable.
-        self.exclude_capture_window_ids = tuple(int(window_id) for window_id in exclude_capture_window_ids)
+        self.exclude_capture_window_ids = normalize_window_ids(exclude_capture_window_ids)
         self.allow_local_shell = allow_local_shell
         self.execution_deadline = execution_deadline
         self.cancellation = cancellation or CancellationLatch()
