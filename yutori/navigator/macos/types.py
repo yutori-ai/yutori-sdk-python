@@ -9,6 +9,16 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 
+def is_strict_int(value: Any) -> bool:
+    """True for a genuine ``int``. ``bool`` is an ``int`` subclass, so it is excluded."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_strict_number(value: Any) -> bool:
+    """Like :func:`is_strict_int`, but also accepts ``float``."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 @dataclass(frozen=True)
 class N2Observation:
     """One desktop capture with native and encoded geometry kept separate."""
@@ -67,10 +77,7 @@ class MacOSStatusMetrics:
 
     def __post_init__(self) -> None:
         counts = (self.input_tokens, self.cached_input_tokens, self.output_tokens)
-        if any(
-            value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0)
-            for value in counts
-        ):
+        if any(value is not None and (not is_strict_int(value) or value < 0) for value in counts):
             raise ValueError("status metric token counts must be non-negative integers or None")
         if (
             self.input_tokens is not None
@@ -79,10 +86,7 @@ class MacOSStatusMetrics:
         ):
             raise ValueError("cached input tokens cannot exceed input tokens")
         timings = (*self.rtt_samples_ms, *((self.latest_rtt_ms,) if self.latest_rtt_ms is not None else ()))
-        if any(
-            not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0
-            for value in timings
-        ):
+        if any(not is_strict_number(value) or not math.isfinite(value) or value < 0 for value in timings):
             raise ValueError("status metric RTT values must be finite non-negative numbers")
         if not isinstance(self.request_in_flight, bool):
             raise ValueError("request_in_flight must be a bool")
