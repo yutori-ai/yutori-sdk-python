@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import base64
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 from ..n2_actions import is_strict_int, is_strict_number
+
+
+def normalize_window_ids(window_ids: Sequence[int]) -> tuple[int, ...]:
+    """Coerce a CGWindowID sequence to a plain int tuple, as both capture-exclusion sites need."""
+    return tuple(int(window_id) for window_id in window_ids)
 
 
 @dataclass(frozen=True)

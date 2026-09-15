@@ -32,6 +32,7 @@ from .types import (
     ShellPresentationEvent,
     is_strict_int,
     is_strict_number,
+    normalize_window_ids,
 )
 
 _READY_TIMEOUT_SECONDS = 15
@@ -490,7 +491,7 @@ class MacOSPresentationController:
         self._exclude_from_capture = exclude_from_capture
         # Window IDs of a host application's own panels: left out of the model's desktop frame the
         # way this host's windows are, while staying visible on screen and in recordings.
-        self._exclude_capture_window_ids = tuple(int(window_id) for window_id in exclude_capture_window_ids)
+        self._exclude_capture_window_ids = normalize_window_ids(exclude_capture_window_ids)
         self._capture_exclusion = "unverified"
         self._capture_source = "driver"
         self._restore_native_cursor = restore_native_cursor
