@@ -8,15 +8,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-
-def is_strict_int(value: Any) -> bool:
-    """True for a genuine ``int``. ``bool`` is an ``int`` subclass, so it is excluded."""
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def is_strict_number(value: Any) -> bool:
-    """Like :func:`is_strict_int`, but also accepts ``float``."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+from ..n2_actions import is_strict_int, is_strict_number
 
 
 @dataclass(frozen=True)
