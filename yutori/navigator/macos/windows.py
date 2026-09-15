@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .types import is_strict_int
+
 _MIN_WINDOW_EDGE_POINTS = 100.0
 
 
@@ -43,7 +45,7 @@ def _area(window: dict[str, Any]) -> float:
 
 def _z_index(window: dict[str, Any]) -> int:
     value = window.get("z_index")
-    return value if isinstance(value, int) and not isinstance(value, bool) else -1
+    return value if is_strict_int(value) else -1
 
 
 def select_target_window(
