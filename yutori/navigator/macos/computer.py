@@ -649,6 +649,14 @@ class MacOSComputer:
         if self._left_mouse_down:
             raise MacOSRecoverableActionError("Release the held mouse button before changing the target window.")
         self.cancellation.raise_if_cancelled()
+        await self._rebind_target(target)
+
+    async def _rebind_target(self, target: "MacOSWindowTarget | None") -> None:
+        """Bind the new target window and announce it to the presentation, in that order.
+
+        Every caller that changes ``_target_window`` does both steps back to back, so
+        this is the one place that pairing can drift out of sync.
+        """
         self._bind_window_target(target)
         await self._announce_target()
 
@@ -2159,8 +2167,7 @@ class MacOSComputer:
         if target is None:
             return None
         self._delivery_counts["window_rebinds"] += 1
-        self._bind_window_target(target)
-        await self._announce_target()
+        await self._rebind_target(target)
         return target
 
     async def _rebind_window_target(self, reason: str) -> MacOSWindowTarget:
@@ -2186,8 +2193,7 @@ class MacOSComputer:
         if target is None:
             await self._fail_target_crash(f"Target application {pid} has no window left to drive ({reason}).")
         assert target is not None
-        self._bind_window_target(target)
-        await self._announce_target()
+        await self._rebind_target(target)
         return target
 
     @staticmethod
