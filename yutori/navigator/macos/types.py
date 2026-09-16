@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from ..n2_actions import is_strict_int, is_strict_number
+from ..n2_actions import is_optional_non_negative_int, is_strict_number
 
 
 def normalize_window_ids(window_ids: Sequence[int]) -> tuple[int, ...]:
@@ -75,7 +75,7 @@ class MacOSStatusMetrics:
 
     def __post_init__(self) -> None:
         counts = (self.input_tokens, self.cached_input_tokens, self.output_tokens)
-        if any(value is not None and (not is_strict_int(value) or value < 0) for value in counts):
+        if any(not is_optional_non_negative_int(value) for value in counts):
             raise ValueError("status metric token counts must be non-negative integers or None")
         if (
             self.input_tokens is not None
