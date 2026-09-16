@@ -225,8 +225,29 @@ private func statusMetricsImage(
         let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 5.5, weight: .medium)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .semibold)
         drawStatusText(
-            "IN \(compactCount(metrics.inputTokens)) CACHE \(compactCount(metrics.cachedInputTokens))",
-            in: NSRect(x: 19, y: 1, width: 70, height: 9),
+            "IN",
+            in: NSRect(x: 19, y: 1, width: 7, height: 9),
+            font: labelFont,
+            color: foreground,
+            alignment: .left
+        )
+        drawStatusText(
+            compactCount(metrics.inputTokens),
+            in: NSRect(x: 28, y: 1, width: 20, height: 9),
+            font: tokenFont,
+            color: foreground,
+            alignment: .left
+        )
+        drawStatusText(
+            "CACHE",
+            in: NSRect(x: 49, y: 1, width: 21, height: 9),
+            font: labelFont,
+            color: foreground,
+            alignment: .left
+        )
+        drawStatusText(
+            compactCount(metrics.cachedInputTokens),
+            in: NSRect(x: 71, y: 1, width: 20, height: 9),
             font: tokenFont,
             color: foreground,
             alignment: .left
