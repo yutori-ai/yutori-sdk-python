@@ -16,6 +16,7 @@ from typing import Any, TypeVar
 
 from PIL import Image
 
+from ..n2_actions import is_strict_int
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
 from .process_lifecycle import (
     cancel_and_drain,
@@ -30,7 +31,6 @@ from .types import (
     MacOSPresentationStatus,
     MacOSStatusMetrics,
     ShellPresentationEvent,
-    is_strict_int,
     is_strict_number,
     normalize_window_ids,
 )

@@ -247,6 +247,11 @@ def is_strict_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def is_optional_non_negative_int(value: Any) -> bool:
+    """True for ``None`` or a non-negative :func:`is_strict_int`."""
+    return value is None or (is_strict_int(value) and value >= 0)
+
+
 def _tool_arguments(args: Any, tool_name: str, allowed_fields: set[str]) -> dict[str, Any]:
     """Validate a tool-object envelope before checking its individual fields."""
     if not isinstance(args, dict):
@@ -651,7 +656,7 @@ def _optional_nonnegative_integer(
     args: dict[str, Any], field: str, tool_name: str, *, default: int | None = None
 ) -> int | None:
     value = args.get(field, default)
-    if value is not None and (not is_strict_int(value) or value < 0):
+    if not is_optional_non_negative_int(value):
         raise N2ActionValidationError(f"{tool_name}.{field} must be a non-negative integer or null")
     return value
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .types import is_strict_int
+from ..n2_actions import is_strict_int
 
 _MIN_WINDOW_EDGE_POINTS = 100.0
 
