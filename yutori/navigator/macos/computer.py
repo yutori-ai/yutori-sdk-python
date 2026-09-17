@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
+from ..n2_actions import require_positive_read_offset
 from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
 from .polling import (
@@ -1079,8 +1080,7 @@ class MacOSComputer:
 
     async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> str:
         self._require_local_shell()
-        if offset < 1:
-            raise ValueError("read.offset must be a positive 1-based line number")
+        require_positive_read_offset(offset)
         path = self._resolve_file_path(file_path)
         text = await asyncio.to_thread(self._read_text_file, path)
         self._file_snapshots[path] = text
