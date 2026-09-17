@@ -1336,10 +1336,15 @@ class MacOSPresentationController:
         sleeper, _cancelled, done = await race_sleep_against_cancellation(seconds, self.cancellation)
         return sleeper in done
 
-    def _validate_status_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
-        """The status-mode handshake: no page, so no viewport geometry and never a Stop region."""
+    @staticmethod
+    def _require_protocol_version(reply: dict[str, Any]) -> None:
+        """Both handshakes require the same overlay protocol version before trusting the rest of ``reply``."""
         if reply.get("protocol_version") != OVERLAY_PROTOCOL_VERSION:
             raise MacOSPresentationError("Overlay returned an incompatible protocol version.")
+
+    def _validate_status_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
+        """The status-mode handshake: no page, so no viewport geometry and never a Stop region."""
+        self._require_protocol_version(reply)
         if reply.get("mode") != "status" or reply.get("stop_control") != "menu_bar":
             raise MacOSPresentationError("Overlay host did not start in status mode.")
         scale = reply.get("backing_scale")
@@ -1353,8 +1358,7 @@ class MacOSPresentationController:
         )
 
     def _validate_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
-        if reply.get("protocol_version") != OVERLAY_PROTOCOL_VERSION:
-            raise MacOSPresentationError("Overlay returned an incompatible protocol version.")
+        self._require_protocol_version(reply)
         width, height, scale = reply.get("width"), reply.get("height"), reply.get("backing_scale")
         stop_region = _valid_region(reply.get("stop_region"))
         if not _positive_finite(width) or not _positive_finite(height) or not _positive_finite(scale):
