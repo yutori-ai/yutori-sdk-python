@@ -35,6 +35,8 @@ from typing import Any, NamedTuple
 
 from PIL import Image
 
+from .n2_actions import require_positive_read_offset
+
 BASH_RESULT_MAX_CHARS = 30_000
 
 FILE_TOOL_SCRIPT = r"""
@@ -607,8 +609,7 @@ class ShellFileToolsMixin:
         raise NotImplementedError
 
     async def read_file(self, file_path: str, offset: int = 1, limit: int = 2_000) -> "str | dict[str, str]":
-        if offset < 1:
-            raise ValueError("read.offset must be a positive 1-based line number")
+        require_positive_read_offset(offset)
         output = await self._run_file_tool("read", file_path=file_path, offset=offset, limit=limit)
         if output.startswith("__YUTORI_IMAGE__"):
             _, _, encoded = output.partition("\n")

@@ -252,6 +252,16 @@ def is_optional_non_negative_int(value: Any) -> bool:
     return value is None or (is_strict_int(value) and value >= 0)
 
 
+def require_positive_read_offset(offset: int) -> None:
+    """Validate the n2 ``read`` handler contract's 1-based ``offset``.
+
+    Shared by ``MacOSComputer.read_file`` and ``ShellFileToolsMixin.read_file``,
+    which otherwise duplicated this exact check and message.
+    """
+    if offset < 1:
+        raise ValueError("read.offset must be a positive 1-based line number")
+
+
 def _tool_arguments(args: Any, tool_name: str, allowed_fields: set[str]) -> dict[str, Any]:
     """Validate a tool-object envelope before checking its individual fields."""
     if not isinstance(args, dict):
