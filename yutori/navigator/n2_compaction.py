@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -338,6 +339,25 @@ def response_message(response: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
     message = (response_dict.get("choices") or [{}])[0].get("message") or {}
     return response_dict, message
+
+
+def print_n2_action_or_result(item: dict[str, Any]) -> None:
+    """Print one n2 agent-loop output item if it is a tool call or its result.
+
+    No-ops for other item types (e.g. ``message``), so callers can invoke it
+    unconditionally while walking a step's ``output`` list. Shared by the
+    packaged n2 example cookbooks and the standalone Daytona script, which
+    cannot import example-only helpers since it depends only on the installed
+    ``yutori`` package.
+    """
+    if item.get("type") == "function_call":
+        print(f"ACTION {item.get('name')}: {item.get('arguments')}")
+    elif item.get("type") == "function_call_output":
+        output = item.get("output")
+        if isinstance(output, str):
+            print(output)
+        elif isinstance(output, dict) and output.get("result") is not None:
+            print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
 
 
 def _working_checkpoint_item(checkpoint: str) -> dict[str, Any]:

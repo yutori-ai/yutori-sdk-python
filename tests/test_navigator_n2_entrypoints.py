@@ -594,6 +594,37 @@ async def test_shared_stop_and_summarize_returns_visible_text_only() -> None:
     assert empty is None
 
 
+async def test_shared_run_agent_prints_actions_and_results_without_leaking_images(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pins `run_agent`'s action/result print format against the same fixture shape
+    `navigator_n2_daytona.main` is pinned with, since both delegate to the same
+    shared `print_n2_action_or_result` helper."""
+
+    class FakeAgent:
+        stopped_by = "final_answer"
+
+        async def run(self, _task: str):
+            yield {"output": [{"type": "function_call", "name": "bash", "arguments": '{"command":"pwd"}'}]}
+            yield {"output": [{"type": "function_call_output", "output": "/workspace"}]}
+            yield {
+                "output": [
+                    {
+                        "type": "function_call_output",
+                        "output": {"result": "[1:left_click] OK", "image_url": "data:image/png;base64,secret"},
+                    }
+                ]
+            }
+
+    await shared.run_agent(FakeAgent(), "task", completions=object())
+
+    printed = capsys.readouterr().out
+    assert 'ACTION bash: {"command":"pwd"}' in printed
+    assert "/workspace" in printed
+    assert 'RESULT "[1:left_click] OK"' in printed
+    assert "base64,secret" not in printed
+
+
 async def test_daytona_step_cap_takes_one_summarize_only_turn(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

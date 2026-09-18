@@ -58,7 +58,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import shlex
 import uuid
 from types import SimpleNamespace
@@ -71,7 +70,7 @@ from yutori.navigator import (
     format_shell_output,
     format_stop_and_summarize,
 )
-from yutori.navigator.n2_compaction import response_message
+from yutori.navigator.n2_compaction import print_n2_action_or_result, response_message
 from yutori.navigator.sandbox_tools import clamp_bash_timeout_or_expired
 
 # Any snapshot carrying Daytona's computer-use bundle. This one is a bare XFCE
@@ -326,14 +325,8 @@ async def main(task: str, max_steps: int = MAX_STEPS, record: bool = False) -> N
                             for part in item.get("content") or []:
                                 if isinstance(part, dict) and part.get("text"):
                                     print(part["text"])
-                        elif item.get("type") == "function_call":
-                            print(f"ACTION {item.get('name')}: {item.get('arguments')}")
-                        elif item.get("type") == "function_call_output":
-                            output = item.get("output")
-                            if isinstance(output, str):
-                                print(output)
-                            elif isinstance(output, dict) and output.get("result") is not None:
-                                print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
+                        else:
+                            print_n2_action_or_result(item)
             finally:
                 try:
                     if recording is not None:
