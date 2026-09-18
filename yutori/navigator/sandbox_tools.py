@@ -35,7 +35,7 @@ from typing import Any, NamedTuple
 
 from PIL import Image
 
-from .n2_actions import require_positive_read_offset
+from .n2_actions import require_positive_read_offset, truncate_with_marker
 
 BASH_RESULT_MAX_CHARS = 30_000
 
@@ -327,9 +327,7 @@ def join_output_streams(result: Any) -> str:
 
 
 def truncate_tool_output(text: str, max_chars: int = BASH_RESULT_MAX_CHARS) -> str:
-    if len(text) <= max_chars:
-        return text
-    return f"{text[:max_chars]}\n\n[... output truncated, {len(text) - max_chars} more chars ...]"
+    return truncate_with_marker(text, max_chars)
 
 
 def format_shell_output(output: str, exit_code: int) -> str:

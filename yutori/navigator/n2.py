@@ -83,6 +83,7 @@ from .n2_actions import (
     translate_n2_read,
     translate_n2_shell_command,
     translate_n2_write,
+    truncate_with_marker,
 )
 from .n2_compaction import N2CompactionContext, N2CompactionResult, N2Compactor, N2InlineCompactor, response_message
 from .n2_payload import (
@@ -172,10 +173,7 @@ _RESULT_TEXT_BACKSTOP_CHARS = 256 * 1024
 
 
 def _backstop_result_text(text: str) -> str:
-    if len(text) <= _RESULT_TEXT_BACKSTOP_CHARS:
-        return text
-    cut = _RESULT_TEXT_BACKSTOP_CHARS
-    return f"{text[:cut]}\n\n[... output truncated, {len(text) - cut} more chars ...]"
+    return truncate_with_marker(text, _RESULT_TEXT_BACKSTOP_CHARS)
 
 
 def _format_action_error(error: BaseException) -> str:
