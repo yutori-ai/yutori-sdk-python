@@ -26,7 +26,7 @@ from yutori.navigator import (
     N2ComputerAgent,
     format_stop_and_summarize,
 )
-from yutori.navigator.n2_compaction import response_message
+from yutori.navigator.n2_compaction import print_n2_action_or_result, response_message
 
 CONFIRMATION_DENIED_OUTPUT = "[ERROR] Action was not confirmed by the user."
 SHELL_TOOL_NAMES = frozenset({"bash", "shell_command", "run_command"})
@@ -236,14 +236,7 @@ async def run_agent(agent: Any, task: str, *, completions: Any) -> None:
         for text in _text_items(response):
             print(text)
         for item in response.get("output") or []:
-            if item.get("type") == "function_call":
-                print(f"ACTION {item.get('name')}: {item.get('arguments')}")
-            elif item.get("type") == "function_call_output":
-                output = item.get("output")
-                if isinstance(output, str):
-                    print(output)
-                elif isinstance(output, dict) and output.get("result") is not None:
-                    print(f"RESULT {json.dumps(output['result'], sort_keys=True)}")
+            print_n2_action_or_result(item)
     if agent.stopped_by == "max_steps":
         summary = await stop_and_summarize(agent, completions, task)
         if summary:
