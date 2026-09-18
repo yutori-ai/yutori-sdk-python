@@ -380,6 +380,23 @@ async def test_manual_drag_and_timed_held_modifier_use_public_driver_primitives(
     assert not [call for call in transport.calls if call[0] in {"mouse_down", "mouse_up", "hold_key"}]
 
 
+async def test_release_held_mouse_button_only_releases_when_held():
+    # release_held_mouse_button is inherited from sandbox_tools.PointerKeyLifecycleMixin
+    # rather than redefined on MacOSComputer; pin its behavior here.
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False) as computer:
+        await computer.release_held_mouse_button()
+        assert not [call for call in transport.calls if call[0] in {"click", "drag"}]
+
+        await computer.move(10, 20)
+        await computer.left_mouse_down()
+        await computer.release_held_mouse_button()
+        assert not computer._left_mouse_down
+
+    click = next(call for call in transport.calls if call[0] == "click")
+    assert click[1]["x"] == 10 and click[1]["y"] == 20
+
+
 @pytest.mark.parametrize("method_name", ["left_mouse_down", "left_mouse_up"])
 async def test_mouse_down_and_up_reject_partial_coordinates(method_name: str):
     transport = FakeTransport()

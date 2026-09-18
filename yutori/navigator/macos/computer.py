@@ -23,6 +23,7 @@ from typing import Any, Literal
 from PIL import Image
 
 from ..n2_actions import require_positive_read_offset
+from ..sandbox_tools import PointerKeyLifecycleMixin
 from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
 from .polling import (
@@ -430,7 +431,7 @@ def _process_identity(pid: int) -> "_ProcessIdentity | None":
     return _ProcessIdentity(pid, group, started_at.strip()) if separator and group > 0 and started_at.strip() else None
 
 
-class MacOSComputer:
+class MacOSComputer(PointerKeyLifecycleMixin):
     """Async macOS desktop session with capture, input, presentation, and shell lifecycle."""
 
     def __init__(
@@ -899,9 +900,7 @@ class MacOSComputer:
             self._left_mouse_down = False
             self._held_mouse_start = None
 
-    async def release_held_mouse_button(self) -> None:
-        if self._left_mouse_down:
-            await self.left_mouse_up()
+    # release_held_mouse_button is inherited from PointerKeyLifecycleMixin.
 
     async def scroll(
         self,
