@@ -559,7 +559,10 @@ class PointerKeyLifecycleMixin:
 
     Mix into a computer adapter that already implements ``key_down``, ``key_up``,
     and ``left_mouse_up``, and tracks a ``_left_mouse_down`` bool set by its own
-    ``left_mouse_down``/``left_mouse_up``.
+    ``left_mouse_down``/``left_mouse_up``. A subclass may override ``hold_key``
+    and ``wait`` (e.g. to route through its own cancellation-aware sleep, as
+    ``MacOSComputer`` does) while still picking up ``release_held_mouse_button``
+    from here.
     """
 
     async def key_down(self, key: str) -> None:
