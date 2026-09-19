@@ -1901,6 +1901,9 @@ async def test_keyboard_ambiguity_with_no_text_field_explains_the_sibling_window
         with pytest.raises(MacOSBackgroundDeliveryError, match="more than one open window") as raised:
             await computer.type("hello")
         assert raised.value.recoverable and raised.value.observation is not None
+        # Closing the sibling window is the one "fix" that bricks the app: a windowless
+        # application cannot be driven in window scope, and the frame has no Dock to reopen it.
+        assert "Do NOT close" in str(raised.value)
     assert _names(transport).count("type_text") == 1
     assert computer.delivery_counts["background_refusals"] == 1
 

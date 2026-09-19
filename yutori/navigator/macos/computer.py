@@ -333,8 +333,10 @@ def _refusal_message(tool: str, where: str, outcome: MacOSActionOutcome) -> str:
             f"{tool} ({_KEYBOARD_AMBIGUITY_CODE}) could not be delivered to {where} in the background: the "
             "application owns more than one open window, so keystrokes addressed to its process cannot be "
             "proven to reach this one, and no accessibility write could stand in (web page content accepts "
-            "none). Nothing was sent. Use the window's own controls, or ask for the application's other "
-            "windows to be closed and try again."
+            "none). Nothing was sent. Reach the same result by clicking the window's own controls or its "
+            "menu bar instead of pressing keys. Do NOT close the application's other windows to clear this: "
+            "an application left with no window at all cannot be driven in window scope, and there is no "
+            "Dock or menu bar in this frame to reopen one."
         )
     detail = f"effect={outcome.effect or 'unknown'}"
     if outcome.recommended:
