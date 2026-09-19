@@ -1399,6 +1399,7 @@ async def test_window_scope_actions_carry_the_window_target_and_background_deliv
         "background_attempts": 6,
         "foreground_escalations": 0,
         "fallback_skips": 0,
+        "accessibility_rungs": 0,
         "background_refusals": 0,
         "window_rebinds": 0,
     }
@@ -1548,6 +1549,7 @@ async def test_foreground_fallback_that_still_fails_raises_after_one_retry():
         "background_attempts": 1,
         "foreground_escalations": 1,
         "fallback_skips": 0,
+        "accessibility_rungs": 0,
         "background_refusals": 1,
         "window_rebinds": 0,
     }
@@ -1829,6 +1831,110 @@ async def test_upfront_keyboard_refusals_are_recoverable_in_strict_window_scope(
         assert raised.value.outcome is not None and raised.value.outcome.refusal_code == code
     assert _names(transport).count("hotkey") == 1
     assert computer.delivery_counts["background_refusals"] == 1
+
+
+def _element(index: int, role: str, frame: dict[str, float], **extra: Any) -> dict[str, Any]:
+    return {
+        "element_index": index,
+        "element_token": f"s0000000a:{index}",
+        "role": role,
+        "frame": frame,
+        **extra,
+    }
+
+
+# The fake window capture is 400x300, so a root AXWindow at the origin with those point
+# dimensions makes capture pixels and element-frame points the same numbers.
+_ROOT_WINDOW = _element(0, "AXWindow", {"x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0})
+_SEARCH_FIELD = _element(1, "AXTextField", {"x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0})
+
+
+async def test_keyboard_ambiguity_retries_type_text_as_a_write_to_the_clicked_field():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("hello")
+    first, retried = _arguments(transport, "type_text")
+    assert "element_token" not in first
+    assert retried["element_token"] == _SEARCH_FIELD["element_token"]
+    assert retried["delivery_mode"] == "background" and retried["text"] == "hello"
+    assert computer.delivery_counts["accessibility_rungs"] == 1
+    assert computer.delivery_counts["background_refusals"] == 0
+    assert computer.last_action_outcome is not None and computer.last_action_outcome.landed
+
+
+async def test_the_accessibility_rung_reads_the_tree_without_paying_for_a_capture():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("hello")
+    rung_snapshot = _arguments(transport, "get_window_state")[-1]
+    assert rung_snapshot["include_screenshot"] is False
+    assert rung_snapshot["max_elements"] > 1
+
+
+async def test_the_accessibility_rung_is_skipped_when_the_field_under_the_pointer_is_ambiguous():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    elsewhere = _element(2, "AXTextField", {"x": 200.0, "y": 200.0, "w": 100.0, "h": 20.0})
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD, elsewhere]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(380, 290)  # outside both fields
+        with pytest.raises(MacOSBackgroundDeliveryError, match="same_pid_keyboard_ambiguity"):
+            await computer.type("hello")
+    assert _names(transport).count("type_text") == 1
+    assert computer.delivery_counts["accessibility_rungs"] == 0
+
+
+async def test_keyboard_ambiguity_with_no_text_field_explains_the_sibling_window():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError, match="more than one open window") as raised:
+            await computer.type("hello")
+        assert raised.value.recoverable and raised.value.observation is not None
+    assert _names(transport).count("type_text") == 1
+    assert computer.delivery_counts["background_refusals"] == 1
+
+
+async def test_a_refusal_keeps_the_rung_the_driver_recommended():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [
+        CuaDriverToolError(
+            "Cua Driver failed: same_pid_keyboard_ambiguity",
+            structured={
+                "code": "same_pid_keyboard_ambiguity",
+                "effect": "refused",
+                "escalation": {"recommended": "accessibility", "reason": "pid 9 owns 1 other window"},
+            },
+        )
+    ]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("hello")
+    outcome = computer.last_action_outcome
+    assert outcome is not None
+    assert (outcome.recommended, outcome.escalation_reason) == ("accessibility", "pid 9 owns 1 other window")
+
+
+async def test_a_payload_less_refusal_still_reads_as_wanting_the_foreground_rung():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [CuaDriverToolError("Cua Driver failed: minimized_or_hidden_window")]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("hello")
+    outcome = computer.last_action_outcome
+    assert outcome is not None and (outcome.effect, outcome.recommended) == ("refused", "foreground")
 
 
 class _FakeStreamer:

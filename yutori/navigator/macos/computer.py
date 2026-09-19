@@ -41,6 +41,7 @@ from .process_lifecycle import cancel_and_drain, race_against_cancellation, race
 from .sanitize import sanitize_command_preview, sanitize_output_preview
 from .transport import (
     CuaDriverConnectionError,
+    CuaDriverError,
     CuaDriverToolError,
     CuaDriverTransport,
     CuaDriverUncertainActionError,
@@ -94,9 +95,19 @@ _STALE_FRAME_CODES = frozenset({"px_frame_mismatch", "px_capture_unavailable"})
 # it; another window of the same app usually can be driven instead.
 _WINDOW_UNRESOLVED_CODES = frozenset({"off_space_or_ax_unresolved"})
 _UNRESOLVED_CAPTURE_REASON = "ax_window_unresolved"
+# The refusal the driver raises when the app owns a second window: process-scoped keystrokes
+# address a pid, so they cannot be proven to reach the requested window. An AX write to one
+# exact element is window-bound and stays available -- see _type_via_accessibility.
+_KEYBOARD_AMBIGUITY_CODE = "same_pid_keyboard_ambiguity"
 # Background delivery refused up front; fronting the window (the foreground rung) makes the
 # keystrokes unambiguous or un-minimizes the window, so these behave like "did not land".
-_ESCALATABLE_REFUSAL_CODES = frozenset({"same_pid_keyboard_ambiguity", "minimized_or_hidden_window"})
+_ESCALATABLE_REFUSAL_CODES = frozenset({_KEYBOARD_AMBIGUITY_CODE, "minimized_or_hidden_window"})
+# Roles the driver's accessibility rung can insert text into. AXComboBox and AXSearchField are
+# text fields with extra affordances; the other roles it exposes are not text entry at all.
+_AX_TEXT_ENTRY_ROLES = frozenset({"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"})
+# Bounds the extra AX walk the accessibility rung pays for: deep Electron and web trees run
+# into five figures of elements, and the driver warns the unbounded walk can take 20 seconds.
+_AX_RUNG_MAX_ELEMENTS = 1_000
 # Window scope shows its progress in a menu bar item, a shell rail, and the activity window
 # instead of the full-screen overlay.
 _STATUS_TITLE = "Yutori n2 is working in a window in the background"
@@ -261,6 +272,78 @@ def _parse_action_outcome(
         refusal_code=_text(refusal.get("code")) if isinstance(refusal, dict) else _text(structured.get("code")),
         recommended=_text(escalation.get("recommended")) or _text(escalation.get("target")),
         escalation_reason=_text(escalation.get("reason")),
+    )
+
+
+def _refusal_outcome(
+    tool: str,
+    requested_delivery: str,
+    error: CuaDriverToolError,
+    code: "str | None",
+    *,
+    escalated: bool,
+) -> MacOSActionOutcome:
+    """The outcome for a refusal the driver raised as a tool error rather than a result.
+
+    The refusal payload carries the driver's own next rung (``escalation.recommended``, e.g.
+    ``"accessibility"`` for a same-pid keyboard ambiguity) and the sentence explaining it, so
+    both are read from it instead of assuming every refusal wants a foreground retry. Only a
+    payload-less refusal -- the code was sniffed out of the message text -- falls back to that
+    assumption, which is what the routing policy did for every refusal before.
+    """
+    structured = error.structured
+    reported = structured.get("escalation")
+    escalation: dict[str, Any] = reported if isinstance(reported, dict) else {}
+    return MacOSActionOutcome(
+        tool=tool,
+        requested_delivery=requested_delivery,
+        effect=_text(structured.get("effect")) or "refused",
+        route=_text(structured.get("route")),
+        reported_delivery=None,
+        escalated=escalated,
+        refusal_code=code,
+        recommended=_text(escalation.get("recommended")) or _text(escalation.get("target")) or _DELIVERY_FOREGROUND,
+        escalation_reason=_text(escalation.get("reason")) or code,
+    )
+
+
+def _frame_contains(frame: Any, point: tuple[float, float]) -> bool:
+    if not isinstance(frame, dict):
+        return False
+    try:
+        x, y, width, height = float(frame["x"]), float(frame["y"]), float(frame["w"]), float(frame["h"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return x <= point[0] <= x + width and y <= point[1] <= y + height
+
+
+def _frame_area(frame: Any) -> float:
+    if not isinstance(frame, dict):
+        return float("inf")
+    try:
+        return float(frame["w"]) * float(frame["h"])
+    except (KeyError, TypeError, ValueError):
+        return float("inf")
+
+
+def _refusal_message(tool: str, where: str, outcome: MacOSActionOutcome) -> str:
+    """What the model is told when a window-scope action ran out of delivery rungs."""
+    if outcome.refusal_code == _KEYBOARD_AMBIGUITY_CODE:
+        return (
+            f"{tool} ({_KEYBOARD_AMBIGUITY_CODE}) could not be delivered to {where} in the background: the "
+            "application owns more than one open window, so keystrokes addressed to its process cannot be "
+            "proven to reach this one, and no accessibility write could stand in (web page content accepts "
+            "none). Nothing was sent. Use the window's own controls, or ask for the application's other "
+            "windows to be closed and try again."
+        )
+    detail = f"effect={outcome.effect or 'unknown'}"
+    if outcome.recommended:
+        detail += f", recommended={outcome.recommended}"
+    if outcome.escalation_reason:
+        detail += f", reason={outcome.escalation_reason}"
+    return (
+        f"{tool} was posted to {where} with {outcome.requested_delivery} delivery but the driver reports it "
+        f"did not land ({detail}). Check the attached frame; try a keyboard shortcut or a different control."
     )
 
 
@@ -490,6 +573,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             "background_attempts": 0,
             "foreground_escalations": 0,
             "fallback_skips": 0,
+            "accessibility_rungs": 0,
             "background_refusals": 0,
             "window_rebinds": 0,
         }
@@ -1570,6 +1654,12 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         outcome = await self._deliver_window_action(tool, arguments, requested, escalated=escalated)
         if outcome.landed:
             return
+        if not escalated and outcome.refusal_code == _KEYBOARD_AMBIGUITY_CODE:
+            rung = await self._type_via_accessibility(tool, arguments)
+            if rung is not None:
+                if rung.landed:
+                    return
+                outcome = rung
         observation = await self._fresh_observation()
         if not escalated and self.allow_foreground_fallback:
             if self._frame_changed(reference, observation):
@@ -1588,16 +1678,116 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._delivery_counts["background_refusals"] += 1
         target = self._target_window
         where = target.describe() if target is not None else "the target window"
-        detail = f"effect={outcome.effect or 'unknown'}"
-        if outcome.recommended:
-            detail += f", recommended={outcome.recommended}"
-        if outcome.escalation_reason:
-            detail += f", reason={outcome.escalation_reason}"
-        raise MacOSBackgroundDeliveryError(
-            f"{tool} was posted to {where} with {outcome.requested_delivery} delivery but the driver reports it "
-            f"did not land ({detail}). Check the attached frame; try a keyboard shortcut or a different control.",
-            observation,
-            outcome,
+        raise MacOSBackgroundDeliveryError(_refusal_message(tool, where, outcome), observation, outcome)
+
+    async def _type_via_accessibility(self, tool: str, arguments: dict[str, Any]) -> "MacOSActionOutcome | None":
+        """Re-send a keyboard-ambiguity-refused ``type_text`` as a write to one exact element.
+
+        The driver refuses process-scoped keystrokes whenever the application owns a second
+        window, because the transport addresses a pid and a sibling window could receive them.
+        Its accessibility rung stays open -- an ``AXSelectedText`` write is bound to one element,
+        so no sibling can be hit -- but the driver only offers that rung when the caller names
+        the element, which a purely pixel-addressed model never does. Name it here, from a fresh
+        snapshot of the same window, using the point the model last clicked.
+
+        Returns ``None`` when no rung applies (a different tool, no snapshot, no text field under
+        the pointer), leaving the caller's existing fallback policy untouched.
+        """
+        if tool != "type_text" or "text" not in arguments:
+            return None
+        snapshot = await self._window_element_snapshot()
+        if snapshot is None:
+            return None
+        token = self._text_element_token(snapshot)
+        if token is None:
+            return None
+        self._delivery_counts["accessibility_rungs"] += 1
+        return await self._deliver_window_action(
+            tool,
+            {**arguments, "element_token": token},
+            _DELIVERY_BACKGROUND,
+            escalated=False,
+        )
+
+    async def _window_element_snapshot(self) -> "dict[str, Any] | None":
+        """The driven window's AX elements, or ``None`` when the walk is unavailable.
+
+        Read-only and screenshot-free: this runs only after a refusal, so it must not cost a
+        second capture, and a failure here only means the accessibility rung is skipped.
+        """
+        target = self._target_window
+        if target is None:
+            return None
+        try:
+            result = await self._call_tool(
+                "get_window_state",
+                {
+                    "session": self.session,
+                    "pid": target.pid,
+                    "window_id": target.window_id,
+                    "include_screenshot": False,
+                    "max_elements": _AX_RUNG_MAX_ELEMENTS,
+                },
+                read_only=True,
+            )
+        except CuaDriverError:
+            return None
+        structured = _structured(result)
+        return structured if isinstance(structured.get("elements"), list) else None
+
+    def _text_element_token(self, snapshot: dict[str, Any]) -> "str | None":
+        """The snapshot handle of the text field the model last clicked, when one is unambiguous.
+
+        Element frames are screen points and the model's coordinates are window-capture pixels,
+        so the pointer is mapped through the window's own AX frame -- the root ``AXWindow`` row
+        of this very snapshot -- rather than a separately fetched bounds that could disagree.
+        The smallest field containing the pointer wins; without a usable pointer, a window with
+        exactly one text field is still unambiguous.
+        """
+        candidates = [
+            element
+            for element in snapshot["elements"]
+            if isinstance(element, dict)
+            and element.get("role") in _AX_TEXT_ENTRY_ROLES
+            and element.get("enabled", True)
+            and isinstance(element.get("element_token"), str)
+        ]
+        if not candidates:
+            return None
+        point = self._pointer_in_screen_points(snapshot)
+        if point is not None:
+            under_pointer = [element for element in candidates if _frame_contains(element.get("frame"), point)]
+            if under_pointer:
+                return min(under_pointer, key=lambda element: _frame_area(element["frame"]))["element_token"]
+        return candidates[0]["element_token"] if len(candidates) == 1 else None
+
+    def _pointer_in_screen_points(self, snapshot: dict[str, Any]) -> "tuple[float, float] | None":
+        """The last pointer position in the screen points AX element frames use."""
+        if self._pointer is None or self._window_capture is None:
+            return None
+        root = next(
+            (
+                element
+                for element in snapshot["elements"]
+                if isinstance(element, dict) and element.get("role") == "AXWindow"
+            ),
+            None,
+        )
+        bounds = root.get("frame") if isinstance(root, dict) else None
+        if not isinstance(bounds, dict):
+            return None
+        capture_width, capture_height = self._window_capture
+        try:
+            width, height = float(bounds["w"]), float(bounds["h"])
+            origin_x, origin_y = float(bounds["x"]), float(bounds["y"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if capture_width <= 0 or capture_height <= 0 or width <= 0 or height <= 0:
+            return None
+        pointer_x, pointer_y = self._pointer
+        return (
+            origin_x + pointer_x * width / capture_width,
+            origin_y + pointer_y * height / capture_height,
         )
 
     async def _deliver_window_action(
@@ -1614,18 +1804,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             code = _error_code(error)
             if code in _ESCALATABLE_REFUSAL_CODES:
                 # Nothing was delivered; report it like a non-landing action so the fallback
-                # policy decides between a foreground retry and a recoverable refusal.
-                outcome = MacOSActionOutcome(
-                    tool=tool,
-                    requested_delivery=requested,
-                    effect="refused",
-                    route=None,
-                    reported_delivery=None,
-                    escalated=escalated,
-                    refusal_code=code,
-                    recommended=_DELIVERY_FOREGROUND,
-                    escalation_reason=code,
-                )
+                # policy decides between another rung and a recoverable refusal.
+                outcome = _refusal_outcome(tool, requested, error, code, escalated=escalated)
                 self._action_outcomes.append(outcome)
                 return outcome
             if _is_window_loss(error):
