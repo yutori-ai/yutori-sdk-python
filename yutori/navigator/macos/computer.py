@@ -307,23 +307,30 @@ def _refusal_outcome(
     )
 
 
-def _frame_contains(frame: Any, point: tuple[float, float]) -> bool:
+def _frame_bounds(frame: Any) -> "tuple[float, float, float, float] | None":
+    """Parse a driver frame dict's x/y/w/h into floats, or None if malformed."""
     if not isinstance(frame, dict):
-        return False
+        return None
     try:
-        x, y, width, height = float(frame["x"]), float(frame["y"]), float(frame["w"]), float(frame["h"])
+        return float(frame["x"]), float(frame["y"]), float(frame["w"]), float(frame["h"])
     except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _frame_contains(frame: Any, point: tuple[float, float]) -> bool:
+    bounds = _frame_bounds(frame)
+    if bounds is None:
         return False
+    x, y, width, height = bounds
     return x <= point[0] <= x + width and y <= point[1] <= y + height
 
 
 def _frame_area(frame: Any) -> float:
-    if not isinstance(frame, dict):
+    bounds = _frame_bounds(frame)
+    if bounds is None:
         return float("inf")
-    try:
-        return float(frame["w"]) * float(frame["h"])
-    except (KeyError, TypeError, ValueError):
-        return float("inf")
+    _, _, width, height = bounds
+    return width * height
 
 
 def _refusal_message(tool: str, where: str, outcome: MacOSActionOutcome) -> str:
@@ -1776,14 +1783,11 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             None,
         )
         bounds = root.get("frame") if isinstance(root, dict) else None
-        if not isinstance(bounds, dict):
+        frame_bounds = _frame_bounds(bounds)
+        if frame_bounds is None:
             return None
+        origin_x, origin_y, width, height = frame_bounds
         capture_width, capture_height = self._window_capture
-        try:
-            width, height = float(bounds["w"]), float(bounds["h"])
-            origin_x, origin_y = float(bounds["x"]), float(bounds["y"])
-        except (KeyError, TypeError, ValueError):
-            return None
         if capture_width <= 0 or capture_height <= 0 or width <= 0 or height <= 0:
             return None
         pointer_x, pointer_y = self._pointer
