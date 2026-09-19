@@ -197,7 +197,7 @@ Your `MyComputer` environment is responsible for tool implementations (they are 
 | `bash` | `run_bash_command` | [`format_shell_output`](yutori/navigator/sandbox_tools.py) for the result format |
 | `read`/`write`/`edit` | `read_file`/`write_file`/`edit_file` | [`ShellFileToolsMixin`](yutori/navigator/sandbox_tools.py): a complete implementation over a POSIX shell — inherit it and supply its two small hooks |
 
-Three complete `MyComputer` implementations to copy from: [direct_x11_adapter.py](examples/navigator_n2/direct_x11_adapter.py) (direct X11), [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (API-backed sandbox), and [MacOSComputer](yutori/navigator/macos/computer.py) (native macOS). The first two inherit both mixins, so the only things they implement themselves are the GUI primitives and `run_bash_command`.
+Three complete `MyComputer` implementations to copy from: [direct_x11_adapter.py](examples/navigator_n2/direct_x11_adapter.py) (direct X11), [cua_adapter.py](examples/navigator_n2/cua_adapter.py) (API-backed sandbox), and [MacOSComputer](yutori/navigator/macos/computer.py) (native macOS). The first two inherit both mixins; MacOSComputer inherits `PointerKeyLifecycleMixin` for the lifecycle methods (`release_held_mouse_button`, etc.) and implements the GUI primitives and `run_bash_command` directly.
 
 The full contract is documented in [Navigator n2 loop](api.md#navigator-n2-loop).
 
