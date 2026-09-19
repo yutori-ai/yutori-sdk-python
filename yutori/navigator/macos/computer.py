@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
-from ..n2_actions import require_positive_read_offset
+from ..n2_actions import N2_MAX_WAIT_SECONDS, require_positive_read_offset
 from ..sandbox_tools import PointerKeyLifecycleMixin
 from .frontmost import FrontmostApp, frontmost_app
 from .no_progress import NoProgressWatchdog
@@ -521,6 +521,12 @@ def _process_identity(pid: int) -> "_ProcessIdentity | None":
     except ValueError:
         return None
     return _ProcessIdentity(pid, group, started_at.strip()) if separator and group > 0 and started_at.strip() else None
+
+
+def _validate_wait_ms(ms: int, method: str) -> None:
+    """Validate a ``hold_key``/``wait`` duration in milliseconds against N2_MAX_WAIT_SECONDS."""
+    if not 0 <= ms <= N2_MAX_WAIT_SECONDS * 1000:
+        raise ValueError(f"{method} must be between 0 and {N2_MAX_WAIT_SECONDS} seconds")
 
 
 class MacOSComputer(PointerKeyLifecycleMixin):
@@ -1057,8 +1063,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._emulated_held_keys = [held_key for held_key in self._emulated_held_keys if held_key != key]
 
     async def hold_key(self, key: str, ms: int = 1000) -> None:
-        if not 0 <= ms <= 300_000:
-            raise ValueError("hold_key must be between 0 and 300 seconds")
+        _validate_wait_ms(ms, "hold_key")
         await self.key_down(key)
         try:
             await self._sleep(ms / 1000)
@@ -1066,8 +1071,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             await self.key_up(key)
 
     async def wait(self, ms: int = 1000) -> None:
-        if not 0 <= ms <= 300_000:
-            raise ValueError("wait must be between 0 and 300 seconds")
+        _validate_wait_ms(ms, "wait")
         await self._sleep(ms / 1000)
 
     async def wait_for_change(self, requested_ms: int, reference: N2Observation) -> N2Observation:
