@@ -25,7 +25,7 @@ from typing import Any
 
 from PIL import Image
 
-from .payload import estimate_messages_size_bytes
+from .payload import estimate_messages_size_bytes, is_image_url_part
 
 # Images are sent in this encoding unless the caller picks another; the frame's
 # size is the computer handler's own capture, untouched.
@@ -91,7 +91,7 @@ def _message_image_parts(message: dict[str, Any]) -> list[dict[str, Any]]:
     content = message.get("content")
     if not isinstance(content, list):
         return []
-    return [part for part in content if isinstance(part, dict) and part.get("type") == "image_url"]
+    return [part for part in content if is_image_url_part(part)]
 
 
 def latest_image_url(messages: list[dict[str, Any]]) -> "str | None":
@@ -112,14 +112,9 @@ def _strip_images_from_message(message: dict[str, Any], omitted_text: str | None
     if not isinstance(content, list):
         return
     if omitted_text is None:
-        message["content"] = [
-            part for part in content if not (isinstance(part, dict) and part.get("type") == "image_url")
-        ]
+        message["content"] = [part for part in content if not is_image_url_part(part)]
         return
-    replaced = [
-        {"type": "text", "text": omitted_text} if isinstance(part, dict) and part.get("type") == "image_url" else part
-        for part in content
-    ]
+    replaced = [{"type": "text", "text": omitted_text} if is_image_url_part(part) else part for part in content]
     # Adjacent text parts merge into one, the marker directly concatenated —
     # the reference builder's rendering of a pruned frame.
     merged: list[Any] = []
@@ -163,7 +158,7 @@ def retain_n2_image_window(
 def _drop_first_image(content: list[Any]) -> "dict[str, Any] | None":
     """Remove the first ``image_url`` part from a content list, returning it."""
     for position, part in enumerate(content):
-        if isinstance(part, dict) and part.get("type") == "image_url":
+        if is_image_url_part(part):
             return content.pop(position)
     return None
 

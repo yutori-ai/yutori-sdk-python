@@ -24,6 +24,11 @@ def estimate_messages_size_bytes(messages: list[dict[str, Any]]) -> int:
     return len(json.dumps(messages, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
+def is_image_url_part(part: Any) -> bool:
+    """Return True if *part* is an ``image_url`` content block."""
+    return isinstance(part, dict) and part.get("type") == "image_url"
+
+
 def message_has_image(message: dict[str, Any]) -> bool:
     """Return True if *message* contains at least one ``image_url`` content block."""
     return _count_images(message) > 0
@@ -34,7 +39,7 @@ def _count_images(message: dict[str, Any]) -> int:
     content = message.get("content")
     if not isinstance(content, list):
         return 0
-    return sum(1 for part in content if isinstance(part, dict) and part.get("type") == "image_url")
+    return sum(1 for part in content if is_image_url_part(part))
 
 
 def _strip_one_image(message: dict[str, Any]) -> bool:
@@ -52,7 +57,7 @@ def _strip_one_image(message: dict[str, Any]) -> bool:
     removed = False
     new_content: list[dict[str, Any]] = []
     for part in content:
-        if not removed and isinstance(part, dict) and part.get("type") == "image_url":
+        if not removed and is_image_url_part(part):
             removed = True
             continue
         new_content.append(part)
