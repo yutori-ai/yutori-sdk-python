@@ -1467,7 +1467,7 @@ async def test_background_action_that_did_not_land_is_refused_with_a_fresh_frame
 async def test_foreground_fallback_retries_once_when_the_driver_recommends_it():
     transport = WindowFakeTransport()
     transport.action_results["type_text"] = [
-        {"effect": "unverifiable", "escalation": {"recommended": "foreground"}},
+        {"effect": "suspected_noop", "escalation": {"recommended": "foreground"}},
         {"effect": "confirmed", "route": "trusted_input", "delivery": {"mode": "foreground"}},
     ]
     async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
@@ -1493,6 +1493,9 @@ async def test_foreground_fallback_retries_once_when_the_driver_recommends_it():
         {"effect": "partial"},
         {"effect": "confirmed", "route": "accessibility"},
         {"effect": "unverifiable", "escalation": {"recommended": "px"}},
+        {"effect": "unverifiable", "escalation": {"recommended": "foreground"}},
+        {"effect": "partial", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
+        {"effect": "confirmed", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
         {},
     ],
 )
@@ -1506,11 +1509,44 @@ async def test_landed_effects_never_escalate(structured):
     assert computer.last_action_outcome is not None and computer.last_action_outcome.landed
 
 
+@pytest.mark.parametrize("allow_foreground_fallback", [False, True])
+@pytest.mark.parametrize("advice_key", ["recommended", "target"])
+async def test_background_shortcut_advice_does_not_abort_or_repeat_a_sequence(allow_foreground_fallback, advice_key):
+    transport = WindowFakeTransport()
+    transport.action_results["hotkey"] = [
+        {"effect": "unverifiable", "escalation": {advice_key: "foreground", "reason": "delivery_failed"}}
+        for _ in range(3)
+    ]
+    async with _bound_window_computer(transport, allow_foreground_fallback=allow_foreground_fallback) as computer:
+        await computer.screenshot()
+        for _ in range(3):
+            await computer.keypress(["cmd", "plus"])
+    sends = _arguments(transport, "hotkey")
+    assert len(sends) == 3
+    assert all(send["delivery_mode"] == "background" for send in sends)
+    assert computer.delivery_counts["background_refusals"] == 0
+    assert computer.delivery_counts["foreground_escalations"] == 0
+    # An unchanged screenshot cannot prove failure either: accepted input is left to visual verification.
+    assert len(_arguments(transport, "get_window_state")) == 1
+
+
+@pytest.mark.parametrize("allow_foreground_fallback", [False, True])
+async def test_unverified_typing_is_not_replayed_when_the_driver_suggests_foreground(allow_foreground_fallback):
+    transport = WindowFakeTransport()
+    transport.action_results["type_text"] = [
+        {"effect": "unverifiable", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
+    ]
+    async with _bound_window_computer(transport, allow_foreground_fallback=allow_foreground_fallback) as computer:
+        await computer.type("15*15")
+    assert len(_arguments(transport, "type_text")) == 1
+    assert computer.delivery_counts["foreground_escalations"] == 0
+
+
 async def test_foreground_fallback_is_skipped_when_the_window_already_changed():
     # Frame 1 is what the model reasoned over; frame 2 (a different image) is captured after the
     # background attempt that the driver reported as not landing.
     transport = WindowFakeTransport([_png(400, 300), _png(400, 300, color=(240, 240, 240))])
-    transport.action_results["type_text"] = [{"effect": "unverifiable", "escalation": {"target": "foreground"}}]
+    transport.action_results["type_text"] = [{"effect": "suspected_noop", "escalation": {"target": "foreground"}}]
     async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
         await computer.screenshot()
         await computer.type("15*15")
@@ -1523,7 +1559,7 @@ async def test_foreground_fallback_is_skipped_when_the_window_already_changed():
 async def test_foreground_fallback_proceeds_when_the_window_did_not_change():
     transport = WindowFakeTransport([_png(400, 300)])
     transport.action_results["type_text"] = [
-        {"effect": "unverifiable", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
+        {"effect": "suspected_noop", "escalation": {"target": "foreground", "reason": "delivery_failed"}},
         {"effect": "unverifiable"},
     ]
     async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
@@ -1877,6 +1913,116 @@ async def test_the_accessibility_rung_reads_the_tree_without_paying_for_a_captur
     rung_snapshot = _arguments(transport, "get_window_state")[-1]
     assert rung_snapshot["include_screenshot"] is False
     assert rung_snapshot["max_elements"] > 1
+
+
+async def test_hover_does_not_retarget_typing_away_from_the_clicked_field():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    other = _element(2, "AXTextField", {"x": 200.0, "y": 200.0, "w": 100.0, "h": 20.0})
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD, other]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.move(220, 210)
+        await computer.type("hello")
+    assert _arguments(transport, "type_text")[-1]["element_token"] == _SEARCH_FIELD["element_token"]
+
+
+@pytest.mark.parametrize("intervening", ["hover", "outside", "right", "tab", "scroll", "drag", "resize", "rebind"])
+async def test_typing_does_not_guess_a_field_without_a_current_explicit_click(intervening):
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    transport.window_state_extra[9] = transport.window_state_extra[7]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        if intervening != "hover":
+            await computer.click(20, 15)
+        if intervening == "hover":
+            await computer.move(20, 15)
+        elif intervening == "outside":
+            await computer.click(300, 250)
+        elif intervening == "right":
+            await computer.click(20, 15, button="right")
+        elif intervening == "tab":
+            await computer.keypress("tab")
+        elif intervening == "scroll":
+            await computer.scroll(20, 15, 0, 100)
+        elif intervening == "drag":
+            await computer.drag([{"x": 20, "y": 15}, {"x": 50, "y": 15}])
+        elif intervening == "resize":
+            transport.window_frames = [_png(800, 600)]
+            await computer.screenshot()
+        else:
+            await computer.set_window_target(MacOSWindowTarget(PID, 9))
+            await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError, match="same_pid_keyboard_ambiguity"):
+            await computer.type("hello")
+    assert len(_arguments(transport, "type_text")) == 1
+    assert computer.delivery_counts["accessibility_rungs"] == 0
+
+
+async def test_failed_keypress_invalidates_the_typing_target_before_dispatch():
+    transport = WindowFakeTransport()
+    transport.tool_errors["press_key"] = [CuaDriverUncertainActionError("acknowledgement lost")]
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        with pytest.raises(MacOSUncertainActionError):
+            await computer.keypress("tab")
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("hello")
+    assert len(_arguments(transport, "type_text")) == 1
+
+
+async def test_uncertain_click_cannot_leave_the_previous_typing_target_selected():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        transport.tool_errors["click"] = [CuaDriverUncertainActionError("acknowledgement lost")]
+        with pytest.raises(MacOSUncertainActionError):
+            await computer.click(300, 250)
+        transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("hello")
+    assert len(_arguments(transport, "type_text")) == 1
+    assert computer.delivery_counts["accessibility_rungs"] == 0
+
+
+async def test_uncertain_typing_consumes_the_recent_click_before_another_attempt():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    transport.tool_errors["type_text"] = [
+        CuaDriverUncertainActionError("acknowledgement lost"),
+        _tool_error("same_pid_keyboard_ambiguity"),
+    ]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        with pytest.raises(MacOSUncertainActionError):
+            await computer.type("first")
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("second")
+    assert len(_arguments(transport, "type_text")) == 2
+    assert computer.delivery_counts["accessibility_rungs"] == 0
+
+
+async def test_typing_consumes_the_recent_click_instead_of_reusing_it_for_later_input():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("first")
+        transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.type("second")
+    assert len(_arguments(transport, "type_text")) == 2
+    assert all("element_token" not in send for send in _arguments(transport, "type_text"))
 
 
 async def test_the_accessibility_rung_is_skipped_when_the_field_under_the_pointer_is_ambiguous():

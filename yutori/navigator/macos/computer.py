@@ -612,6 +612,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._left_mouse_down = False
         self._held_mouse_start: "tuple[int, int] | None" = None
         self._pointer: "tuple[int, int] | None" = None
+        self._text_input_point: "tuple[int, int] | None" = None
         self._background: dict[str, _BackgroundProcess] = {}
         self._foreground_processes: set[asyncio.subprocess.Process] = set()
         self._shell_events: list[ShellPresentationEvent] = []
@@ -794,6 +795,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._current_observation = None
         self._observed_frontmost = None
         self._window_capture = None
+        self._pointer = None
+        self._text_input_point = None
         self._no_progress.reset()
         if target is not None:
             self.target_pid = target.pid
@@ -916,6 +919,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         count: int = 1,
         modifier: "Sequence[str] | None" = None,
     ) -> None:
+        self._text_input_point = None
         self._refuse_stop_point(x, y)
         arguments = self._action_args(x=x, y=y, button=button, count=count)
         modifiers = self._merged_modifiers(modifier)
@@ -932,6 +936,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 arguments["delivery_mode"] = _DELIVERY_FOREGROUND
         await self._mutate("click", arguments)
         self._pointer = (x, y)
+        if self.window_mode and button == "left" and not modifiers and self._window_capture is not None:
+            self._text_input_point = (x, y)
 
     async def double_click(self, x: int, y: int, modifier: "Sequence[str] | None" = None) -> None:
         await self.click(x, y, count=2, modifier=modifier)
@@ -950,6 +956,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             await self._mutate("move_cursor", self._action_args(x=x, y=y))
 
     async def drag(self, path: list[dict[str, int]]) -> None:
+        self._text_input_point = None
         if len(path) < 2:
             raise ValueError("drag path must contain at least two points")
         if self._emulated_held_keys:
@@ -976,6 +983,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         return (x, y) if x is not None and y is not None else self._pointer
 
     async def left_mouse_down(self, x: "int | None" = None, y: "int | None" = None) -> None:
+        self._text_input_point = None
         point = self._point_from_optional_coordinates("mouse_down", x, y)
         if point is None:
             raise MacOSRecoverableActionError("mouse_down requires coordinates after the pointer has moved.")
@@ -1009,6 +1017,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         scroll_y: int,
         modifier: "Sequence[str] | None" = None,
     ) -> None:
+        self._text_input_point = None
         if self._merged_modifiers(modifier):
             raise MacOSRecoverableActionError(
                 "scroll with a held modifier is not supported; use key_press and an unmodified scroll"
@@ -1030,10 +1039,14 @@ class MacOSComputer(PointerKeyLifecycleMixin):
     async def type(self, text: str) -> None:
         if self._emulated_held_keys:
             raise MacOSRecoverableActionError("The pinned Cua Driver cannot hold a modifier while typing text.")
-        await self._guard_frontmost("type_text")
-        await self._mutate("type_text", self._action_args(text=text, delay_ms=0))
+        try:
+            await self._guard_frontmost("type_text")
+            await self._mutate("type_text", self._action_args(text=text, delay_ms=0))
+        finally:
+            self._text_input_point = None
 
     async def keypress(self, keys: "Sequence[str] | str") -> None:
+        self._text_input_point = None
         sequence = [keys] if isinstance(keys, str) else list(keys)
         if self._emulated_held_keys:
             sequence = self._merged_modifiers(sequence)
@@ -1052,6 +1065,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         the adapter lets those atomic actions preserve n2's held-modifier
         semantics without claiming a physical key remains down across RPCs.
         """
+        self._text_input_point = None
         if key not in {"ctrl", "shift", "alt", "cmd"}:
             raise MacOSRecoverableActionError(
                 f"The pinned Cua Driver can only emulate held modifier keys, not {key!r}."
@@ -1141,6 +1155,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         cwd: "str | None" = None,
         timeout_seconds: int = 10,
     ) -> str:
+        self._text_input_point = None
         if not 1 <= timeout_seconds <= 30:
             raise ValueError("shell_command timeout_seconds must be between 1 and 30")
         return await self._run_foreground_shell(
@@ -1156,6 +1171,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         timeout: float = 120.0,
         run_in_background: bool = False,
     ) -> str:
+        self._text_input_point = None
         if isinstance(timeout, bool) or not 0 <= timeout <= 600:
             raise ValueError("bash timeout must be between 0 and 600")
         self._require_local_shell()
@@ -1586,6 +1602,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             except (ValueError, OSError, MacOSComputerError) as error:
                 last_error = error
                 continue
+            if self._window_capture != (width, height):
+                self._text_input_point = None
             self._window_capture = (width, height)
             return pixels, width, height
         raise MacOSComputerError(
@@ -1636,6 +1654,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 return output.getvalue(), "jpeg"
 
     async def _mutate(self, tool: str, arguments: dict[str, Any]) -> None:
+        if tool != "type_text":
+            self._text_input_point = None
         self.cancellation.raise_if_cancelled()
         started_at = time.monotonic()
         try:
@@ -1706,7 +1726,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         Returns ``None`` when no rung applies (a different tool, no snapshot, no text field under
         the pointer), leaving the caller's existing fallback policy untouched.
         """
-        if tool != "type_text" or "text" not in arguments:
+        if tool != "type_text" or "text" not in arguments or self._text_input_point is None:
             return None
         snapshot = await self._window_element_snapshot()
         if snapshot is None:
@@ -1754,8 +1774,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         Element frames are screen points and the model's coordinates are window-capture pixels,
         so the pointer is mapped through the window's own AX frame -- the root ``AXWindow`` row
         of this very snapshot -- rather than a separately fetched bounds that could disagree.
-        The smallest field containing the pointer wins; without a usable pointer, a window with
-        exactly one text field is still unambiguous.
+        Only a recent explicit click identifies the intended field. Pointer movement and a
+        window having just one text field do not establish keyboard focus.
         """
         candidates = [
             element
@@ -1767,16 +1787,16 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         ]
         if not candidates:
             return None
-        point = self._pointer_in_screen_points(snapshot)
+        point = self._text_input_point_in_screen_points(snapshot)
         if point is not None:
             under_pointer = [element for element in candidates if _frame_contains(element.get("frame"), point)]
             if under_pointer:
                 return min(under_pointer, key=lambda element: _frame_area(element["frame"]))["element_token"]
-        return candidates[0]["element_token"] if len(candidates) == 1 else None
+        return None
 
-    def _pointer_in_screen_points(self, snapshot: dict[str, Any]) -> "tuple[float, float] | None":
-        """The last pointer position in the screen points AX element frames use."""
-        if self._pointer is None or self._window_capture is None:
+    def _text_input_point_in_screen_points(self, snapshot: dict[str, Any]) -> "tuple[float, float] | None":
+        """The recent text-entry click in the screen points AX element frames use."""
+        if self._text_input_point is None or self._window_capture is None:
             return None
         root = next(
             (
@@ -1794,7 +1814,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         capture_width, capture_height = self._window_capture
         if capture_width <= 0 or capture_height <= 0 or width <= 0 or height <= 0:
             return None
-        pointer_x, pointer_y = self._pointer
+        pointer_x, pointer_y = self._text_input_point
         return (
             origin_x + pointer_x * width / capture_width,
             origin_y + pointer_y * height / capture_height,
