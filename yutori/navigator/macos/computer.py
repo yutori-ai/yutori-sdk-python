@@ -540,6 +540,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         session: "str | None" = None,
         presentation: bool = True,
         show_stop_button: bool = True,
+        background_focus_overlay: bool = False,
+        show_status_item: bool = True,
         allow_local_shell: bool = False,
         execution_deadline: "float | None" = None,
         cancellation: "CancellationLatch | None" = None,
@@ -561,11 +563,15 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             raise ValueError("scope must be 'desktop' or 'window'")
         if target_window is not None and scope != "window":
             raise ValueError("target_window requires scope='window'")
+        if background_focus_overlay and scope != "window":
+            raise ValueError("background_focus_overlay requires scope='window'")
         self.transport = transport or CuaDriverTransport()
         self.owns_transport = True if transport is None else bool(owns_transport)
         self.session = session or f"yutori-n2-{uuid.uuid4().hex[:12]}"
         self.presentation_requested = presentation
         self.show_stop_button = show_stop_button
+        self.background_focus_overlay = background_focus_overlay
+        self.show_status_item = show_status_item
         # False keeps the overlay in screen recordings and screen shares of the run: the model's
         # desktop frames then come from the overlay host, which leaves its own windows out of the
         # capture (`presentation.capture_source == "overlay"`), and only fall back to hiding it.
@@ -764,12 +770,16 @@ class MacOSComputer(PointerKeyLifecycleMixin):
 
     async def _announce_target(self) -> None:
         target = self._target_window
-        if self.presentation is not None and target is not None:
+        if self.presentation is None:
+            return
+        if self.background_focus_overlay:
+            await self.presentation.set_window_target(target)
+        if target is not None:
             await self.presentation.present({"type": "status", "text": f"Driving {target.describe()}"})
 
     async def _push_thumbnail(self, observation: N2Observation) -> None:
         """Status mode: hand the menu bar item a small copy of the frame the model just received."""
-        if self.presentation is None:
+        if self.presentation is None or not self.show_status_item:
             return
         target = self._target_window
         caption = f"Frame {observation.capture_id}" + (f" of {target.describe()}" if target is not None else "")
@@ -1453,23 +1463,29 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         return await self.presentation.update_status_metrics(metrics)
 
     async def _start_status_presentation(self) -> None:
-        """Window scope: the menu bar item, the shell rail, and the activity window's transcript."""
+        """Window scope: optional status surfaces and a focus-aware target-window overlay."""
         controller = MacOSPresentationController(
             native_width=0,
             native_height=0,
             cancellation=self.cancellation,
             cache_directory=self.overlay_cache_directory,
             show_stop_button=self.show_stop_button,
+            background_focus_overlay=self.background_focus_overlay,
+            show_status_item=self.show_status_item,
             mode="status",
             title=_STATUS_TITLE,
         )
         try:
             await controller.start()
+            if self.background_focus_overlay:
+                await controller.set_window_target(self._target_window)
             await controller.reveal()
             self.presentation = controller
         except Exception as error:
             self._presentation_failure = f"status_item_start_failed:{type(error).__name__}"
             await controller.stop()
+            return
+        if not self.show_status_item:
             return
         # The live frame: while the menu is open or the activity window is shown, stream the
         # driven window over a dedicated driver connection so the model's own captures and

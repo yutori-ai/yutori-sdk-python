@@ -627,6 +627,163 @@ def test_status_mode_handshake_skips_geometry_and_never_has_a_stop_region():
         controller._validate_status_ready({"protocol_version": 2, "width": 1000, "height": 600, "backing_scale": 2})
     with pytest.raises(ValueError, match="mode"):
         MacOSPresentationController(native_width=0, native_height=0, mode="pill")
+    with pytest.raises(ValueError, match="background_focus_overlay requires"):
+        MacOSPresentationController(native_width=1, native_height=1, background_focus_overlay=True)
+
+
+def test_embedded_focus_overlay_handshake_needs_geometry_but_no_status_item_or_hotkey():
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=False,
+    )
+    capabilities = controller._validate_status_ready(
+        {
+            "protocol_version": 2,
+            "mode": "status",
+            "width": 1,
+            "height": 1,
+            "backing_scale": 2,
+            "hotkey": False,
+        }
+    )
+    assert (capabilities.viewport_width, capabilities.viewport_height) == (1, 1)
+    assert capabilities.hotkey is False and capabilities.stop_region is None
+    with pytest.raises(MacOSPresentationError, match="geometry"):
+        controller._validate_status_ready({"protocol_version": 2, "mode": "status", "backing_scale": 2})
+
+
+async def test_embedded_focus_overlay_routes_actions_and_target_updates_without_status_commands(monkeypatch):
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=False,
+    )
+    capabilities = MacOSPresentationCapabilities(2, 1, 1, 2.0, False, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (1, 1)
+    operations: list[dict] = []
+    commands: list[dict] = []
+
+    async def send_operation(operation, **_kwargs):
+        operations.append(operation)
+        return {"ok": True}
+
+    async def send_command(command, **_kwargs):
+        commands.append(command)
+        if command["op"] == "targetWindow":
+            return {"ok": True, "state": "targeted", "width": 400, "height": 300}
+        return {"ok": True, "state": "shown"}
+
+    async def lead():
+        return True
+
+    monkeypatch.setattr(controller, "_send_operation", send_operation)
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    monkeypatch.setattr(controller, "_lead", lead)
+
+    target = SimpleNamespace(pid=42, window_id=7)
+    assert await controller.set_window_target(target) is True
+    await controller.present({"type": "reasoning", "text": "Select the total"})
+    await controller.present({"type": "action", "name": "left_click", "arguments": {"coordinates": [500, 500]}})
+
+    assert commands[0] == {"op": "targetWindow", "pid": 42, "windowID": 7}
+    assert not any(command["op"] in {"status", "transcript", "shellCommands"} for command in commands)
+    assert {"op": "moveCursor", "point": {"x": 200.0, "y": 150.0}} in operations
+    assert controller.status.capabilities is not None
+    assert (controller.status.capabilities.viewport_width, controller.status.capabilities.viewport_height) == (400, 300)
+
+
+async def test_focus_overlay_applies_native_viewport_updates():
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=False,
+    )
+    capabilities = MacOSPresentationCapabilities(2, 400, 300, 2.0, False, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (400, 300)
+    controller._last_render["moveCursor"] = "old"
+    await _feed_host_events(controller, {"event": "viewport", "width": 800, "height": 600})
+    assert controller._viewport == (800, 600)
+    assert "moveCursor" not in controller._last_render
+    assert controller.status.capabilities is not None
+    assert (controller.status.capabilities.viewport_width, controller.status.capabilities.viewport_height) == (800, 600)
+
+
+async def test_delayed_focus_geometry_resyncs_cursor_without_blocking_the_host_reader(monkeypatch):
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=False,
+    )
+    capabilities = MacOSPresentationCapabilities(2, 1, 1, 2.0, False, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (1, 1)
+    operations: list[dict] = []
+
+    async def target_without_geometry(_command, **_kwargs):
+        return {"ok": True, "state": "targeted"}
+
+    async def send_operation(operation, **_kwargs):
+        operations.append(operation)
+        return {"ok": True}
+
+    monkeypatch.setattr(controller, "_send_command", target_without_geometry)
+    monkeypatch.setattr(controller, "_send_operation", send_operation)
+
+    assert await controller.set_window_target(SimpleNamespace(pid=42, window_id=7)) is True
+    assert operations == []
+
+    stream = asyncio.StreamReader()
+    controller._process = SimpleNamespace(stdout=stream, stderr=None, returncode=None)
+    reader = asyncio.create_task(controller._read_host())
+    stream.feed_data(json.dumps({"event": "viewport", "width": 400, "height": 300}).encode() + b"\n")
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if operations:
+            break
+
+    assert operations == [{"op": "moveCursor", "point": {"x": 200.0, "y": 150.0}}]
+    assert controller.status.available
+
+    controller._stopping = True
+    stream.feed_eof()
+    await reader
+
+
+async def test_async_cursor_resync_failure_does_not_degrade_presentation(monkeypatch):
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=False,
+    )
+    capabilities = MacOSPresentationCapabilities(2, 1, 1, 2.0, False, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (1, 1)
+
+    async def fail(_operation, **_kwargs):
+        raise MacOSPresentationError("host is busy")
+
+    monkeypatch.setattr(controller, "_send_operation", fail)
+    assert controller._update_viewport(400, 300) is True
+    controller._schedule_cursor_resync()
+    resync = controller._cursor_resync_task
+    assert resync is not None
+    await resync
+
+    assert controller.status.available
+    assert controller.telemetry[-1] == {"type": "cursor_resync_failed", "error_type": "MacOSPresentationError"}
 
 
 def _status_traffic(monkeypatch, controller):

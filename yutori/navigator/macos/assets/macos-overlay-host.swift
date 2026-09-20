@@ -450,6 +450,8 @@ private func writeJSON(_ value: [String: Any]) {
 private struct OverlayConfig: Decodable {
     let showStopButton: Bool
     let enableHotkey: Bool
+    let showStatusItem: Bool?
+    let backgroundFocusOverlay: Bool?
     // "overlay" (default): the full-screen reasoning overlay. "status": a menu bar item that
     // shows the latest captured frame and Stop, plus the shell rail and the activity window,
     // for window-scope runs the user keeps working next to.
@@ -578,6 +580,12 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var displayLinks: [UUID: CVDisplayLink] = [:]
+    private var focusTimer: Timer?
+    private var targetPID: pid_t?
+    private var targetWindowID: CGWindowID?
+    private var targetFrame: NSRect?
+    private var statusHotkeyAvailable = false
+    private var statusStartupSent = false
     private var captureID = 0
     private var transitionToken = 0
     private var stopped = false
@@ -594,6 +602,14 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// panels around every capture (`captureHide`/`captureReveal`) when the check fails.
     private var sharing: NSWindow.SharingType {
         config.excludeFromCapture == false ? .readOnly : .none
+    }
+
+    private var statusSurfacesEnabled: Bool {
+        config.showStatusItem != false
+    }
+
+    private var focusOverlayEnabled: Bool {
+        config.backgroundFocusOverlay == true
     }
 
     deinit {
@@ -686,6 +702,14 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
     /// the driven window, Show activity, and Stop (also on the ⇧⌘Esc hotkey).
     private func startStatusMode() {
         statusMode = true
+        if !statusSurfacesEnabled {
+            if focusOverlayEnabled {
+                createFocusOverlayPanel()
+            } else {
+                emitStatusReady(width: 0, height: 0)
+            }
+            return
+        }
         let title = config.title ?? "Yutori n2 is working in the background"
         let item = NSStatusBar.system.statusItem(withLength: statusMetricsWidthPoints)
         if let button = item.button {
@@ -735,23 +759,136 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         // Only a window-scope run has frames to show: the model's view of a foreground run is
         // the desktop the operator is already looking at.
         callActivity("__n2ActivityCaption", ["text": "Waiting for the first frame"])
-        let hotkeyAvailable = config.enableHotkey && registerStopHotKey()
+        statusHotkeyAvailable = config.enableHotkey && registerStopHotKey()
         state = "armed"
-        var capabilities = ["thumbnail", "status", "metrics", "stop", "preview"]
-        if railWebView != nil { capabilities.append("shell_commands") }
-        if activityWebView != nil { capabilities.append("transcript") }
-        writeJSON([
+        if focusOverlayEnabled {
+            createFocusOverlayPanel()
+        } else {
+            emitStatusReady(width: 0, height: 0)
+        }
+    }
+
+    private func emitStatusReady(width: Int, height: Int) {
+        guard !statusStartupSent else { return }
+        statusStartupSent = true
+        state = "armed"
+        var capabilities: [String] = []
+        if statusSurfacesEnabled {
+            capabilities = ["thumbnail", "status", "metrics", "stop", "preview"]
+            if railWebView != nil { capabilities.append("shell_commands") }
+            if activityWebView != nil { capabilities.append("transcript") }
+        }
+        if focusOverlayEnabled { capabilities.append("focus_overlay") }
+        var ready: [String: Any] = [
             "ready": true,
             "protocol_version": overlayProtocolVersion,
             "mode": "status",
-            "width": 0,
-            "height": 0,
-            "backing_scale": captureScreen()?.backingScaleFactor ?? 1,
-            "hotkey": hotkeyAvailable,
-            "stop_control": "menu_bar",
+            "width": width,
+            "height": height,
+            "backing_scale": screen?.backingScaleFactor ?? captureScreen()?.backingScaleFactor ?? 1,
+            "hotkey": statusHotkeyAvailable,
             "capabilities": capabilities,
-        ])
+        ]
+        if stopItem != nil { ready["stop_control"] = "menu_bar" }
+        writeJSON(ready)
         readCommands()
+    }
+
+    /// A click-through Navigator overlay bound to one CGWindowID. It is ordered in only while
+    /// that window's application is frontmost, so a background run never paints over the app
+    /// the operator is actively using and never activates the target itself.
+    private func createFocusOverlayPanel() {
+        guard let screen = captureScreen() else {
+            writeJSON(["error": "No display is available for the focus overlay."])
+            NSApp.terminate(nil)
+            return
+        }
+        self.screen = screen
+        let panel = NSPanel(
+            contentRect: NSRect(x: screen.frame.minX, y: screen.frame.minY, width: 1, height: 1),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
+        panel.isOpaque = false
+        panel.isReleasedWhenClosed = false
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
+        panel.sharingType = sharing
+
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
+        webView.setValue(false, forKey: "drawsBackground")
+        panel.contentView = webView
+        panel.orderOut(nil)
+
+        self.panel = panel
+        self.webView = webView
+        webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+        focusTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.refreshFocusOverlay()
+        }
+        if let focusTimer { RunLoop.main.add(focusTimer, forMode: .common) }
+    }
+
+    private func targetWindowGeometry(pid: pid_t, windowID: CGWindowID) -> (NSRect, NSScreen)? {
+        guard
+            let windows = CGWindowListCopyWindowInfo(
+                [.optionIncludingWindow, .excludeDesktopElements],
+                windowID
+            ) as? [[String: Any]],
+            let window = windows.first,
+            let ownerPID = window[kCGWindowOwnerPID as String] as? Int,
+            pid_t(ownerPID) == pid,
+            window[kCGWindowIsOnscreen as String] as? Bool == true,
+            let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+            let quartzFrame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+            quartzFrame.width > 1,
+            quartzFrame.height > 1,
+            let primaryScreen = NSScreen.screens.first
+        else { return nil }
+        let frame = NSRect(
+            x: quartzFrame.minX,
+            y: primaryScreen.frame.maxY - quartzFrame.maxY,
+            width: quartzFrame.width,
+            height: quartzFrame.height
+        )
+        let targetScreen = NSScreen.screens.max {
+            $0.frame.intersection(frame).width * $0.frame.intersection(frame).height
+                < $1.frame.intersection(frame).width * $1.frame.intersection(frame).height
+        } ?? primaryScreen
+        return (frame, targetScreen)
+    }
+
+    private func refreshFocusOverlay() {
+        guard focusOverlayEnabled, let panel else { return }
+        guard
+            let targetPID,
+            let targetWindowID,
+            let (frame, targetScreen) = targetWindowGeometry(pid: targetPID, windowID: targetWindowID)
+        else {
+            panel.orderOut(nil)
+            return
+        }
+        let oldSize = targetFrame?.size
+        if targetFrame != frame {
+            panel.setFrame(frame, display: true)
+            targetFrame = frame
+            screen = targetScreen
+        }
+        if oldSize != frame.size {
+            writeJSON(["event": "viewport", "width": Int(frame.width.rounded()), "height": Int(frame.height.rounded())])
+        }
+        guard state == "visible", NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else {
+            panel.orderOut(nil)
+            return
+        }
+        panel.orderFrontRegardless()
     }
 
     /// The click-through shell rail a background run gets, in its own borderless panel.
@@ -1097,6 +1234,13 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             flushPendingActivity()
             return
         }
+        if statusMode && focusOverlayEnabled {
+            emitStatusReady(
+                width: Int(webView.bounds.width.rounded()),
+                height: Int(webView.bounds.height.rounded())
+            )
+            return
+        }
         guard let screen else { return }
         let hotkeyAvailable = panel?.identifier?.rawValue == "n2-overlay-hotkey"
         var ready: [String: Any] = [
@@ -1207,6 +1351,7 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             }
         case "reveal" where statusMode:
             state = "visible"
+            refreshFocusOverlay()
             reply(id, state: state)
         case "reveal":
             reveal(id: id)
@@ -1232,6 +1377,31 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             guard statusMode, let text = command["text"] as? String else { return fail(id, "Invalid status text.") }
             showCaption(text)
             reply(id, state: "shown")
+        case "targetWindow":
+            guard statusMode, focusOverlayEnabled else { return fail(id, "Focus overlay is unavailable.") }
+            if command["pid"] == nil, command["windowID"] == nil {
+                targetPID = nil
+                targetWindowID = nil
+                targetFrame = nil
+                panel?.orderOut(nil)
+                return reply(id, state: "cleared")
+            }
+            guard
+                let pid = command["pid"] as? Int,
+                let windowID = command["windowID"] as? Int,
+                pid > 0,
+                windowID > 0
+            else { return fail(id, "Invalid focus-overlay target.") }
+            targetPID = pid_t(pid)
+            targetWindowID = CGWindowID(windowID)
+            targetFrame = nil
+            refreshFocusOverlay()
+            var response: [String: Any] = ["id": id, "ok": true, "state": "targeted"]
+            if let targetFrame {
+                response["width"] = Int(targetFrame.width.rounded())
+                response["height"] = Int(targetFrame.height.rounded())
+            }
+            writeJSON(response)
         case "metrics":
             guard let metrics = decodedStatusMetrics(command) else { return fail(id, "Invalid status metrics.") }
             statusMetricsRenderer?.update(metrics)
@@ -1590,6 +1760,8 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
 
     private func retire() {
         transitionToken += 1
+        focusTimer?.invalidate()
+        focusTimer = nil
         displayLinks.values.forEach { CVDisplayLinkStop($0) }
         displayLinks.removeAll()
         if let stopItem { NSStatusBar.system.removeStatusItem(stopItem) }
