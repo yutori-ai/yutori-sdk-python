@@ -462,6 +462,8 @@ class MacOSPresentationController:
         cache_directory: "str | Path | None" = None,
         requested: bool = True,
         show_stop_button: bool = True,
+        background_focus_overlay: bool = False,
+        show_status_item: bool = True,
         restore_native_cursor: "Callable[[], Awaitable[str]] | None" = None,
         mode: str = "overlay",
         title: "str | None" = None,
@@ -470,12 +472,16 @@ class MacOSPresentationController:
     ) -> None:
         if mode not in {"overlay", "status"}:
             raise ValueError("mode must be 'overlay' or 'status'")
+        if background_focus_overlay and mode != "status":
+            raise ValueError("background_focus_overlay requires mode='status'")
         self.native_width = native_width
         self.native_height = native_height
         self.cancellation = cancellation or CancellationLatch()
         self._prepared = prepared
         self._cache_directory = cache_directory
         self._show_stop_button = show_stop_button
+        self._background_focus_overlay = background_focus_overlay
+        self._show_status_item = show_status_item
         # "status": a menu bar item with the latest frame and Stop, the shell rail, and the
         # activity window's transcript -- no full-screen page. Used for window-scope runs, where
         # the model's frame is one window and the user keeps working next to it.
@@ -506,6 +512,9 @@ class MacOSPresentationController:
         self._stopping = False
         self._fatal_error: "MacOSPresentationError | None" = None
         self._viewport: "tuple[int, int] | None" = None
+        self._cursor_position = (500.0, 500.0)
+        self._cursor_resync_task: "asyncio.Task[None] | None" = None
+        self._cursor_resync_generation = 0
         self._last_render: dict[str, str] = {}
         self._reasoning = ""
         self._action_status = ""
@@ -589,7 +598,9 @@ class MacOSPresentationController:
         prepared = self._prepared or load_prepared_macos_overlay(self._cache_directory)
         settings: dict[str, Any] = {
             "showStopButton": self._show_stop_button,
-            "enableHotkey": True,
+            "showStatusItem": self._show_status_item,
+            "backgroundFocusOverlay": self._background_focus_overlay,
+            "enableHotkey": self._mode != "status" or self._show_status_item,
             "mode": self._mode,
             "excludeFromCapture": self._exclude_from_capture,
         }
@@ -597,7 +608,8 @@ class MacOSPresentationController:
             settings["title"] = self._title
         # The activity window's page. Both modes show the conversation with the model; only a
         # window-scope run also has frames of its own to put above it.
-        settings["activityHtml"] = str(prepared.activity_html)
+        if self._mode != "status" or self._show_status_item:
+            settings["activityHtml"] = str(prepared.activity_html)
         config = json.dumps(settings, separators=(",", ":"))
         try:
             self._process = await spawn_rpc_subprocess(str(prepared.binary), str(prepared.html), config)
@@ -613,9 +625,13 @@ class MacOSPresentationController:
                 state="arming",
                 cursor="current",
                 capabilities=capabilities,
-                degradation_reason=None if capabilities.hotkey else "hotkey_unavailable",
+                degradation_reason=(
+                    None
+                    if capabilities.hotkey or (self._mode == "status" and not self._show_status_item)
+                    else "hotkey_unavailable"
+                ),
             )
-            if self._mode == "overlay":
+            if self._mode == "overlay" or self._background_focus_overlay:
                 await self._send_operation(
                     {
                         "op": "mount",
@@ -641,7 +657,7 @@ class MacOSPresentationController:
     @_fail_soft("thumbnail_failed", False)
     async def show_thumbnail(self, image_bytes: bytes, *, caption: "str | None" = None) -> bool:
         """Status mode: put the latest frame of the driven window in the menu bar item's menu."""
-        if self._mode != "status" or not self._status.available or self._stopping:
+        if self._mode != "status" or not self._show_status_item or not self._status.available or self._stopping:
             return False
         command: dict[str, Any] = {"op": "thumbnail", "data": base64.b64encode(image_bytes).decode("ascii")}
         if caption is not None:
@@ -725,11 +741,24 @@ class MacOSPresentationController:
         if not self._status.available or self._stopping:
             return
         if self._mode == "status":
-            await self._present_status(event)
+            if self._show_status_item:
+                await self._present_status(event)
+            if self._background_focus_overlay:
+                await self._present_overlay_event(event, include_transcript=False, include_shell=False)
             return
+        await self._present_overlay_event(event, include_transcript=True, include_shell=True)
+
+    async def _present_overlay_event(
+        self,
+        event: dict[str, Any],
+        *,
+        include_transcript: bool,
+        include_shell: bool,
+    ) -> None:
         # The transcript is the same conversation in either mode; only the desktop
         # surfaces below differ.
-        await self._present_transcript(event)
+        if include_transcript:
+            await self._present_transcript(event)
         event_type = event.get("type")
         if event_type == "reasoning":
             text = event.get("text")
@@ -749,10 +778,28 @@ class MacOSPresentationController:
             await self._render_capsule()
         elif event_type == "final":
             await self._clear_reasoning_and_render()
-        elif event_type == "shell":
+        elif event_type == "shell" and include_shell:
             shell_event = event.get("event")
             if isinstance(shell_event, ShellPresentationEvent):
                 await self._present_shell(shell_event)
+
+    @_fail_soft("window_target_failed", False)
+    async def set_window_target(self, target: Any) -> bool:
+        """Update the native focus overlay's watched pid/window without affecting capture."""
+        if not self._background_focus_overlay or not self._status.available or self._stopping:
+            return False
+        command: dict[str, Any] = {"op": "targetWindow"}
+        expected_state = "cleared"
+        if target is not None:
+            command.update(pid=int(target.pid), windowID=int(target.window_id))
+            expected_state = "targeted"
+        reply = await self._send_command(command)
+        if reply.get("state") != expected_state:
+            raise MacOSPresentationError("Overlay host did not update its target window.")
+        geometry_changed = self._update_viewport(reply.get("width"), reply.get("height"))
+        if target is not None and geometry_changed:
+            await self._resync_cursor()
+        return True
 
     async def show_preview_frame(self, image_bytes: bytes) -> bool:
         """Status mode: refresh the live frame (menu thumbnail and activity window) with a streamed frame.
@@ -947,9 +994,12 @@ class MacOSPresentationController:
             return
         self._stopping = True
         await cancel_and_drain(*self._shell_rail_removals)
+        if self._cursor_resync_task is not None:
+            await cancel_and_drain(self._cursor_resync_task)
+            self._cursor_resync_task = None
         if self._process is not None and self._process.returncode is None and self._fatal_error is None:
             try:
-                if self._mode == "overlay":
+                if self._mode == "overlay" or self._background_focus_overlay:
                     await self._send_operation({"op": "destroy"}, allow_stopping=True)
                 await self._send_command({"op": "retire"}, allow_stopping=True)
             except Exception:
@@ -983,6 +1033,10 @@ class MacOSPresentationController:
                     self._telemetry.append({"type": "preview_demand", "active": self._preview_demand})
                     if self.on_preview_demand is not None:
                         self.on_preview_demand(self._preview_demand)
+                    continue
+                if reply.get("event") == "viewport":
+                    if self._update_viewport(reply.get("width"), reply.get("height")):
+                        self._schedule_cursor_resync()
                     continue
                 if reply.get("ready") is True and self._ready is not None and not self._ready.done():
                     self._ready.set_result(reply)
@@ -1179,16 +1233,10 @@ class MacOSPresentationController:
         self._active_keys = visual.get("keys")
         self._reset_terminal()
 
-        viewport = self._viewport
-        if viewport is None:
-            return
-
-        def viewport_point(point: tuple[float, float]) -> dict[str, float]:
-            return {"x": point[0] / _NORMALIZED_SCALE * viewport[0], "y": point[1] / _NORMALIZED_SCALE * viewport[1]}
-
         point = visual.get("point")
         if point:
-            await self._send_operation({"op": "moveCursor", "point": viewport_point(point)})
+            self._cursor_position = point
+            await self._send_operation({"op": "moveCursor", "point": self._viewport_point(point)})
         if visual.get("suppress_capsule"):
             await self._send_operation({"op": "clearThought"})
         elif not queue:
@@ -1200,14 +1248,15 @@ class MacOSPresentationController:
             if not await self._lead():
                 return
             if visual.get("clicks"):
-                await self._send_command({"op": "pulse", "point": viewport_point(point)})
+                await self._send_command({"op": "pulse", "point": self._viewport_point(point)})
             if visual.get("to"):
-                destination = viewport_point(visual["to"])
+                self._cursor_position = visual["to"]
+                destination = self._viewport_point(self._cursor_position)
                 presentation["transientEffects"] = [
                     {
                         "id": f"python-drag-{self._next_id}",
                         "type": "drag-trail",
-                        "from": viewport_point(point),
+                        "from": self._viewport_point(point),
                         "to": destination,
                         "startedAtMs": round(time.time() * 1000),
                         "durationMs": 200,
@@ -1215,6 +1264,15 @@ class MacOSPresentationController:
                 ]
                 await self._send_operation({"op": "previewAction", "presentation": presentation})
                 await self._send_operation({"op": "moveCursor", "point": destination})
+
+    def _viewport_point(self, point: tuple[float, float]) -> dict[str, float]:
+        viewport = self._viewport
+        if viewport is None:
+            raise MacOSPresentationError("Overlay viewport is unavailable.")
+        return {
+            "x": point[0] / _NORMALIZED_SCALE * viewport[0],
+            "y": point[1] / _NORMALIZED_SCALE * viewport[1],
+        }
 
     def _record_shell(self, event: ShellPresentationEvent) -> None:
         """Log one shell lifecycle event as telemetry; both modes count the same commands."""
@@ -1343,19 +1401,79 @@ class MacOSPresentationController:
             raise MacOSPresentationError("Overlay returned an incompatible protocol version.")
 
     def _validate_status_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
-        """The status-mode handshake: no page, so no viewport geometry and never a Stop region."""
+        """Validate status mode, including its optional target-window overlay viewport."""
         self._require_protocol_version(reply)
-        if reply.get("mode") != "status" or reply.get("stop_control") != "menu_bar":
+        if reply.get("mode") != "status" or (self._show_status_item and reply.get("stop_control") != "menu_bar"):
             raise MacOSPresentationError("Overlay host did not start in status mode.")
         scale = reply.get("backing_scale")
+        width, height = 0, 0
+        if self._background_focus_overlay:
+            width, height = reply.get("width"), reply.get("height")
+            if not _positive_finite(width) or not _positive_finite(height):
+                raise MacOSPresentationError("Overlay host returned invalid focus-overlay geometry.")
         return MacOSPresentationCapabilities(
             protocol_version=OVERLAY_PROTOCOL_VERSION,
-            viewport_width=0,
-            viewport_height=0,
+            viewport_width=round(width),
+            viewport_height=round(height),
             backing_scale=float(scale) if _positive_finite(scale) else 1.0,
             hotkey=reply.get("hotkey") is True,
             stop_region=None,
         )
+
+    def _update_viewport(self, width: Any, height: Any) -> bool:
+        if not _positive_finite(width) or not _positive_finite(height):
+            return False
+        viewport = (round(width), round(height))
+        if viewport == self._viewport:
+            return False
+        self._viewport = viewport
+        self._last_render.pop("moveCursor", None)
+        self._last_render.pop("previewAction", None)
+        capabilities = self._status.capabilities
+        if capabilities is not None:
+            self._status = replace(
+                self._status,
+                capabilities=replace(
+                    capabilities,
+                    viewport_width=viewport[0],
+                    viewport_height=viewport[1],
+                ),
+            )
+        return True
+
+    def _schedule_cursor_resync(self) -> None:
+        """Coalesce viewport events without awaiting an RPC from inside the host reader."""
+        self._cursor_resync_generation += 1
+        if self._cursor_resync_task is not None and not self._cursor_resync_task.done():
+            return
+        task = asyncio.create_task(self._run_cursor_resyncs())
+        self._cursor_resync_task = task
+
+        def clear(completed: asyncio.Task[None]) -> None:
+            if self._cursor_resync_task is completed:
+                self._cursor_resync_task = None
+
+        task.add_done_callback(clear)
+
+    async def _run_cursor_resyncs(self) -> None:
+        while not self._stopping and self._status.available:
+            generation = self._cursor_resync_generation
+            await self._resync_cursor()
+            if generation == self._cursor_resync_generation:
+                return
+
+    async def _resync_cursor(self) -> bool:
+        if self._stopping or not self._status.available or self._viewport is None:
+            return False
+        try:
+            await self._send_operation({"op": "moveCursor", "point": self._viewport_point(self._cursor_position)})
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - geometry refresh is advisory
+            self._last_render.pop("moveCursor", None)
+            self._telemetry.append({"type": "cursor_resync_failed", "error_type": type(error).__name__})
+            return False
+        return True
 
     def _validate_ready(self, reply: dict[str, Any]) -> MacOSPresentationCapabilities:
         self._require_protocol_version(reply)

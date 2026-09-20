@@ -213,6 +213,21 @@ def test_activity_window_lets_clicks_through_except_on_its_grip():
     assert '"event": "activityGrip"' in source
 
 
+def test_focus_overlay_is_nonactivating_focus_gated_and_tracks_the_bound_window():
+    source = overlay_build._asset_directory().joinpath("macos-overlay-host.swift").read_text(encoding="utf-8")
+    create = source.split("private func createFocusOverlayPanel", 1)[1].split("private func targetWindowGeometry", 1)[0]
+    refresh = source.split("private func refreshFocusOverlay", 1)[1].split("private func createRailPanel", 1)[0]
+    assert ".nonactivatingPanel" in create
+    assert "panel.ignoresMouseEvents = true" in create
+    assert "NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID" in refresh
+    assert "panel.setFrame(frame, display: true)" in refresh
+    assert "panel.orderOut(nil)" in refresh and "panel.orderFrontRegardless()" in refresh
+    assert '"event": "viewport"' in refresh
+    assert "NSApp.activate" not in create + refresh
+    assert 'case "targetWindow":' in source
+    assert 'command["windowID"]' in source
+
+
 def test_the_shell_rail_stands_down_while_the_activity_window_is_open():
     """One list of commands at a time: the window the operator opened, not the desktop."""
     css = overlay_build._asset_directory().joinpath("navigator-overlay.css").read_text(encoding="utf-8")

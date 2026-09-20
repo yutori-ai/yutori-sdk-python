@@ -1229,6 +1229,8 @@ def test_window_scope_constructor_validation():
         )
     with pytest.raises(ValueError, match="scope must be"):
         MacOSComputer(FakeTransport(), owns_transport=False, presentation=False, scope="screen")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="background_focus_overlay requires"):
+        MacOSComputer(FakeTransport(), owns_transport=False, background_focus_overlay=True)
     computer = _bound_window_computer(FakeTransport())
     assert computer.window_mode and computer.target_pid == PID
 
@@ -1275,6 +1277,7 @@ class _FakeStatusController:
         self.previews: list[bytes] = []
         self.on_preview_demand = None
         self.events: list[dict[str, Any]] = []
+        self.targets: list[MacOSWindowTarget | None] = []
         self.metrics: list[MacOSStatusMetrics] = []
         self.stopped = False
         self.status = MacOSPresentationStatus(True, True, "active", "hidden")
@@ -1287,6 +1290,10 @@ class _FakeStatusController:
 
     async def reveal(self) -> None:
         pass
+
+    async def set_window_target(self, target: MacOSWindowTarget | None) -> bool:
+        self.targets.append(target)
+        return True
 
     async def show_thumbnail(self, image_bytes: bytes, *, caption: str | None = None) -> bool:
         self.thumbnails.append((image_bytes, caption))
@@ -1328,7 +1335,10 @@ async def test_window_scope_shows_a_menu_bar_status_item_with_the_latest_frame(m
         assert computer.presentation is controller
         assert controller.kwargs["mode"] == "status" and controller.kwargs["title"]
         assert controller.kwargs["show_stop_button"] is True
+        assert controller.kwargs["background_focus_overlay"] is False
+        assert controller.kwargs["show_status_item"] is True
         await computer.set_window_target(MacOSWindowTarget(PID, 7, title="Calculator", app_name="Calculator"))
+        assert controller.targets == []
         assert controller.events == [{"type": "status", "text": f"Driving Calculator (pid {PID}, window 7)"}]
         observation = await computer.screenshot()
         assert observation.native_width == 400
@@ -1344,6 +1354,38 @@ async def test_window_scope_shows_a_menu_bar_status_item_with_the_latest_frame(m
     assert _arguments(transport, "set_agent_cursor_enabled") == [{"session": computer.session, "enabled": False}]
     assert "set_agent_cursor_theme" not in _names(transport)
     assert "get_desktop_state" not in _names(transport)
+
+
+async def test_window_scope_can_embed_only_the_focus_overlay(monkeypatch):
+    _FakeStatusController.instances.clear()
+    _FakeStreamer.instances.clear()
+    monkeypatch.setattr(computer_module, "MacOSPresentationController", _FakeStatusController)
+    monkeypatch.setattr(computer_module, "WindowPreviewStreamer", _FakeStreamer)
+    transport = WindowFakeTransport([_png(400, 300)])
+    target = MacOSWindowTarget(PID, 7, title="Calculator", app_name="Calculator")
+    replacement = MacOSWindowTarget(PID + 1, 8, title="Notes", app_name="Notes")
+    async with MacOSComputer(
+        transport,
+        owns_transport=False,
+        presentation=True,
+        scope="window",
+        background_focus_overlay=True,
+        show_status_item=False,
+        show_stop_button=False,
+    ) as computer:
+        (controller,) = _FakeStatusController.instances
+        assert controller.kwargs["background_focus_overlay"] is True
+        assert controller.kwargs["show_status_item"] is False
+        assert controller.kwargs["show_stop_button"] is False
+        assert controller.targets == [None]
+        await computer.set_window_target(target)
+        await computer.screenshot()
+        await computer.set_window_target(replacement)
+        await computer.set_window_target(None)
+        assert controller.targets == [None, target, replacement, None]
+        assert controller.thumbnails == []
+        assert computer.preview_frames_sent == 0
+    assert not _FakeStreamer.instances
 
 
 async def test_status_metrics_are_a_noop_without_presentation():
