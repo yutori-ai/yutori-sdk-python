@@ -1928,6 +1928,25 @@ async def test_hover_does_not_retarget_typing_away_from_the_clicked_field():
     assert _arguments(transport, "type_text")[-1]["element_token"] == _SEARCH_FIELD["element_token"]
 
 
+@pytest.mark.parametrize("resize", [False, True])
+async def test_click_fallback_cannot_restore_a_typing_target_invalidated_by_its_capture(resize):
+    changed_frame = _png(800, 600) if resize else _png(400, 300, color=(240, 240, 240))
+    transport = WindowFakeTransport([_png(400, 300), changed_frame])
+    transport.action_results["click"] = [{"effect": "suspected_noop"}, {"effect": "unverifiable"}]
+    clicked = _element(1, "AXTextField", {"x": 70.0, "y": 25.0, "w": 20.0, "h": 10.0})
+    other = _element(2, "AXTextField", {"x": 30.0, "y": 10.0, "w": 20.0, "h": 10.0})
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, clicked, other]}
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.screenshot()
+        await computer.click(80, 30)
+        await computer.type("hello")
+    sends = _arguments(transport, "type_text")
+    assert [send["delivery_mode"] for send in sends] == ["background", "foreground"]
+    assert all("element_token" not in send for send in sends)
+    assert computer.delivery_counts["accessibility_rungs"] == 0
+
+
 @pytest.mark.parametrize("intervening", ["hover", "outside", "right", "tab", "scroll", "drag", "resize", "rebind"])
 async def test_typing_does_not_guess_a_field_without_a_current_explicit_click(intervening):
     transport = WindowFakeTransport()

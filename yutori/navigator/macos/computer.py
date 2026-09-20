@@ -934,9 +934,19 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                         "allow; use key_press for the shortcut or an unmodified click instead."
                     )
                 arguments["delivery_mode"] = _DELIVERY_FOREGROUND
+        capture = self._window_capture
         await self._mutate("click", arguments)
         self._pointer = (x, y)
-        if self.window_mode and button == "left" and not modifiers and self._window_capture is not None:
+        outcome = self.last_action_outcome
+        if (
+            self.window_mode
+            and button == "left"
+            and not modifiers
+            and capture is not None
+            and self._window_capture == capture
+            and outcome is not None
+            and outcome.landed
+        ):
             self._text_input_point = (x, y)
 
     async def double_click(self, x: int, y: int, modifier: "Sequence[str] | None" = None) -> None:
