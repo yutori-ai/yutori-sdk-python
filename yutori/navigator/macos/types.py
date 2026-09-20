@@ -120,8 +120,10 @@ class MacOSActionOutcome:
 
     @property
     def landed(self) -> bool:
-        """False when the driver says the action did not take effect or wants a foreground retry."""
-        return self.effect not in {"suspected_noop", "refused"} and self.recommended != "foreground"
+        """Whether dispatch may have taken effect, so replaying it could duplicate input."""
+        # Background hotkeys carry foreground-retry advice even after successful dispatch.
+        # That advice is not a failure verdict; unverifiable and partial input must not replay.
+        return self.effect not in {"suspected_noop", "refused"}
 
 
 ShellLifecycleState = Literal[
