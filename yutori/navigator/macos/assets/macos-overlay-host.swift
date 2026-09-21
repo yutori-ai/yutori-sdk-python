@@ -820,7 +820,17 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)))
         panel.sharingType = sharing
 
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        // The panel is fitted to the target window, but the pointer should be the size the
+        // full-screen overlay draws on this display: the renderer scales its chrome from the
+        // width it renders into, so tell it to reason about the screen instead. Read by the
+        // overlay runtime before it installs (window.__yutoriNavigatorOverlayOptions).
+        let configuration = WKWebViewConfiguration()
+        let chromeScaleViewport =
+            "window.__yutoriNavigatorOverlayOptions = { chromeScaleViewport: { width: \(screen.frame.width), height: \(screen.frame.height) } };"
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: chromeScaleViewport, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        )
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1, height: 1), configuration: configuration)
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
