@@ -18,6 +18,7 @@ from yutori.config import DEFAULT_BASE_URL
 from yutori.navigator import NAVIGATOR_N1_5_MODEL, aplaywright_screenshot_to_data_url
 from yutori.navigator.loop import update_trimmed_history
 from yutori.navigator.page_ready import PageReadyChecker
+from yutori.navigator.payload import is_image_url_part
 from yutori.navigator.replay import TrajectoryRecorder, make_run_id, sanitize_step_payload
 from yutori.navigator.replay import _clip_image_url as _clip_image_url_impl
 
@@ -366,7 +367,7 @@ class BrowserAgentMixin:
             if key == "content" and isinstance(value, list):
                 clipped_content = []
                 for item in value:
-                    if isinstance(item, dict) and item.get("type") == "image_url":
+                    if is_image_url_part(item):
                         clipped_item = dict(item)
                         if "image_url" in clipped_item and "url" in clipped_item["image_url"]:
                             clipped_item["image_url"] = {"url": self._clip_image_url(clipped_item["image_url"]["url"])}
