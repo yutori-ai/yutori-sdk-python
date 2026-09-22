@@ -863,13 +863,16 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         if target is None:
             raise MacOSRecoverableActionError("No window is selected. Menu actions require a window with this driver.")
         matches = [menu for menu in state.menus if menu["path"] == path]
-        if len(matches) != 1 or matches[0].get("enabled") is False:
+        # Option-key alternates repeat a path verbatim (Safari lists "File > Close All Windows"
+        # twice); identical rows are one target. Mixed enabled states are a real ambiguity.
+        if len({menu.get("enabled") for menu in matches}) != 1 or matches[0].get("enabled") is False:
             raise MacOSRecoverableActionError(
-                "Menu path is unavailable, ambiguous, or disabled. Read app state; open an observed parent menu first."
+                "Menu path is unavailable, ambiguous, or disabled. Read app state and pass an exact enabled path."
             )
-        # Refresh immediately before pressing: screenshots and the live preview can
-        # replace the driver's snapshot cache. Stale tokens are refused, never retried.
-        result = await self._call_tool(
+        # Dispatch immediately after the refresh: screenshots and the live preview can replace
+        # the driver's snapshot cache. Window loss and stale tokens surface through the shared
+        # delivery path (rebind, fresh observation); nothing here retries or fronts the app.
+        outcome = await self._deliver_window_action(
             "click",
             {
                 "session": self.session,
@@ -879,8 +882,14 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 "action": "press",
                 "delivery_mode": "background",
             },
+            "background",
+            escalated=False,
         )
-        self._action_outcomes.append(_parse_action_outcome("invoke_app_menu", "background", _structured(result)))
+        self._action_outcomes[-1] = outcome = replace(outcome, tool="invoke_app_menu")
+        if outcome.refusal_code is not None:
+            raise MacOSRecoverableActionError(
+                f"Menu action was refused ({outcome.refusal_code}). Read app state and try an exact enabled path."
+            )
 
     async def _rebind_target(self, target: "MacOSWindowTarget | None") -> None:
         """Bind the new target window and announce it to the presentation, in that order.
@@ -1029,7 +1038,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 png_bytes, width, height = await self._capture_observation_png(capture_id)
             except MacOSRecoverableActionError:
                 if self.window_mode and self._target_window is None and self.target_pid is not None:
-                    return await self.get_app_state()
+                    return await self.get_app_state(include_menus=False)
                 raise
         else:
             assert self._native_size is not None

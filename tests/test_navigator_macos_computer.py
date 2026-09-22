@@ -1848,7 +1848,7 @@ async def test_menu_truncation_comes_from_element_counts_and_tokens_stay_out_of_
     assert "fresh:1" in state.menus[1]["element_token"] and "fresh:1" not in state.text
 
 
-@pytest.mark.parametrize("rows", [[], _menu_rows(disabled=True), _menu_rows() + _menu_rows()])
+@pytest.mark.parametrize("rows", [[], _menu_rows(disabled=True), _menu_rows() + _menu_rows(disabled=True)])
 async def test_unavailable_disabled_or_ambiguous_menus_never_click(rows):
     transport = WindowFakeTransport()
     transport.window_state_extra[7] = {"elements": rows}
@@ -1856,6 +1856,32 @@ async def test_unavailable_disabled_or_ambiguous_menus_never_click(rows):
         with pytest.raises(MacOSRecoverableActionError, match="unavailable, ambiguous, or disabled"):
             await computer.invoke_app_menu(["File", "New"])
     assert "click" not in _names(transport)
+
+
+async def test_identical_duplicate_menu_rows_are_one_target():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": _menu_rows("first:1") + _menu_rows("second:1")}
+    async with _bound_window_computer(transport) as computer:
+        await computer.invoke_app_menu(["File", "New"])
+    assert [args["element_token"] for args in _arguments(transport, "click")] == ["first:1"]
+
+
+async def test_menu_press_refusals_and_window_loss_use_the_shared_delivery_path(monkeypatch):
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": _menu_rows()}
+    transport.tool_errors["click"] = [_tool_error("minimized_or_hidden_window")]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        with pytest.raises(MacOSRecoverableActionError, match="refused \\(minimized_or_hidden_window\\)"):
+            await computer.invoke_app_menu(["File", "New"])
+        assert computer.action_outcomes[-1].tool == "invoke_app_menu"
+        assert computer.action_outcomes[-1].refusal_code == "minimized_or_hidden_window"
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        transport.tool_errors["click"] = [_tool_error("window_id_not_found")]
+        with pytest.raises(MacOSTargetWindowChangedError, match="now driving") as raised:
+            await computer.invoke_app_menu(["File", "New"])
+        assert isinstance(raised.value.observation, N2Observation)
+    assert all(args["delivery_mode"] == "background" for args in _arguments(transport, "click"))
+    assert "bring_to_front" not in _names(transport)
 
 
 async def test_stale_menu_token_is_not_retried_or_escalated():

@@ -60,3 +60,20 @@ def test_the_apple_menu_is_never_projected():
         }
     )
     assert [menu["path"] for menu in menus] == [["File"], ["File", "New"]]
+
+
+def test_separators_and_unlabeled_submenus_do_not_drop_their_siblings():
+    menus = menu_elements(
+        {
+            "elements": [
+                row("AXMenuBarItem", "File", 1, "file"),
+                row("AXMenuItem", "New", 3, "new"),
+                row("AXMenuItem", "", 3, "separator"),
+                row("AXMenuItem", "Close", 3, "close"),
+                row("AXMenuItem", None, 3, "icon-only-submenu"),
+                row("AXMenuItem", "Hidden child", 5, "hidden"),
+                row("AXMenuItem", "Quit", 3, "quit"),
+            ]
+        }
+    )
+    assert [menu["path"] for menu in menus] == [["File"], ["File", "New"], ["File", "Close"], ["File", "Quit"]]
