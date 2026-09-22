@@ -30,7 +30,13 @@ from yutori.navigator.macos.computer import (
 from yutori.navigator.macos.frontmost import FrontmostApp
 from yutori.navigator.macos.polling import FramePollResult
 from yutori.navigator.macos.transport import CuaDriverToolError, CuaDriverUncertainActionError
-from yutori.navigator.macos.types import MacOSPresentationStatus, MacOSStatusMetrics, MacOSWindowTarget, N2Observation
+from yutori.navigator.macos.types import (
+    MacOSAppState,
+    MacOSPresentationStatus,
+    MacOSStatusMetrics,
+    MacOSWindowTarget,
+    N2Observation,
+)
 
 
 def _png(width: int = 2560, height: int = 1600, color: tuple[int, int, int] = (15, 25, 35)) -> bytes:
@@ -1157,6 +1163,21 @@ class WindowFakeTransport(FakeTransport):
         if name == "list_windows":
             pid = arguments.get("pid")
             return {"structuredContent": {"windows": [w for w in self.windows if pid in (None, w["pid"])]}}
+        if name == "get_app_state":
+            return {
+                "structuredContent": {
+                    "pid": arguments["pid"],
+                    "name": "Calculator",
+                    "windows": self.windows,
+                    "menus": [
+                        {
+                            "title": "File",
+                            "path": ["File"],
+                            "children": [{"title": "New", "path": ["File", "New"], "enabled": True}],
+                        }
+                    ],
+                }
+            }
         scripted = self.action_results.get(name)
         if scripted:
             return {"structuredContent": scripted.pop(0)}
@@ -1734,15 +1755,62 @@ async def test_window_loss_without_recovery_is_a_target_crash(monkeypatch):
         assert computer.cancellation.cause == "target_crash"
 
 
-async def test_live_process_with_no_windows_left_is_a_target_crash(monkeypatch):
+async def test_live_process_with_no_windows_left_returns_app_state(monkeypatch):
     transport = WindowFakeTransport(windows=[])
     transport.tool_errors["get_window_state"] = [_tool_error("window_id_not_found")]
     async with _bound_window_computer(transport) as computer:
         monkeypatch.setattr(computer, "_sleep", _no_wait)
-        with pytest.raises(MacOSTargetCrashedError, match="no window left"):
-            await computer.screenshot()
+        observation = await computer.screenshot()
+        assert isinstance(observation, MacOSAppState)
+        assert observation.windows == ()
+        assert observation.menus[0]["path"] == ["File"]
+        assert computer.current_observation is None
+        assert computer.target_window is None
     assert _names(transport).count("list_windows") == 2
-    assert computer.cancellation.cause == "target_crash"
+    assert computer.cancellation.cause is None
+
+
+async def test_app_without_windows_can_invoke_menu_and_bind_a_new_window(monkeypatch):
+    transport = WindowFakeTransport(windows=[])
+    async with _window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.set_app_target(PID)
+        state = await computer.screenshot()
+        assert isinstance(state, MacOSAppState)
+        assert "Coordinates are unavailable" in state.text
+        assert "get_window_state" not in _names(transport)
+        with pytest.raises(MacOSRecoverableActionError, match="No window"):
+            await computer.click(10, 10)
+        await computer.invoke_app_menu(["File", "New"])
+        assert computer.action_outcomes[-1].tool == "invoke_app_menu"
+        assert _arguments(transport, "invoke_app_menu") == [{"pid": PID, "path": ["File", "New"]}]
+        assert not {"activate_app", "bring_to_front", "click"} & set(_names(transport))
+        transport.windows = [_window_record(window_id=21)]
+        frame = await computer.screenshot()
+        assert isinstance(frame, N2Observation)
+        assert computer.target_window.window_id == 21
+        assert '"menus"' in frame.text
+        transport.windows = []
+        assert isinstance(await computer.screenshot(), MacOSAppState)
+        assert computer.current_observation is None
+        assert computer._native_size is None
+        assert computer.cancellation.cause is None
+
+
+async def test_window_loss_during_frame_poll_does_not_restore_old_pixels(monkeypatch):
+    from yutori.navigator.macos.polling import poll_until_frame_changes
+
+    transport = WindowFakeTransport()
+    async with _window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.set_app_target(PID, window=MacOSWindowTarget(PID, 7))
+        frame = await computer.screenshot()
+        transport.windows = []
+        result = await poll_until_frame_changes(
+            capture=computer.screenshot, reference=frame, mode="strict", budget_ms=100, min_wait_ms=0
+        )
+        assert isinstance(await computer._settle_frame_poll(result, fallback=frame), MacOSAppState)
+        assert computer.current_observation is None
 
 
 async def test_target_recovery_in_window_scope_rebinds_to_the_relaunched_process_window(monkeypatch):

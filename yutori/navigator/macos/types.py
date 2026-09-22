@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ class N2Observation:
     encoded_height: int
     media_type: str
     encoded_bytes: bytes
+    text: str = ""
 
     @property
     def base64(self) -> str:
@@ -102,6 +104,35 @@ class MacOSWindowTarget:
     def describe(self) -> str:
         name = self.app_name or "target application"
         return f"{name} (pid {self.pid}, window {self.window_id})"
+
+
+@dataclass(frozen=True)
+class MacOSAppState:
+    """Application state remains observable when there is no document window."""
+
+    pid: int
+    name: str | None
+    windows: tuple[dict[str, Any], ...]
+    menus: tuple[dict[str, Any], ...]
+    menu_available: bool = True
+    menus_truncated: bool = False
+
+    @property
+    def text(self) -> str:
+        return json.dumps(
+            {
+                "pid": self.pid,
+                "name": self.name,
+                "windows": self.windows,
+                "menus": self.menus,
+                "menu_available": self.menu_available,
+                "menus_truncated": self.menus_truncated,
+                "note": "No window is selected; use app menu commands or select a window. Coordinates are unavailable."
+                if not self.windows
+                else "Menu paths are app-scoped; coordinates require a fresh window screenshot.",
+            },
+            ensure_ascii=False,
+        )
 
 
 @dataclass(frozen=True)

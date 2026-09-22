@@ -801,6 +801,13 @@ class MacOSPresentationController:
             await self._resync_cursor()
         return True
 
+    @_fail_soft("preview_clear_failed", False)
+    async def clear_preview(self) -> bool:
+        if self._mode != "status" or not self._status.available or self._stopping:
+            return False
+        reply = await self._send_command({"op": "clearPreview"})
+        return reply.get("state") == "cleared"
+
     async def show_preview_frame(self, image_bytes: bytes) -> bool:
         """Status mode: refresh the live frame (menu thumbnail and activity window) with a streamed frame.
 
