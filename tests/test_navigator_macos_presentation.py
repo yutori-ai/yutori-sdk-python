@@ -655,6 +655,68 @@ def test_embedded_focus_overlay_handshake_needs_geometry_but_no_status_item_or_h
         controller._validate_status_ready({"protocol_version": 2, "mode": "status", "backing_scale": 2})
 
 
+def _focus_overlay_controller(monkeypatch, *, show_status_item: bool):
+    controller = MacOSPresentationController(
+        native_width=0,
+        native_height=0,
+        mode="status",
+        background_focus_overlay=True,
+        show_status_item=show_status_item,
+    )
+    capabilities = MacOSPresentationCapabilities(2, 1, 1, 2.0, False, None)
+    controller._status = MacOSPresentationStatus(True, True, "active", "hidden", capabilities)
+    controller._viewport = (1, 1)
+    operations: list[dict] = []
+    commands: list[dict] = []
+
+    async def send_operation(operation, **_kwargs):
+        operations.append(operation)
+        return {"ok": True}
+
+    async def send_command(command, **_kwargs):
+        commands.append(command)
+        return {"ok": True, "state": "shown"}
+
+    async def sleep(_seconds):
+        return True
+
+    monkeypatch.setattr(controller, "_send_operation", send_operation)
+    monkeypatch.setattr(controller, "_send_command", send_command)
+    monkeypatch.setattr(controller, "_sleep", sleep)
+    return controller, operations, commands
+
+
+@pytest.mark.parametrize("show_status_item", [False, True])
+async def test_focus_overlay_shows_the_run_command_card_with_output(monkeypatch, show_status_item):
+    """A background run with the pointer on screen shows commands where a foreground run does.
+
+    The desktop app embeds the runtime with the status item off, so before this the command
+    had no surface at all: not the card, not the rail.
+    """
+    controller, operations, commands = _focus_overlay_controller(monkeypatch, show_status_item=show_status_item)
+
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "starting"))
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "running", output="total 8"))
+    assert _terminal_renders(operations)[-1]["presentation"] == {
+        "command": "ls -la ~/Documents",
+        "running": True,
+        "failed": False,
+        "output": "total 8",
+    }
+    await controller.present(_shell("shell-1", "ls -la ~/Documents", "completed", exit_code=0, output="total 8"))
+    assert _terminal_renders(operations)[-1]["presentation"]["running"] is False
+
+    await controller.present(_shell("bg-1", "sleep 30", "running", background=True))
+    assert [entry["command"] for entry in _rail_renders(commands)[-1]["commands"]] == ["sleep 30"]
+    # Each lifecycle event is logged once, whichever surfaces it reached.
+    assert [entry["task_id"] for entry in controller.telemetry if entry["type"].endswith("command")] == [
+        "shell-1",
+        "shell-1",
+        "shell-1",
+        "bg-1",
+    ]
+
+
 async def test_embedded_focus_overlay_routes_actions_and_target_updates_without_status_commands(monkeypatch):
     controller = MacOSPresentationController(
         native_width=0,
