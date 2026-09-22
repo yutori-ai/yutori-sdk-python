@@ -86,6 +86,9 @@ _DELIVERY_FOREGROUND = "foreground"
 # `forward_delete`. Rewritten here, at the RPC boundary, because this is the only handler that
 # speaks cua-driver: the X11 adapters consume the canonical names unchanged.
 _DRIVER_KEY_NAMES = {"page_up": "pageup", "page_down": "pagedown", "delete": "forward_delete"}
+# Newlines inside typed text travel as Return keystrokes; see MacOSComputer.type.
+_NEWLINE_PATTERN = re.compile(r"\r\n|\r|\n")
+_RETURN_SETTLE_SECONDS = 0.075
 # Driver refusal codes that mean the driven window is gone (or never belonged to the
 # target process) versus ones that only invalidate the frame the coordinates came from.
 _WINDOW_LOSS_CODES = frozenset({"window_id_not_found", "window_owner_pid_mismatch"})
@@ -1057,13 +1060,44 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         )
 
     async def type(self, text: str) -> None:
+        """Type ``text``, sending every newline as a Return keystroke.
+
+        Cua Driver gives a newline character no keyboard meaning: its accessibility write inserts
+        it literally and its synthetic path sends it as keycode 0 carrying "\\n", so an address
+        bar or a form never sees Enter. Splitting here makes ``"query\\n"`` submit the way it does
+        on the other computers, and a refused Return surfaces as a refusal instead of a silent
+        no-op. The clicked field stays the typing target across segments so the accessibility
+        rung still covers each one.
+        """
         if self._emulated_held_keys:
             raise MacOSRecoverableActionError("The pinned Cua Driver cannot hold a modifier while typing text.")
+        segments = _NEWLINE_PATTERN.split(text)
         try:
-            await self._guard_frontmost("type_text")
-            await self._mutate("type_text", self._action_args(text=text, delay_ms=0))
+            for index, segment in enumerate(segments):
+                if index:
+                    await self._press_return_between_segments(settle=bool(segment))
+                if segment or len(segments) == 1:
+                    await self._guard_frontmost("type_text")
+                    await self._mutate("type_text", self._action_args(text=segment, delay_ms=0))
         finally:
             self._text_input_point = None
+
+    async def _press_return_between_segments(self, *, settle: bool) -> None:
+        """One Return inside typed text; keeps the typing target a plain keypress would drop.
+
+        A standalone keypress invalidates the clicked field because focus may move, but a newline
+        inside one ``type`` call means "keep going in this field", and the accessibility rung
+        re-validates the field under the point before it writes anyway.
+        """
+        typing_target = self._text_input_point
+        await self._guard_frontmost("press_key")
+        await self._mutate("press_key", self._action_args(key="enter"))
+        self._text_input_point = typing_target
+        if settle:
+            # The driver returns once the key-down is accepted while the key-up can still be in
+            # flight, and the next segment may travel as an accessibility write rather than an
+            # event, so give the app a moment to process Return before more text arrives.
+            await self._sleep(_RETURN_SETTLE_SECONDS)
 
     async def keypress(self, keys: "Sequence[str] | str") -> None:
         self._text_input_point = None

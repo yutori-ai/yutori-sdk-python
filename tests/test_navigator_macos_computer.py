@@ -2232,6 +2232,103 @@ async def test_keypress_speaks_the_driver_key_vocabulary():
     ]
 
 
+async def test_type_sends_each_newline_as_a_return_keystroke(monkeypatch):
+    """Cua Driver has no keyboard meaning for a newline character, so the SDK presses Return for it.
+
+    The accessibility write inserts "\\n" literally and the synthetic rung sends it as keycode 0, so
+    without this split "query\\n" never submits an address bar or a form on macOS.
+    """
+    transport = FakeTransport()
+    settles: list[float] = []
+
+    async def record_settle(seconds: float) -> None:
+        settles.append(seconds)
+
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, verify_focus=False) as computer:
+        monkeypatch.setattr(computer, "_sleep", record_settle)
+        await computer.type("first line\nsecond\r\n\n")
+    keyboard = [
+        (name, arguments["text"] if name == "type_text" else arguments["key"])
+        for name, arguments, _ in transport.calls
+        if name in {"type_text", "press_key"}
+    ]
+    assert keyboard == [
+        ("type_text", "first line"),
+        ("press_key", "enter"),
+        ("type_text", "second"),
+        ("press_key", "enter"),
+        ("press_key", "enter"),
+    ]
+    # Only a Return followed by more text waits for the app to process it.
+    assert settles == [computer_module._RETURN_SETTLE_SECONDS]
+    press = _arguments(transport, "press_key")[0]
+    assert press["scope"] == "desktop" and press["delivery_mode"] == "foreground"
+
+
+async def test_type_without_a_newline_stays_one_type_text_call():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, verify_focus=False) as computer:
+        await computer.type("plain text")
+        await computer.type("")
+    assert [arguments["text"] for arguments in _arguments(transport, "type_text")] == ["plain text", ""]
+    assert _arguments(transport, "press_key") == []
+
+
+async def test_a_lone_newline_is_just_return():
+    transport = FakeTransport()
+    async with MacOSComputer(transport, owns_transport=False, presentation=False, verify_focus=False) as computer:
+        await computer.type("\n")
+    assert _arguments(transport, "type_text") == []
+    assert [arguments["key"] for arguments in _arguments(transport, "press_key")] == ["enter"]
+
+
+async def test_newline_return_keeps_the_clicked_field_as_the_typing_target(monkeypatch):
+    """The Return inside typed text must not drop the accessibility rung for the text after it."""
+
+    class SiblingWindowTransport(WindowFakeTransport):
+        """Refuses every pid-addressed type_text, like a driver facing a second window; AX writes land."""
+
+        async def call_tool(self, name, arguments, *, read_only=False, timeout_seconds=None):
+            if name == "type_text" and "element_token" not in arguments:
+                self.calls.append((name, arguments, read_only))
+                raise _tool_error("same_pid_keyboard_ambiguity")
+            return await super().call_tool(name, arguments, read_only=read_only, timeout_seconds=timeout_seconds)
+
+    transport = SiblingWindowTransport()
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("hello\nworld")
+    sends = _arguments(transport, "type_text")
+    assert [send["text"] for send in sends] == ["hello", "hello", "world", "world"]
+    assert [send.get("element_token") for send in sends] == [
+        None,
+        _SEARCH_FIELD["element_token"],
+        None,
+        _SEARCH_FIELD["element_token"],
+    ]
+    press = _arguments(transport, "press_key")
+    assert [arguments["key"] for arguments in press] == ["enter"]
+    assert press[0]["target"] == {"kind": "window", "pid": PID, "window_id": 7}
+    assert press[0]["delivery_mode"] == "background"
+    assert computer.delivery_counts["accessibility_rungs"] == 2
+
+
+async def test_a_refused_return_inside_typed_text_surfaces_as_a_refusal():
+    """A newline that cannot be pressed is reported, not swallowed into the field as a character."""
+    transport = WindowFakeTransport()
+    transport.tool_errors["press_key"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        with pytest.raises(MacOSBackgroundDeliveryError, match="press_key"):
+            await computer.type("query\n")
+    assert [send["text"] for send in _arguments(transport, "type_text")] == ["query"]
+    assert computer._text_input_point is None
+
+
 async def test_host_window_ids_reach_the_presentation_controller(monkeypatch):
     """The computer hands a host's window ids to the controller that captures the model's frames."""
     seen: dict = {}
