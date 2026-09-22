@@ -116,6 +116,7 @@ class MacOSAppState:
     menus: tuple[dict[str, Any], ...]
     menu_available: bool = True
     menus_truncated: bool = False
+    menu_unavailable_reason: str | None = None
 
     @property
     def text(self) -> str:
@@ -127,9 +128,13 @@ class MacOSAppState:
                 "menus": self.menus,
                 "menu_available": self.menu_available,
                 "menus_truncated": self.menus_truncated,
-                "note": "No window is selected; use app menu commands or select a window. Coordinates are unavailable."
+                "menu_unavailable_reason": self.menu_unavailable_reason,
+                "note": "No windows are available. Wait for a window or select another app. "
+                "Coordinates are unavailable, "
+                "and the existing driver cannot access menus without a window."
                 if not self.windows
-                else "Menu paths are app-scoped; coordinates require a fresh window screenshot.",
+                else "Menus are a partial window AX snapshot. Invoke one observed path at a time, then inspect fresh "
+                "state for submenu items. Coordinates require a fresh window screenshot.",
             },
             ensure_ascii=False,
         )

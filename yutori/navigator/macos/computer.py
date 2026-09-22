@@ -25,6 +25,7 @@ from PIL import Image
 from ..n2_actions import N2_MAX_WAIT_SECONDS, require_positive_read_offset
 from ..sandbox_tools import PointerKeyLifecycleMixin
 from .frontmost import FrontmostApp, frontmost_app
+from .menus import menu_elements
 from .no_progress import NoProgressWatchdog
 from .polling import (
     FRAME_DIFF_TOLERANT_FRACTION,
@@ -776,18 +777,60 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._app_state_enabled = True
         await self._rebind_target(window)
 
-    async def get_app_state(self) -> MacOSAppState:
+    async def get_app_state(self, *, include_menus: bool = True) -> MacOSAppState:
         if not self.window_mode or self.target_pid is None:
             raise MacOSRecoverableActionError("Select an application before reading app state.")
         await self._ensure_target_alive()
-        result = _structured(await self._call_tool("get_app_state", {"pid": self.target_pid}, read_only=True))
+        windows = window_records(await self.list_windows(self.target_pid))
+        target = self._target_window
+        if target is None or not any(w["window_id"] == target.window_id for w in windows):
+            record = select_target_window(windows)
+            replacement = (
+                MacOSWindowTarget(
+                    self.target_pid,
+                    record["window_id"],
+                    title=_text(record.get("title")),
+                    app_name=_text(record.get("app_name")),
+                )
+                if record is not None
+                else None
+            )
+            if replacement != target:
+                await self._rebind_target(replacement)
+            target = replacement
+        snapshot: dict[str, Any] = {}
+        menu_reason = "no_window" if target is None else "not_exposed"
+        if target is not None and include_menus:
+            try:
+                snapshot = _structured(
+                    await self._call_tool(
+                        "get_window_state",
+                        {
+                            "session": self.session,
+                            "pid": target.pid,
+                            "window_id": target.window_id,
+                            "include_screenshot": False,
+                            "max_elements": 1000,
+                            "max_depth": 25,
+                        },
+                        read_only=True,
+                    )
+                )
+            except CuaDriverToolError as error:
+                menu_reason = _error_code(error) or "driver_refused"
+                if _is_window_loss(error):
+                    await self._rebind_target(None)
+                    target = None
+                    windows = window_records(await self.list_windows(self.target_pid))
+        menus = menu_elements(snapshot)
         return MacOSAppState(
             pid=self.target_pid,
-            name=_text(result.get("name")),
-            windows=tuple(window_records(result)),
-            menus=tuple(result.get("menus") or []),
-            menu_available=result.get("menu_available") is True,
-            menus_truncated=result.get("menus_truncated") is True,
+            name=target.app_name if target is not None else None,
+            windows=tuple(windows),
+            menus=menus,
+            menu_available=bool(menus),
+            menus_truncated=bool(target is not None and snapshot.get("elements_complete") is not True),
+            menu_unavailable_reason=None if menus else menu_reason,
         )
 
     async def invoke_app_menu(self, path: list[str]) -> None:
@@ -800,8 +843,28 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         ):
             raise ValueError("Menu path must contain 1–16 nonempty labels from app state.")
         await self._ensure_target_alive()
-        # App-scoped AX action; no foreground fallback and no dependency on a screenshot.
-        result = await self._call_tool("invoke_app_menu", {"pid": self.target_pid, "path": path})
+        state = await self.get_app_state()
+        target = self._target_window
+        if target is None:
+            raise MacOSRecoverableActionError("No window is selected. Menu actions require a window with this driver.")
+        matches = [menu for menu in state.menus if menu["path"] == path]
+        if len(matches) != 1 or matches[0].get("enabled") is False:
+            raise MacOSRecoverableActionError(
+                "Menu path is unavailable, ambiguous, or disabled. Read app state; open an observed parent menu first."
+            )
+        # Refresh immediately before pressing: screenshots and the live preview can
+        # replace the driver's snapshot cache. Stale tokens are refused, never retried.
+        result = await self._call_tool(
+            "click",
+            {
+                "session": self.session,
+                "pid": target.pid,
+                "window_id": target.window_id,
+                "element_token": matches[0]["element_token"],
+                "action": "press",
+                "delivery_mode": "background",
+            },
+        )
         self._action_outcomes.append(_parse_action_outcome("invoke_app_menu", "background", _structured(result)))
 
     async def _rebind_target(self, target: "MacOSWindowTarget | None") -> None:
@@ -941,10 +1004,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         capture_id = self._capture_id
         app_state = None
         if self.window_mode and self.target_pid is not None and self._app_state_enabled:
-            app_state = await self.get_app_state()
-            target = self._target_window
-            if target is None or not any(w["window_id"] == target.window_id for w in app_state.windows):
-                await self._rebind_window_target("app_state_changed")
+            app_state = await self.get_app_state(include_menus=False)
             if self._target_window is None:
                 return app_state
         png_bytes = self._initial_png
@@ -963,6 +1023,14 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._timings["capture_ms"] += (time.monotonic() - started_at) * 1000
         observation = await self._encode_observation(capture_id, png_bytes, width, height)
         if app_state is not None:
+            # The capture may have rebound after a window closed. Publish menu state
+            # for the final target, and do not revive old pixels if it also disappeared.
+            captured_target = self._target_window
+            app_state = await self.get_app_state()
+            if self._target_window is None:
+                return app_state
+            if self._target_window != captured_target:
+                raise MacOSRecoverableActionError("Window changed while capturing; request a fresh screenshot.")
             observation = replace(observation, text=app_state.text)
         self._current_observation = observation
         self._no_progress.record_frame(observation)
@@ -1752,7 +1820,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
     def _require_window_target(self) -> MacOSWindowTarget:
         if self._target_window is None:
             raise MacOSRecoverableActionError(
-                "No window is selected. Read app state and invoke a native menu command or use set_window_target."
+                "No window is selected. Wait for a window or use set_window_target. "
+                "Coordinates and menus are unavailable."
             )
         return self._target_window
 
@@ -1987,7 +2056,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     + (
                         f"now driving {current.describe()}. Check the attached frame and retry against it."
                         if current is not None
-                        else "the app has no windows. Inspect its menus to open one."
+                        else "the app has no windows. Wait for a window or select another app; menus are unavailable."
                     ),
                     observation,
                 ) from error

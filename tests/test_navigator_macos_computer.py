@@ -1163,21 +1163,8 @@ class WindowFakeTransport(FakeTransport):
         if name == "list_windows":
             pid = arguments.get("pid")
             return {"structuredContent": {"windows": [w for w in self.windows if pid in (None, w["pid"])]}}
-        if name == "get_app_state":
-            return {
-                "structuredContent": {
-                    "pid": arguments["pid"],
-                    "name": "Calculator",
-                    "windows": self.windows,
-                    "menus": [
-                        {
-                            "title": "File",
-                            "path": ["File"],
-                            "children": [{"title": "New", "path": ["File", "New"], "enabled": True}],
-                        }
-                    ],
-                }
-            }
+        if name in {"get_app_state", "invoke_app_menu", "invoke_menu"}:
+            raise AssertionError(f"App/menu support must use existing background APIs, not {name}")
         scripted = self.action_results.get(name)
         if scripted:
             return {"structuredContent": scripted.pop(0)}
@@ -1763,14 +1750,15 @@ async def test_live_process_with_no_windows_left_returns_app_state(monkeypatch):
         observation = await computer.screenshot()
         assert isinstance(observation, MacOSAppState)
         assert observation.windows == ()
-        assert observation.menus[0]["path"] == ["File"]
+        assert observation.menus == ()
+        assert observation.menu_unavailable_reason == "no_window"
         assert computer.current_observation is None
         assert computer.target_window is None
-    assert _names(transport).count("list_windows") == 2
+    assert _names(transport).count("list_windows") == 3
     assert computer.cancellation.cause is None
 
 
-async def test_app_without_windows_can_invoke_menu_and_bind_a_new_window(monkeypatch):
+async def test_app_without_windows_refuses_menu_and_binds_a_window_when_one_appears(monkeypatch):
     transport = WindowFakeTransport(windows=[])
     async with _window_computer(transport) as computer:
         monkeypatch.setattr(computer, "_sleep", _no_wait)
@@ -1781,9 +1769,8 @@ async def test_app_without_windows_can_invoke_menu_and_bind_a_new_window(monkeyp
         assert "get_window_state" not in _names(transport)
         with pytest.raises(MacOSRecoverableActionError, match="No window"):
             await computer.click(10, 10)
-        await computer.invoke_app_menu(["File", "New"])
-        assert computer.action_outcomes[-1].tool == "invoke_app_menu"
-        assert _arguments(transport, "invoke_app_menu") == [{"pid": PID, "path": ["File", "New"]}]
+        with pytest.raises(MacOSRecoverableActionError, match="Menu actions require a window"):
+            await computer.invoke_app_menu(["File", "New"])
         assert not {"activate_app", "bring_to_front", "click"} & set(_names(transport))
         transport.windows = [_window_record(window_id=21)]
         frame = await computer.screenshot()
@@ -1795,6 +1782,83 @@ async def test_app_without_windows_can_invoke_menu_and_bind_a_new_window(monkeyp
         assert computer.current_observation is None
         assert computer._native_size is None
         assert computer.cancellation.cause is None
+
+
+def _menu_rows(token="fresh:1", disabled=False):
+    return [
+        {"role": "AXMenuBarItem", "label": "File", "depth": 1, "element_token": "fresh:0"},
+        {"role": "AXMenuItem", "label": "New", "depth": 3, "element_token": token, "enabled": not disabled},
+    ]
+
+
+async def test_app_menus_use_fresh_window_ax_and_background_token_click_only():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": _menu_rows("old:1")}
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        state = await computer.get_app_state()
+        assert state.menu_available and state.menus_truncated
+        assert state.menus[1]["path"] == ["File", "New"]
+        transport.window_state_extra[7] = {"elements": _menu_rows("new:1")}
+        await computer.invoke_app_menu(["File", "New"])
+        assert _arguments(transport, "click") == [
+            {
+                "session": computer.session,
+                "pid": PID,
+                "window_id": 7,
+                "element_token": "new:1",
+                "action": "press",
+                "delivery_mode": "background",
+            }
+        ]
+        assert computer.action_outcomes[-1].tool == "invoke_app_menu"
+    assert all(not args["include_screenshot"] for args in _arguments(transport, "get_window_state"))
+    assert set(_names(transport)) <= {
+        "start_session",
+        "end_session",
+        "set_agent_cursor_enabled",
+        "list_windows",
+        "get_window_state",
+        "click",
+    }
+
+
+@pytest.mark.parametrize("rows", [[], _menu_rows(disabled=True), _menu_rows() + _menu_rows()])
+async def test_unavailable_disabled_or_ambiguous_menus_never_click(rows):
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": rows}
+    async with _bound_window_computer(transport) as computer:
+        with pytest.raises(MacOSRecoverableActionError, match="unavailable, ambiguous, or disabled"):
+            await computer.invoke_app_menu(["File", "New"])
+    assert "click" not in _names(transport)
+
+
+async def test_stale_menu_token_is_not_retried_or_escalated():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": _menu_rows()}
+    transport.tool_errors["click"] = [_tool_error("stale_element_token")]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        with pytest.raises(CuaDriverToolError, match="stale_element_token"):
+            await computer.invoke_app_menu(["File", "New"])
+    assert len(_arguments(transport, "click")) == 1
+    assert _arguments(transport, "click")[0]["delivery_mode"] == "background"
+
+
+async def test_window_switch_during_menu_refresh_does_not_attach_old_pixels(monkeypatch):
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.set_app_target(PID, window=computer.target_window)
+        encode = computer._encode_observation
+
+        async def close_and_replace(*args):
+            frame = await encode(*args)
+            transport.windows = [_window_record(window_id=21)]
+            return frame
+
+        monkeypatch.setattr(computer, "_encode_observation", close_and_replace)
+        with pytest.raises(MacOSRecoverableActionError, match="Window changed while capturing"):
+            await computer.screenshot()
+        assert computer.current_observation is None
+        assert computer.target_window.window_id == 21
 
 
 async def test_window_loss_during_frame_poll_does_not_restore_old_pixels(monkeypatch):
