@@ -915,6 +915,15 @@ async def execute_n2_computer_call(
                     held_keys.remove(key)
         return first_error
 
+    async def release_or_raise(keys: list[str]) -> None:
+        cleanup_error = await release_keys(keys)
+        if cleanup_error is not None:
+            raise RuntimeError(f"Failed to release held key: {cleanup_error}")
+
+    def raise_if_action_failed(action_result: Any) -> None:
+        if isinstance(action_result, dict) and action_result.get("success") is False:
+            raise RuntimeError(str(action_result.get("error") or action_result))
+
     batch_presentation = None
     if isinstance(batch_actions, list):
         members = [
@@ -988,9 +997,7 @@ async def execute_n2_computer_call(
                 await computer.key_down(action_args["key"])
                 held_keys.append(action_args["key"])
                 release_after_next_action[:] = [action_args["key"]]
-                cleanup_error = await release_keys(previous_keys)
-                if cleanup_error is not None:
-                    raise RuntimeError(f"Failed to release held key: {cleanup_error}")
+                await release_or_raise(previous_keys)
             elif action_type == "screenshot":
                 if isinstance(batch_actions, list):
                     if isinstance(batch_index, int):
@@ -1022,8 +1029,7 @@ async def execute_n2_computer_call(
                     computer, BROWSER_ACTION_HANDLERS, action_type, _browser_not_supported_error
                 )
                 action_result = await browser_method(**action_args)
-                if isinstance(action_result, dict) and action_result.get("success") is False:
-                    raise RuntimeError(str(action_result.get("error") or action_result))
+                raise_if_action_failed(action_result)
             elif (
                 action_type == "wait"
                 and not isinstance(batch_actions, list)
@@ -1047,15 +1053,12 @@ async def execute_n2_computer_call(
                     action_result = await computer_method(**action_args, model_action=model_action)
                 else:
                     action_result = await computer_method(**action_args)
-                if isinstance(action_result, dict) and action_result.get("success") is False:
-                    raise RuntimeError(str(action_result.get("error") or action_result))
+                raise_if_action_failed(action_result)
 
             if action_type != "hold_key_until_next_action" and release_after_next_action:
                 keys = list(release_after_next_action)
                 release_after_next_action.clear()
-                cleanup_error = await release_keys(keys)
-                if cleanup_error is not None:
-                    raise RuntimeError(f"Failed to release held key: {cleanup_error}")
+                await release_or_raise(keys)
 
             member_index = _resolved_batch_index(batch_index)
             action_counts[member_index] = action_counts.get(member_index, 1) - 1
