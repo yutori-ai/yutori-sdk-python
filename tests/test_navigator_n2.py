@@ -35,7 +35,7 @@ from yutori.navigator import (
     translate_n2_read,
     translate_n2_shell_command,
 )
-from yutori.navigator.macos.types import CancellationLatch, N2Observation
+from yutori.navigator.macos.types import CancellationLatch, MacOSAppState, N2Observation
 from yutori.navigator.n2 import _CallbackDispatcher
 from yutori.navigator.n2_payload import (
     DEFAULT_MAX_MESSAGES_BYTES,
@@ -661,6 +661,27 @@ async def test_execute_batch_reports_one_line_per_member_with_a_frame():
     output = result[0]["output"]
     assert output["type"] == "input_image" and output["result"] == "[0:left_click] \n[1:key_press]"
     assert ("click", 0, 0, "left", 1, None) in computer.calls
+
+
+@pytest.mark.parametrize("refused", [False, True])
+async def test_execute_returns_windowless_app_state_as_text_including_after_refusal(refused):
+    from yutori.navigator.macos.computer import MacOSRecoverableActionError
+
+    class WindowlessComputer(FakeComputer):
+        async def screenshot(self):
+            return MacOSAppState(42, "Notes", (), ({"path": ["File", "New"]},))
+
+        async def click(self, *args, **kwargs):
+            if refused:
+                raise MacOSRecoverableActionError("No window is selected")
+
+    result = await execute_n2_computer_call(
+        _batch_item(), WindowlessComputer(), callbacks=_CallbackDispatcher(None), screenshot_delay=0
+    )
+    output = result[0]["output"]
+    assert isinstance(output, str)
+    assert '"windows": []' in output and "No windows are available" in output
+    assert ("[ERROR]" in output) is refused
 
 
 async def test_execute_stops_the_batch_at_the_first_gui_failure():

@@ -32,6 +32,7 @@ _ASSET_NAMES = (
     "navigator-activity.html",
     "navigator-activity.css",
     "navigator-activity.js",
+    "yutori-logo.svg",
     "provenance.json",
 )
 _COMPILE_TIMEOUT_SECONDS = 60

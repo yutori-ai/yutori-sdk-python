@@ -13,7 +13,7 @@ from typing import Literal
 from PIL import Image
 
 from .process_lifecycle import race_sleep_against_cancellation
-from .types import CancellationLatch, N2Observation
+from .types import CancellationLatch, MacOSAppState, N2Observation
 
 FRAME_SIGNATURE_WIDTH = 160
 FRAME_SIGNATURE_HEIGHT = 100
@@ -41,7 +41,7 @@ class FramePollResult:
     waited_ms: int
     polls: int
     capture_ms: int
-    last_frame: "N2Observation | str | None"
+    last_frame: "N2Observation | MacOSAppState | str | None"
     changed_fraction: "float | None"
 
 
@@ -62,7 +62,9 @@ def _image_bytes(frame: "N2Observation | str") -> bytes:
     return base64.b64decode(payload)
 
 
-def frame_signature(frame: "N2Observation | str") -> "bytes | None":
+def frame_signature(frame: "N2Observation | MacOSAppState | str") -> "bytes | None":
+    if isinstance(frame, MacOSAppState):
+        return None
     try:
         with Image.open(io.BytesIO(_image_bytes(frame))) as source:
             image = source.convert("L").resize(
@@ -93,7 +95,7 @@ async def _sleep_or_cancel(delay: float, cancellation: "CancellationLatch | None
 
 async def poll_until_frame_changes(
     *,
-    capture: Callable[[], Awaitable["N2Observation | str"]],
+    capture: Callable[[], Awaitable["N2Observation | MacOSAppState | str"]],
     reference: "N2Observation | str",
     mode: FrameDiffMode,
     budget_ms: int,
@@ -105,7 +107,7 @@ async def poll_until_frame_changes(
     """Poll until a material change, bounded by an action budget and deadline share."""
     started_at = time.monotonic()
     reference_signature = frame_signature(reference)
-    last_frame: "N2Observation | str | None" = None
+    last_frame: "N2Observation | MacOSAppState | str | None" = None
     polls = 0
     capture_ms = 0
     last_capture_ms = 0

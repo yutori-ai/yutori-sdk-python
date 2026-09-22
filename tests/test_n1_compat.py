@@ -69,4 +69,3 @@ def test_shim_modules_preserve_dunder_all() -> None:
 
     module = _fresh_import("yutori.n1.page_ready")
     assert module.__all__ == target.__all__
-

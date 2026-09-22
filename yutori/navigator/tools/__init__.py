@@ -43,9 +43,7 @@ def coerce_result(raw: Any) -> dict[str, Any]:
     return {"value": raw}
 
 
-async def evaluate_tool_script(
-    page: SupportsAsyncEvaluate, script: str, *args: Any
-) -> dict[str, Any]:
+async def evaluate_tool_script(page: SupportsAsyncEvaluate, script: str, *args: Any) -> dict[str, Any]:
     """Evaluate a bundled JS tool script against a Playwright page.
 
     Wraps *script* in an IIFE call with JSON-serialized *args*, invokes

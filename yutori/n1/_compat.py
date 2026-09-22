@@ -68,9 +68,7 @@ def alias_module_contents(shim_globals: dict[str, Any], target: ModuleType) -> N
     does not affect the ``yutori.navigator`` module (or vice versa) — patch
     the navigator module directly.
     """
-    shim_globals.update(
-        {name: value for name, value in vars(target).items() if name not in _MODULE_IDENTITY_ATTRS}
-    )
+    shim_globals.update({name: value for name, value in vars(target).items() if name not in _MODULE_IDENTITY_ATTRS})
 
 
 def install_shim(shim_globals: dict[str, Any]) -> None:

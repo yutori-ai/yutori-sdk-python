@@ -146,7 +146,8 @@ class WindowPreviewStreamer:
                         frame = await asyncio.to_thread(encode_preview, png)
                     except (OSError, ValueError):
                         frame = None
-                    if frame is not None and await self._sink(frame):
+                    # A capture of the old window can finish after selection was cleared.
+                    if frame is not None and self._target() == target and await self._sink(frame):
                         self._frames_sent += 1
                 remaining = self._interval - (time.monotonic() - started)
                 if remaining > 0:

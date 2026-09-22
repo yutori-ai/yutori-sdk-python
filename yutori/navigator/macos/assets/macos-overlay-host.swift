@@ -1374,6 +1374,13 @@ private final class OverlayApp: NSObject, NSApplicationDelegate, WKNavigationDel
             else { return fail(id, "Invalid thumbnail.") }
             showThumbnail(image, caption: command["caption"] as? String, data: data)
             reply(id, state: "shown")
+        case "clearPreview":
+            guard statusMode else { return fail(id, "Preview is unavailable.") }
+            latestFrame = nil
+            thumbnailView?.image = nil
+            thumbnailItem?.isHidden = true
+            callActivity("__n2ActivityClearFrame", [:])
+            reply(id, state: "cleared")
         case "previewFrame":
             guard
                 statusMode,

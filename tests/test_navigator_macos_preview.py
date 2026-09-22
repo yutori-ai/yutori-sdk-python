@@ -127,6 +127,30 @@ async def test_streamer_waits_for_a_target_and_survives_a_window_loss():
     assert not streamer.active and transport.closed
 
 
+async def test_streamer_discards_a_frame_when_its_window_was_deselected():
+    target = [MacOSWindowTarget(4242, 9)]
+    frames: list[bytes] = []
+
+    class ClosingTransport(FakePreviewTransport):
+        async def call_tool(self, *args, **kwargs):
+            result = await super().call_tool(*args, **kwargs)
+            target[0] = None
+            return result
+
+    transport = ClosingTransport()
+    streamer = WindowPreviewStreamer(
+        target=lambda: target[0],
+        sink=_sink(frames),
+        transport_factory=lambda: transport,
+        interval_seconds=0,
+        retry_seconds=0,
+    )
+    streamer.set_active(True)
+    await _settle(lambda: bool(transport.calls))
+    await streamer.aclose()
+    assert not frames
+
+
 async def test_streamer_stops_on_connection_loss_and_restarts_on_the_next_demand():
     FakePreviewTransport.instances.clear()
     frames: list[bytes] = []

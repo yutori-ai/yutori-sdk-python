@@ -210,20 +210,20 @@ def generate_visualization_html(
 
     html_lines: list[str] = [
         "<!DOCTYPE html>",
-        "<html lang=\"en\">",
+        '<html lang="en">',
         "<head>",
-        "<meta charset=\"UTF-8\">",
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+        '<meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
         f"<title>Trajectory Replay: {_escape_html(task_id)}</title>",
         "<style>",
         _STYLES,
         "</style>",
         "</head>",
         "<body>",
-        "<div class=\"page\">",
-        "<header class=\"hero\">",
+        '<div class="page">',
+        '<header class="hero">',
         "<div>",
-        "<div class=\"eyebrow\">Trajectory Replay</div>",
+        '<div class="eyebrow">Trajectory Replay</div>',
         f"<h1>{_escape_html(task_id)}</h1>",
         "</div>",
     ]
@@ -234,7 +234,7 @@ def generate_visualization_html(
             badge_class = "success"
         elif result_score == 0:
             badge_class = "failure"
-        html_lines.append(f"<div class=\"score {badge_class}\">score {result_score}</div>")
+        html_lines.append(f'<div class="score {badge_class}">score {result_score}</div>')
     html_lines.extend(["</header>", "<main>"])
 
     if system_prompt:
@@ -244,7 +244,7 @@ def generate_visualization_html(
         html_lines.extend(_render_text_details_panel("User Prompt", user_query, open=True))
 
     if not steps:
-        html_lines.append("<section class=\"panel empty\">No assistant steps were recorded.</section>")
+        html_lines.append('<section class="panel empty">No assistant steps were recorded.</section>')
 
     for step in steps:
         html_lines.append(_render_step(step))
@@ -255,9 +255,9 @@ def generate_visualization_html(
     html_lines.extend(
         [
             "</main>",
-            "<div class=\"modal\" id=\"modal\" onclick=\"closeReplayModal(event)\">",
-            "<button class=\"modal-close\" onclick=\"closeReplayModal(event)\">x</button>",
-            "<div class=\"modal-inner\" id=\"modal-inner\"></div>",
+            '<div class="modal" id="modal" onclick="closeReplayModal(event)">',
+            '<button class="modal-close" onclick="closeReplayModal(event)">x</button>',
+            '<div class="modal-inner" id="modal-inner"></div>',
             "</div>",
             "<script>",
             _SCRIPT,
@@ -455,9 +455,7 @@ def _parse_tool_calls(message: dict) -> list[dict[str, Any]]:
     return actions
 
 
-def _to_percent_xy(
-    coord: Any, coord_space_width: int, coord_space_height: int
-) -> tuple[float, float]:
+def _to_percent_xy(coord: Any, coord_space_width: int, coord_space_height: int) -> tuple[float, float]:
     """Convert an ``(x, y)`` pair from Navigator coordinate space to viewport %."""
     return coord[0] / coord_space_width * 100, coord[1] / coord_space_height * 100
 
@@ -506,21 +504,21 @@ def _render_step(step: dict[str, Any]) -> str:
     markers_html = _render_markers(step["step_num"], step["action_markers"])
     image_html = (
         (
-            f"<div class=\"image-frame\" data-modal-source=\"step-{step['step_num']}\" "
+            f'<div class="image-frame" data-modal-source="step-{step["step_num"]}" '
             f"onclick=\"openReplayModal('step-{step['step_num']}')\">"
-            f"<img src=\"{_escape_html(step['screenshot_url'])}\" alt=\"Step {step['step_num']} screenshot\">"
+            f'<img src="{_escape_html(step["screenshot_url"])}" alt="Step {step["step_num"]} screenshot">'
             f"{markers_html}</div>"
         )
         if step["screenshot_url"]
-        else "<div class=\"empty-shot\">No screenshot recorded for this step.</div>"
+        else '<div class="empty-shot">No screenshot recorded for this step.</div>'
     )
 
     action_items: list[str] = []
     if step["is_final_answer"]:
         answer = step["assistant_response"].strip()
         action_items.append(
-            "<div class=\"action-card final\">"
-            "<div class=\"action-name\">Final Answer</div>"
+            '<div class="action-card final">'
+            '<div class="action-name">Final Answer</div>'
             f"<pre>{_escape_html(answer)}</pre>"
             "</div>"
         )
@@ -528,29 +526,29 @@ def _render_step(step: dict[str, Any]) -> str:
         for index, action in enumerate(step["actions"], start=1):
             details = _format_action_details(action)
             action_items.append(
-                "<div class=\"action-card\">"
-                f"<div class=\"action-name\">{index}. {_escape_html(str(action.get('action_type', 'unknown')))}</div>"
-                f"<div class=\"action-details\">{_escape_html(details or 'No additional arguments')}</div>"
+                '<div class="action-card">'
+                f'<div class="action-name">{index}. {_escape_html(str(action.get("action_type", "unknown")))}</div>'
+                f'<div class="action-details">{_escape_html(details or "No additional arguments")}</div>'
                 "</div>"
             )
     else:
-        action_items.append("<div class=\"action-card empty\">No tool calls in this step.</div>")
+        action_items.append('<div class="action-card empty">No tool calls in this step.</div>')
 
     raw_request_html = _render_json_panel("Raw Request", step["raw_request"])
     raw_response_html = _render_json_panel("Raw Response", step["raw_response"])
 
     return (
-        f"<section class=\"step\" id=\"step-{step['step_num']}\">"
-        "<div class=\"step-header\">"
-        f"<div class=\"step-badge\">{step['step_num']}</div>"
+        f'<section class="step" id="step-{step["step_num"]}">'
+        '<div class="step-header">'
+        f'<div class="step-badge">{step["step_num"]}</div>'
         f"<h2>Step {step['step_num']}</h2>"
         "</div>"
-        "<div class=\"step-grid\">"
-        f"<div class=\"media-panel\">{image_html}</div>"
-        "<div class=\"side-panel\">"
-        "<div class=\"panel nested\">"
+        '<div class="step-grid">'
+        f'<div class="media-panel">{image_html}</div>'
+        '<div class="side-panel">'
+        '<div class="panel nested">'
         "<h3>Actions</h3>"
-        f"<div class=\"action-list\">{''.join(action_items)}</div>"
+        f'<div class="action-list">{"".join(action_items)}</div>'
         "</div>"
         f"{raw_request_html}"
         f"{raw_response_html}"
@@ -563,9 +561,9 @@ def _render_step(step: dict[str, Any]) -> str:
 def _render_json_panel(title: str, payload: Any) -> str:
     json_text = _safe_json_dumps(payload) or "{}"
     return (
-        "<div class=\"panel nested\">"
+        '<div class="panel nested">'
         f"<h3>{_escape_html(title)}</h3>"
-        f"<pre class=\"json-block\">{_escape_html(json_text)}</pre>"
+        f'<pre class="json-block">{_escape_html(json_text)}</pre>'
         "</div>"
     )
 
@@ -579,7 +577,7 @@ def _render_text_details_panel(title: str, content: str, *, open: bool = False) 
     """
     open_attr = " open" if open else ""
     return [
-        f"<details class=\"panel\"{open_attr}>",
+        f'<details class="panel"{open_attr}>',
         f"<summary>{_escape_html(title)}</summary>",
         f"<pre>{_escape_html(content)}</pre>",
         "</details>",
@@ -594,31 +592,31 @@ def _render_markers(step_num: int, markers: list[dict[str, Any]]) -> str:
         if marker.get("has_point"):
             color_class = _ACTION_COLOR_CLASS.get(str(marker["type"]).lower(), "click")
             parts.append(
-                "<div class=\"marker\" "
-                f"style=\"left:{marker['x']:.3f}%;top:{marker['y']:.3f}%\">"
-                f"<div class=\"marker-dot {color_class}\"></div>"
-                f"<div class=\"marker-label\">{index}. {_escape_html(str(marker['type']))}</div>"
+                '<div class="marker" '
+                f'style="left:{marker["x"]:.3f}%;top:{marker["y"]:.3f}%">'
+                f'<div class="marker-dot {color_class}"></div>'
+                f'<div class="marker-label">{index}. {_escape_html(str(marker["type"]))}</div>'
                 "</div>"
             )
         elif marker.get("has_drag"):
             parts.append(
-                "<svg class=\"drag\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\">"
+                '<svg class="drag" viewBox="0 0 100 100" preserveAspectRatio="none">'
                 "<defs>"
-                f"<marker id=\"drag-arrow-{step_num}-{index}\" markerWidth=\"8\" "
-                "markerHeight=\"8\" refX=\"7\" refY=\"4\" orient=\"auto\">"
-                "<polygon points=\"0 0, 8 4, 0 8\" fill=\"#f59e0b\"></polygon>"
+                f'<marker id="drag-arrow-{step_num}-{index}" markerWidth="8" '
+                'markerHeight="8" refX="7" refY="4" orient="auto">'
+                '<polygon points="0 0, 8 4, 0 8" fill="#f59e0b"></polygon>'
                 "</marker>"
                 "</defs>"
-                f"<line x1=\"{marker['start_x']:.3f}\" y1=\"{marker['start_y']:.3f}\" "
-                f"x2=\"{marker['end_x']:.3f}\" y2=\"{marker['end_y']:.3f}\" "
-                f"marker-end=\"url(#drag-arrow-{step_num}-{index})\"></line>"
+                f'<line x1="{marker["start_x"]:.3f}" y1="{marker["start_y"]:.3f}" '
+                f'x2="{marker["end_x"]:.3f}" y2="{marker["end_y"]:.3f}" '
+                f'marker-end="url(#drag-arrow-{step_num}-{index})"></line>'
                 "</svg>"
             )
             parts.append(
-                "<div class=\"marker\" "
-                f"style=\"left:{marker['start_x']:.3f}%;top:{marker['start_y']:.3f}%\">"
-                "<div class=\"marker-dot drag-start\"></div>"
-                f"<div class=\"marker-label\">{index}. drag</div>"
+                '<div class="marker" '
+                f'style="left:{marker["start_x"]:.3f}%;top:{marker["start_y"]:.3f}%">'
+                '<div class="marker-dot drag-start"></div>'
+                f'<div class="marker-label">{index}. drag</div>'
                 "</div>"
             )
         elif marker.get("has_ref_only") and marker.get("ref"):
@@ -627,14 +625,14 @@ def _render_markers(step_num: int, markers: list[dict[str, Any]]) -> str:
     if ref_only:
         badge_items = "".join(
             (
-                "<div class=\"ref-line\">"
+                '<div class="ref-line">'
                 f"<span>{index}. {_escape_html(str(marker['type']))}</span>"
                 f"<code>{_escape_html(str(marker['ref']))}</code>"
                 "</div>"
             )
             for index, marker in ref_only
         )
-        parts.append(f"<div class=\"ref-badge\">{badge_items}</div>")
+        parts.append(f'<div class="ref-badge">{badge_items}</div>')
 
     return "".join(parts)
 

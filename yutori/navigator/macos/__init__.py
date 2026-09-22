@@ -33,6 +33,7 @@ from .sanitize import (
 from .types import (
     CancellationLatch,
     MacOSActionOutcome,
+    MacOSAppState,
     MacOSPresentationCapabilities,
     MacOSPresentationStatus,
     MacOSStatusMetrics,
@@ -52,6 +53,7 @@ __all__ = [
     "CancellationLatch",
     "FrontmostApp",
     "MacOSActionOutcome",
+    "MacOSAppState",
     "MacOSActionRefusedError",
     "MacOSBackgroundDeliveryError",
     "MacOSComputer",

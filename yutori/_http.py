@@ -29,19 +29,14 @@ def handle_response(response: httpx.Response) -> dict[str, Any]:
     if response.status_code in (401, 403):
         # Truncate: a proxy or gateway can return a full HTML error page here.
         detail = f": {response.text[:500]}" if response.text else ""
-        raise AuthenticationError(
-            f"Invalid API key or insufficient permissions ({response.status_code}){detail}"
-        )
+        raise AuthenticationError(f"Invalid API key or insufficient permissions ({response.status_code}){detail}")
 
     # Redirects are not followed, so a 3xx here means the base URL does not
     # point directly at the API; treat it as an error rather than empty success.
     if 300 <= response.status_code < 400:
         location = response.headers.get("location") or "unknown"
         raise APIError(
-            message=(
-                f"Unexpected redirect to {location} — "
-                "the configured base_url may not point directly at the API."
-            ),
+            message=(f"Unexpected redirect to {location} — the configured base_url may not point directly at the API."),
             status_code=response.status_code,
             response=response,
         )

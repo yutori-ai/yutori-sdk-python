@@ -348,9 +348,7 @@ def test_browse_list_without_summary_omits_totals_line():
     # The summary/totals line is gated behind `if summary:`; a response with tasks
     # but no summary must still render the table without a misleading totals line.
     client = _make_client_mock()
-    client.browsing.list.return_value = {
-        "tasks": [{"task_id": "task-9", "query": "q", "status": "running"}]
-    }
+    client.browsing.list.return_value = {"tasks": [{"task_id": "task-9", "query": "q", "status": "running"}]}
 
     result = _invoke_cli(client, ["browse", "list"])
 

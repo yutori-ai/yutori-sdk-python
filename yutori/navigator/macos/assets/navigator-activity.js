@@ -135,6 +135,13 @@ window.__n2ActivityFrame = ({ data, mediaType }) => {
   return { ok: true };
 };
 
+window.__n2ActivityClearFrame = () => {
+  frameImage.removeAttribute("src");
+  frame.dataset.state = "waiting";
+  frameCaption.textContent = "No window selected";
+  return { ok: true };
+};
+
 /** What the frame area says until the first frame arrives; also what reveals it at all. */
 window.__n2ActivityCaption = ({ text }) => {
   frameCaption.textContent = typeof text === "string" ? text : "";

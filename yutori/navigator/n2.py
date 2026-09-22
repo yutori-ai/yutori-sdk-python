@@ -54,7 +54,7 @@ from typing import Any, Protocol
 
 from .macos.process_lifecycle import race_against_cancellation
 from .macos.sanitize import sanitize_command_preview
-from .macos.types import N2Observation, N2Presentation
+from .macos.types import MacOSAppState, N2Observation, N2Presentation
 from .models import NAVIGATOR_N2_MODEL, TOOL_SET_COMPUTER_USE_LATEST
 from .n2_actions import (
     BASH_TOOL_NAME,
@@ -822,7 +822,9 @@ async def execute_n2_computer_call(
 
     async def finish_with_error(message: str, observation: Any = None) -> list[dict[str, Any]]:
         output: Any = f"[ERROR] {message}"
-        if observation is not None:
+        if isinstance(observation, MacOSAppState):
+            output = f"[ERROR] {message}\n{observation.text}"
+        elif observation is not None:
             try:
                 data_url, _, _, raw_base64 = _observation_data(observation)
                 output = {"type": "input_image", "image_url": data_url, "result": f"[ERROR] {message}"}
@@ -1170,6 +1172,11 @@ async def execute_n2_computer_call(
             reference_observation,
             screenshot_observation,
         )
+    if isinstance(screenshot_observation, MacOSAppState):
+        return await finish(
+            result_text() + "\n\n" + screenshot_observation.text,
+            {"type": "action_done", "call_id": call_id, "batch_complete": isinstance(batch_actions, list)},
+        )
     try:
         data_url, _, _, raw_base64 = _observation_data(screenshot_observation)
     except Exception as error:
@@ -1182,7 +1189,12 @@ async def execute_n2_computer_call(
 
     # The frame rides with the call's text (a late failure such as the screenshot
     # callback must not discard output from a command that already ran).
-    output: dict[str, Any] = {"type": "input_image", "image_url": data_url, "result": result_text()}
+    observation_text = screenshot_observation.text if isinstance(screenshot_observation, N2Observation) else ""
+    output: dict[str, Any] = {
+        "type": "input_image",
+        "image_url": data_url,
+        "result": result_text() + ("\n\n" + observation_text if observation_text else ""),
+    }
     return await finish(
         output,
         {"type": "action_done", "call_id": call_id, "batch_complete": isinstance(batch_actions, list)},

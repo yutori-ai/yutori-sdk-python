@@ -44,6 +44,17 @@ body {
   object-fit: contain;
 }
 
+#n2-activity-placeholder {
+  display: none;
+  width: 112px;
+  height: auto;
+  margin: 70px auto;
+}
+
+#n2-activity-frame[data-state="waiting"] #n2-activity-placeholder {
+  display: block;
+}
+
 /* Nothing to show until the run streams a frame or announces it is waiting for one. */
 #n2-activity-frame[data-state="off"] {
   display: none;
