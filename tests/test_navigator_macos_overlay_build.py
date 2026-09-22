@@ -68,8 +68,8 @@ def test_bundled_renderer_matches_the_protocol_v4_release():
     provenance = json.loads(assets.joinpath("provenance.json").read_text(encoding="utf-8"))
     renderer = assets.joinpath("navigator-overlay.iife.js").read_bytes()
     assert provenance["renderer_protocol_version"] == overlay_build.RENDERER_PROTOCOL_VERSION == 4
-    assert provenance["renderer_distribution"] == "yutori-navigator-overlay-runtime==0.5.1"
-    assert provenance["renderer_source_commit"] == "4bf62f27aabd5b76866751cc07c76f6bff900cb7"
+    assert provenance["renderer_distribution"] == "yutori-navigator-overlay-runtime==0.6.0"
+    assert provenance["renderer_source_commit"] == "47cee67c7c6d908483d0826bea01fe8e57f231da"
     assert hashlib.sha256(renderer).hexdigest() == provenance["renderer_artifact_sha256"]
 
 

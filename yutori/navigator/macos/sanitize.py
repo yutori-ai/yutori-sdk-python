@@ -16,7 +16,7 @@ COMMAND_PREVIEW_MAX_CHARACTERS = 160
 # the newest output is what gets hidden: the block clips from the bottom, so sending
 # more lines than the renderer shows silently drops the tail — the opposite end from
 # the one a feed should lose. The bundled renderer
-# (`yutori-navigator-overlay-runtime==0.5.1`, see `assets/provenance.json`) shows
+# (`yutori-navigator-overlay-runtime==0.6.0`, see `assets/provenance.json`) shows
 # four, so this is four.
 OUTPUT_PREVIEW_MAX_LINES = 4
 # The card wraps (`white-space: pre-wrap; overflow-wrap: anywhere`), so the budget is
