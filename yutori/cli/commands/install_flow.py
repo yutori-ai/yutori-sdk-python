@@ -97,8 +97,14 @@ VERIFICATION_TASK_DASHBOARD_BASE_URL = "https://platform.yutori.com/browsing/tas
 # poll timeout.
 FINAL_SUCCESS_STATUSES = {"succeeded", "success", "completed"}
 FINAL_FAILURE_STATUSES = {
-    "failed", "error", "rejected", "cancelled", "canceled",
-    "timeout", "timed_out", "exceeded_max_steps",
+    "failed",
+    "error",
+    "rejected",
+    "cancelled",
+    "canceled",
+    "timeout",
+    "timed_out",
+    "exceeded_max_steps",
 }
 FINAL_TASK_STATUSES = FINAL_SUCCESS_STATUSES | FINAL_FAILURE_STATUSES
 # Case-insensitive substrings that identify an auth failure in CLI output.
@@ -587,9 +593,7 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
     if "tool.poetry" in pyproject_keys:
         poetry_path = _which("poetry", resolved_env)
         poetry_command = [poetry_path or "poetry", "add"]
-        declares_python_range = bool(
-            {"project.requires-python", "tool.poetry.dependencies.python"} & pyproject_keys
-        )
+        declares_python_range = bool({"project.requires-python", "tool.poetry.dependencies.python"} & pyproject_keys)
         requires_python = _yutori_requires_python()
         if requires_python and not declares_python_range:
             # A Poetry project with no Python range of its own is treated by
@@ -634,8 +638,10 @@ def detect_sdk_install_plan(cwd: Path | None = None, env: Mapping[str, str] | No
         )
 
     requirements_path = resolved_cwd / "requirements.txt"
-    reason = "Detected requirements.txt but no active virtual environment." if requirements_path.exists() else (
-        "No project-specific Python environment was detected."
+    reason = (
+        "Detected requirements.txt but no active virtual environment."
+        if requirements_path.exists()
+        else ("No project-specific Python environment was detected.")
     )
     # Prefer python3 but fall back to python — some minimal images and recent
     # Homebrew installs expose only one of the two.
@@ -934,9 +940,7 @@ def maybe_authenticate(console: Console, *, interactive: bool) -> tuple[StepResu
             console.print(_slate_line("Skipping auth. To finish setting up:"))
             console.print(_slate_line("  - Run `yutori auth login` on a machine with a browser"))
             console.print(
-                _slate_line(
-                    "  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com (-> API Keys))"
-                )
+                _slate_line("  - Or set YUTORI_API_KEY (create one at https://platform.yutori.com (-> API Keys))")
             )
             return (
                 StepResult(
@@ -1092,10 +1096,7 @@ def run_verification(
         ) as spinner:
             while status not in FINAL_TASK_STATUSES:
                 if time.monotonic() >= deadline:
-                    detail = (
-                        f"Verification timed out after {VERIFICATION_POLL_BUDGET_SECONDS}s. "
-                        f"View task: {task_url}"
-                    )
+                    detail = f"Verification timed out after {VERIFICATION_POLL_BUDGET_SECONDS}s. View task: {task_url}"
                     return StepResult("Verification", "failed", detail), False
 
                 time.sleep(VERIFICATION_POLL_INTERVAL_SECONDS)

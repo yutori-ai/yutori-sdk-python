@@ -58,7 +58,6 @@ def test_build_agent_arg_parser_produces_the_base_argument_set() -> None:
     assert parser.description == "Example description"
 
 
-
 def test_build_agent_arg_parser_honors_overrides_via_cli() -> None:
     default_config = _default_config()
 

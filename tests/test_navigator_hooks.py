@@ -30,12 +30,15 @@ async def test_base_hooks_are_awaitable_and_no_op() -> None:
     assert await hooks.on_llm_start(messages=[], tools=None) is None
     assert await hooks.on_llm_end(response={"message": "ok"}) is None
     assert await hooks.on_tool_start(name="extract_content", arguments={}) is None
-    assert await hooks.on_tool_end(
-        name="extract_content",
-        arguments={},
-        output="hello",
-        trace="extract_content()",
-    ) is None
+    assert (
+        await hooks.on_tool_end(
+            name="extract_content",
+            arguments={},
+            output="hello",
+            trace="extract_content()",
+        )
+        is None
+    )
     assert await hooks.on_agent_end(output=None) is None
 
 

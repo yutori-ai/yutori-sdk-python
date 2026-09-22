@@ -47,7 +47,6 @@ from .types import AuthStatus, LoginResult
 logger = logging.getLogger(__name__)
 
 
-
 def generate_pkce() -> tuple[str, str]:
     """Generate PKCE code verifier and S256 challenge."""
     code_verifier = secrets.token_urlsafe(64)

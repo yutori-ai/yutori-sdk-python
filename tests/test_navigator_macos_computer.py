@@ -1899,18 +1899,49 @@ async def test_window_switch_during_menu_refresh_does_not_attach_old_pixels(monk
     transport = WindowFakeTransport()
     async with _bound_window_computer(transport) as computer:
         await computer.set_app_target(PID, window=computer.target_window)
-        encode = computer._encode_observation
+        capture = computer._capture_observation_png
 
         async def close_and_replace(*args):
-            frame = await encode(*args)
+            pixels = await capture(*args)
             transport.windows = [_window_record(window_id=21)]
-            return frame
+            return pixels
 
-        monkeypatch.setattr(computer, "_encode_observation", close_and_replace)
-        with pytest.raises(MacOSRecoverableActionError, match="Window changed while capturing"):
-            await computer.screenshot()
-        assert computer.current_observation is None
+        monkeypatch.setattr(computer, "_capture_observation_png", close_and_replace)
+        frame = await computer.screenshot()
+        # Recaptured against the window the app moved to, not the pixels of the closed one.
+        assert isinstance(frame, N2Observation) and computer.current_observation is frame
         assert computer.target_window.window_id == 21
+        assert [args["window_id"] for args in _arguments(transport, "get_window_state")] == [7, 21]
+
+
+async def test_frame_poll_never_settles_on_pixels_of_a_window_no_longer_driven():
+    transport = WindowFakeTransport()
+    async with _window_computer(transport) as computer:
+        await computer.set_app_target(PID, window=MacOSWindowTarget(PID, 7))
+        old_frame = await computer.screenshot()
+        transport.windows = [_window_record(window_id=21)]
+        await computer.get_app_state(include_menus=False)
+        assert computer.target_window.window_id == 21 and computer.current_observation is None
+        result = FramePollResult(
+            outcome="undiffable", waited_ms=0, polls=1, capture_ms=0, last_frame=old_frame, changed_fraction=None
+        )
+        settled = await computer._settle_frame_poll(result, fallback=old_frame)
+        assert isinstance(settled, N2Observation) and settled is not old_frame
+        assert computer.current_observation is settled
+        assert _arguments(transport, "get_window_state")[-1]["window_id"] == 21
+
+
+async def test_menu_refresh_follows_the_app_to_a_remaining_window(monkeypatch):
+    transport = WindowFakeTransport(windows=[_window_record(window_id=7), _window_record(window_id=21)])
+    transport.tool_errors["get_window_state"] = [_tool_error("window_id_not_found")]
+    transport.window_state_extra[21] = {"elements": _menu_rows()}
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        state = await computer.get_app_state()
+        assert computer.target_window.window_id == 21
+        assert state.menu_available and [menu["path"] for menu in state.menus] == [["File"], ["File", "New"]]
+        assert len(state.windows) == 2
+    assert [args["window_id"] for args in _arguments(transport, "get_window_state")] == [7, 21]
 
 
 async def test_window_loss_during_frame_poll_does_not_restore_old_pixels(monkeypatch):
