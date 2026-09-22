@@ -251,6 +251,17 @@ def _text(value: Any) -> "str | None":
     return value if isinstance(value, str) else None
 
 
+def _window_target_from_record(pid: int, record: "dict[str, Any] | None") -> "MacOSWindowTarget | None":
+    if record is None:
+        return None
+    return MacOSWindowTarget(
+        pid=pid,
+        window_id=int(record["window_id"]),
+        title=_text(record.get("title")),
+        app_name=_text(record.get("app_name")),
+    )
+
+
 def _parse_action_outcome(
     tool: str,
     requested_delivery: str,
@@ -847,16 +858,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         ):
             return target
         record = select_target_window(windows, exclude_window_id=exclude_window_id)
-        replacement = (
-            MacOSWindowTarget(
-                self.target_pid,
-                record["window_id"],
-                title=_text(record.get("title")),
-                app_name=_text(record.get("app_name")),
-            )
-            if record is not None
-            else None
-        )
+        replacement = _window_target_from_record(self.target_pid, record)
         if replacement != target:
             await self._rebind_target(replacement)
         return replacement
@@ -988,14 +990,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             prefer_window_id=prefer_window_id,
             exclude_window_id=exclude_window_id,
         )
-        if record is None:
-            return None
-        return MacOSWindowTarget(
-            pid=pid,
-            window_id=int(record["window_id"]),
-            title=_text(record.get("title")),
-            app_name=_text(record.get("app_name")),
-        )
+        return _window_target_from_record(pid, record)
 
     def record_model_action(self, name: str, arguments: dict[str, Any], *, refused: bool = False) -> None:
         self._no_progress.record_action(name, arguments, refused=refused)
