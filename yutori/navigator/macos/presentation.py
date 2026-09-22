@@ -744,7 +744,11 @@ class MacOSPresentationController:
             if self._show_status_item:
                 await self._present_status(event)
             if self._background_focus_overlay:
-                await self._present_overlay_event(event, include_transcript=False, include_shell=False)
+                # The pointer is on screen, so a command gets the same surfaces as a foreground
+                # run: the run-command card (with its streamed output) hanging off the cursor,
+                # and the rail for background commands. Without this, a run with the status
+                # item off -- how the desktop app embeds the runtime -- showed commands nowhere.
+                await self._present_overlay_event(event, include_transcript=False, include_shell=True)
             return
         await self._present_overlay_event(event, include_transcript=True, include_shell=True)
 
@@ -834,7 +838,8 @@ class MacOSPresentationController:
         rail under the menu bar a foreground run shows, because a command running on their
         Mac should not require opening a window to notice.
         """
-        if event.get("type") == "shell":
+        # With the focus overlay on, _present_shell owns shell events (card, rail, telemetry).
+        if event.get("type") == "shell" and not self._background_focus_overlay:
             shell_event = event.get("event")
             if isinstance(shell_event, ShellPresentationEvent):
                 self._record_shell(shell_event)
