@@ -380,6 +380,14 @@ def _is_window_loss(error: CuaDriverToolError) -> bool:
     return _error_code(error) in _WINDOW_LOSS_CODES
 
 
+def _snapshot_truncated(snapshot: dict[str, Any]) -> bool:
+    """Whether the AX walk stopped short; cua-driver reports elements_complete=false even for full walks."""
+    returned, total = snapshot.get("returned_element_count"), snapshot.get("total_element_count")
+    if isinstance(returned, int) and isinstance(total, int):
+        return returned < total
+    return snapshot.get("elements_complete") is not True
+
+
 def _decode_inline_frame(result: dict[str, Any], tool_name: str) -> tuple[bytes, int, int]:
     """Return the inline PNG frame of a capture result, cross-checked against its reported size."""
     structured = _structured(result)
@@ -799,7 +807,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 await self._rebind_target(replacement)
             target = replacement
         snapshot: dict[str, Any] = {}
-        menu_reason = "no_window" if target is None else "not_exposed"
+        menu_reason = "no_window" if target is None else ("not_exposed" if include_menus else "not_requested")
         if target is not None and include_menus:
             try:
                 snapshot = _structured(
@@ -829,8 +837,9 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             windows=tuple(windows),
             menus=menus,
             menu_available=bool(menus),
-            menus_truncated=bool(target is not None and snapshot.get("elements_complete") is not True),
+            menus_truncated=bool(target is not None and include_menus and _snapshot_truncated(snapshot)),
             menu_unavailable_reason=None if menus else menu_reason,
+            menus_included=include_menus,
         )
 
     async def invoke_app_menu(self, path: list[str]) -> None:
@@ -842,6 +851,12 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             or any(not isinstance(part, str) or not part.strip() for part in path)
         ):
             raise ValueError("Menu path must contain 1–16 nonempty labels from app state.")
+        if len(path) < 2:
+            # Pressing a menu-bar title drops the menu open on the user's screen (and can activate
+            # the app); the snapshot already lists submenu items, so there is nothing to gain.
+            raise MacOSRecoverableActionError(
+                "Top-level menu titles are not pressed. Pass the full path to a menu item from app state."
+            )
         await self._ensure_target_alive()
         state = await self.get_app_state()
         target = self._target_window
@@ -1023,10 +1038,11 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         self._timings["capture_ms"] += (time.monotonic() - started_at) * 1000
         observation = await self._encode_observation(capture_id, png_bytes, width, height)
         if app_state is not None:
-            # The capture may have rebound after a window closed. Publish menu state
-            # for the final target, and do not revive old pixels if it also disappeared.
+            # The capture may have rebound after a window closed. Re-read the cheap window
+            # list for the final target (never the AX walk: screenshots also drive frame
+            # polling), and do not revive old pixels if it also disappeared.
             captured_target = self._target_window
-            app_state = await self.get_app_state()
+            app_state = await self.get_app_state(include_menus=False)
             if self._target_window is None:
                 return app_state
             if self._target_window != captured_target:

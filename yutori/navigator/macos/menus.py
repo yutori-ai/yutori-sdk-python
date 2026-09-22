@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+_SYSTEM_MENU_TITLES = frozenset({"apple"})
+
 
 def menu_elements(snapshot: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     """Keep only addressable descendants of menu-bar items, never context-menu guesses.
 
-    Structural AXMenu wrappers are absent from the driver's actionable elements.
-    Preserve semantic ancestry using its DFS depths. Duplicate paths stay duplicated
-    so callers can refuse ambiguity rather than silently choosing one.
+    Ancestry is rebuilt from the driver's DFS depths, so it holds whether or not the
+    structural AXMenu wrappers appear between a menu-bar item and its items. Duplicate
+    paths stay duplicated so callers can refuse ambiguity rather than silently choosing
+    one. The Apple menu is skipped: it is system-owned, its items (Recent Items, Log Out,
+    Shut Down) are never the task's, and Recent Items exposes the user's private history.
     """
     result: list[dict[str, Any]] = []
     ancestors: list[tuple[int, str]] = []
@@ -26,6 +30,8 @@ def menu_elements(snapshot: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         role, label = element.get("role"), element.get("label")
         if role == "AXMenuBarItem":
             ancestors.clear()
+            if isinstance(label, str) and label.strip().casefold() in _SYSTEM_MENU_TITLES:
+                continue
         elif role != "AXMenuItem" or not ancestors:
             continue
         if not isinstance(label, str) or not label.strip():

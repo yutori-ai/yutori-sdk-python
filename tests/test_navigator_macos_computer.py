@@ -1776,7 +1776,10 @@ async def test_app_without_windows_refuses_menu_and_binds_a_window_when_one_appe
         frame = await computer.screenshot()
         assert isinstance(frame, N2Observation)
         assert computer.target_window.window_id == 21
-        assert '"menus"' in frame.text
+        # Screenshots carry the cheap window list only; the menu projection (hundreds of rows
+        # for a browser) is an explicit get_app_state read, never part of frame polling.
+        assert '"menus"' not in frame.text and "get_app_state" in frame.text
+        assert all(args["max_elements"] == 1 for args in _arguments(transport, "get_window_state"))
         transport.windows = []
         assert isinstance(await computer.screenshot(), MacOSAppState)
         assert computer.current_observation is None
@@ -1820,6 +1823,29 @@ async def test_app_menus_use_fresh_window_ax_and_background_token_click_only():
         "get_window_state",
         "click",
     }
+
+
+async def test_top_level_menu_titles_are_never_pressed():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {"elements": _menu_rows()}
+    async with _bound_window_computer(transport) as computer:
+        with pytest.raises(MacOSRecoverableActionError, match="Top-level menu titles are not pressed"):
+            await computer.invoke_app_menu(["File"])
+    assert "click" not in _names(transport) and "get_window_state" not in _names(transport)
+
+
+async def test_menu_truncation_comes_from_element_counts_and_tokens_stay_out_of_model_text():
+    transport = WindowFakeTransport()
+    transport.window_state_extra[7] = {
+        "elements": _menu_rows(),
+        "elements_complete": False,
+        "returned_element_count": 2,
+        "total_element_count": 2,
+    }
+    async with _bound_window_computer(transport) as computer:
+        state = await computer.get_app_state()
+    assert state.menu_available and not state.menus_truncated
+    assert "fresh:1" in state.menus[1]["element_token"] and "fresh:1" not in state.text
 
 
 @pytest.mark.parametrize("rows", [[], _menu_rows(disabled=True), _menu_rows() + _menu_rows()])

@@ -44,3 +44,19 @@ def test_non_menubar_contexts_and_unaddressable_or_malformed_rows_are_not_guesse
         )
         == ()
     )
+
+
+def test_the_apple_menu_is_never_projected():
+    menus = menu_elements(
+        {
+            "elements": [
+                row("AXMenuBarItem", "Apple", 1, "apple"),
+                row("AXMenuItem", "Recent Items", 3, "recent"),
+                row("AXMenuItem", "Private document.pdf", 5, "doc"),
+                row("AXMenuBarItem", "File", 1, "file"),
+                row("AXMenu", None, 2, None),
+                row("AXMenuItem", "New", 3, "new"),
+            ]
+        }
+    )
+    assert [menu["path"] for menu in menus] == [["File"], ["File", "New"]]

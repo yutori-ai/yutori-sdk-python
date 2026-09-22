@@ -108,7 +108,12 @@ class MacOSWindowTarget:
 
 @dataclass(frozen=True)
 class MacOSAppState:
-    """Application state remains observable when there is no document window."""
+    """Application state remains observable when there is no document window.
+
+    ``menus`` is only populated for an explicit app-state read: it is a full window AX
+    projection (hundreds of rows for a browser), so screenshots carry ``menus_included=False``
+    and point the model at ``get_app_state`` instead.
+    """
 
     pid: int
     name: str | None
@@ -117,27 +122,34 @@ class MacOSAppState:
     menu_available: bool = True
     menus_truncated: bool = False
     menu_unavailable_reason: str | None = None
+    menus_included: bool = True
 
     @property
     def text(self) -> str:
-        return json.dumps(
-            {
-                "pid": self.pid,
-                "name": self.name,
-                "windows": self.windows,
-                "menus": self.menus,
-                "menu_available": self.menu_available,
-                "menus_truncated": self.menus_truncated,
-                "menu_unavailable_reason": self.menu_unavailable_reason,
-                "note": "No windows are available. Wait for a window or select another app. "
-                "Coordinates are unavailable, "
+        state: dict[str, Any] = {"pid": self.pid, "name": self.name, "windows": self.windows}
+        if not self.windows:
+            state["menu_available"] = False
+            state["note"] = (
+                "No windows are available. Wait for a window or select another app. Coordinates are unavailable, "
                 "and the existing driver cannot access menus without a window."
-                if not self.windows
-                else "Menus are a partial window AX snapshot. Invoke one observed path at a time, then inspect fresh "
-                "state for submenu items. Coordinates require a fresh window screenshot.",
-            },
-            ensure_ascii=False,
-        )
+            )
+        elif self.menus_included:
+            # Element tokens stay on the dataclass for dispatch; the model addresses menus by path.
+            state["menus"] = [{"path": menu["path"], "enabled": menu.get("enabled")} for menu in self.menus]
+            state["menu_available"] = self.menu_available
+            state["menus_truncated"] = self.menus_truncated
+            state["menu_unavailable_reason"] = self.menu_unavailable_reason
+            state["note"] = (
+                "Menus are a window AX snapshot that already includes submenu items. Invoke one exact full path "
+                "to a menu item per call; top-level menu titles are never pressed. Coordinates require a fresh "
+                "window screenshot."
+            )
+        else:
+            state["note"] = (
+                "Menus are not included with screenshots; call get_app_state to read them. "
+                "Coordinates are relative to the attached window frame."
+            )
+        return json.dumps(state, ensure_ascii=False)
 
 
 @dataclass(frozen=True)

@@ -680,7 +680,7 @@ async def test_execute_returns_windowless_app_state_as_text_including_after_refu
     )
     output = result[0]["output"]
     assert isinstance(output, str)
-    assert '"windows": []' in output and '"menus"' in output
+    assert '"windows": []' in output and "No windows are available" in output
     assert ("[ERROR]" in output) is refused
 
 
