@@ -1075,12 +1075,26 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         try:
             for index, segment in enumerate(segments):
                 if index:
+                    await self._refresh_fallback_reference()
                     await self._press_return_between_segments(settle=bool(segment))
                 if segment or len(segments) == 1:
+                    if index:
+                        await self._refresh_fallback_reference()
                     await self._guard_frontmost("type_text")
                     await self._mutate("type_text", self._action_args(text=segment, delay_ms=0))
         finally:
             self._text_input_point = None
+
+    async def _refresh_fallback_reference(self) -> None:
+        """Re-capture the frame a foreground retry is compared against.
+
+        ``_mutate_window`` skips the retry when the window changed since the frame it was
+        given. After an earlier segment of the same ``type`` landed, the pre-type frame would make
+        every refused Return look already delivered, so each later RPC in the split starts from a
+        fresh capture. Only the fallback reads that frame, so strict sessions pay nothing.
+        """
+        if self.allow_foreground_fallback:
+            await self._fresh_observation()
 
     async def _press_return_between_segments(self, *, settle: bool) -> None:
         """One Return inside typed text; keeps the typing target a plain keypress would drop.

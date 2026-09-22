@@ -2316,6 +2316,25 @@ async def test_newline_return_keeps_the_clicked_field_as_the_typing_target(monke
     assert computer.delivery_counts["accessibility_rungs"] == 2
 
 
+async def test_a_refused_return_after_typed_text_still_escalates_to_foreground(monkeypatch):
+    """The text before the newline changes the window; that must not read as the Return having landed.
+
+    The fallback skips its foreground retry when the window changed since the frame the action
+    started from, so a Return inside typed text needs a reference captured after the text landed.
+    """
+    transport = WindowFakeTransport([_png(400, 300), _png(400, 300, color=(240, 240, 240))])
+    transport.tool_errors["press_key"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("query\n")
+    presses = _arguments(transport, "press_key")
+    assert [press["delivery_mode"] for press in presses] == ["background", "foreground"]
+    assert computer.delivery_counts["fallback_skips"] == 0
+    assert computer.delivery_counts["foreground_escalations"] == 1
+
+
 async def test_a_refused_return_inside_typed_text_surfaces_as_a_refusal():
     """A newline that cannot be pressed is reported, not swallowed into the field as a character."""
     transport = WindowFakeTransport()
