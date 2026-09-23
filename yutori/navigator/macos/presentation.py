@@ -163,6 +163,14 @@ class MacOSPresentationError(RuntimeError):
     pass
 
 
+def _decode_nonempty_base64(data: Any, error_message: str) -> bytes:
+    """Decode a base64 payload field, raising ``MacOSPresentationError`` if it decodes empty."""
+    decoded = base64.b64decode(data or "", validate=True)
+    if not decoded:
+        raise MacOSPresentationError(error_message)
+    return decoded
+
+
 def _positive_finite(value: Any) -> bool:
     return is_strict_number(value) and math.isfinite(value) and value > 0
 
@@ -934,9 +942,7 @@ class MacOSPresentationController:
         frame = reply.get("frame")
         if not isinstance(frame, dict):
             raise MacOSPresentationError("Overlay desktop capture returned no frame.")
-        png_bytes = base64.b64decode(frame.get("data") or "", validate=True)
-        if not png_bytes:
-            raise MacOSPresentationError("Overlay desktop capture returned empty data.")
+        png_bytes = _decode_nonempty_base64(frame.get("data"), "Overlay desktop capture returned empty data.")
         with Image.open(io.BytesIO(png_bytes)) as image:
             width, height = image.size
         if (width, height) != (frame.get("width"), frame.get("height")):
@@ -994,9 +1000,7 @@ class MacOSPresentationController:
         encoded = reply.get("encoded")
         if not isinstance(encoded, dict) or encoded.get("format") not in {"webp", "jpeg"}:
             raise MacOSPresentationError("Overlay observation encoder returned invalid data.")
-        data = base64.b64decode(encoded.get("data") or "", validate=True)
-        if not data:
-            raise MacOSPresentationError("Overlay observation encoder returned empty data.")
+        data = _decode_nonempty_base64(encoded.get("data"), "Overlay observation encoder returned empty data.")
         codec = str(encoded["format"])
         self._status = replace(self._status, codec=codec)
         return data, codec
