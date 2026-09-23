@@ -811,17 +811,11 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     break
                 try:
                     snapshot = _structured(
-                        await self._call_tool(
-                            "get_window_state",
-                            {
-                                "session": self.session,
-                                "pid": target.pid,
-                                "window_id": target.window_id,
-                                "include_screenshot": False,
-                                "max_elements": 1000,
-                                "max_depth": 25,
-                            },
-                            read_only=True,
+                        await self._get_window_state(
+                            target,
+                            include_screenshot=False,
+                            max_elements=1000,
+                            max_depth=25,
                         )
                     )
                     break
@@ -1783,6 +1777,29 @@ class MacOSComputer(PointerKeyLifecycleMixin):
     async def _await_with_cancellation(self, awaitable: Awaitable[Any]) -> Any:
         return await race_against_cancellation(awaitable, self.cancellation)
 
+    async def _get_window_state(
+        self,
+        target: MacOSWindowTarget,
+        *,
+        include_screenshot: bool,
+        max_elements: int,
+        max_depth: "int | None" = None,
+    ) -> dict[str, Any]:
+        """Read-only ``get_window_state`` call for ``target``, merging the shared session/pid/window_id fields.
+
+        ``max_depth`` is only sent when given: one caller omits it entirely.
+        """
+        arguments: dict[str, Any] = {
+            "session": self.session,
+            "pid": target.pid,
+            "window_id": target.window_id,
+            "include_screenshot": include_screenshot,
+            "max_elements": max_elements,
+        }
+        if max_depth is not None:
+            arguments["max_depth"] = max_depth
+        return await self._call_tool("get_window_state", arguments, read_only=True)
+
     async def _capture_observation_png(self, capture_id: int) -> tuple[bytes, int, int]:
         """The model's frame: the driven window; else the overlay host's own desktop capture with its
         windows left out; else the driver's desktop capture with the overlay hidden around it."""
@@ -1830,18 +1847,12 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 await self._sleep(_CAPTURE_RETRY_SECONDS)
             target = self._require_window_target()
             try:
-                result = await self._call_tool(
-                    "get_window_state",
-                    {
-                        "session": self.session,
-                        "pid": target.pid,
-                        "window_id": target.window_id,
-                        "include_screenshot": True,
-                        # The tree is not consumed; the schema minimums bound the AX walk.
-                        "max_elements": 1,
-                        "max_depth": 1,
-                    },
-                    read_only=True,
+                # The tree is not consumed; the schema minimums bound the AX walk.
+                result = await self._get_window_state(
+                    target,
+                    include_screenshot=True,
+                    max_elements=1,
+                    max_depth=1,
                 )
             except CuaDriverToolError as error:
                 last_error = error
@@ -2011,16 +2022,10 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         if target is None:
             return None
         try:
-            result = await self._call_tool(
-                "get_window_state",
-                {
-                    "session": self.session,
-                    "pid": target.pid,
-                    "window_id": target.window_id,
-                    "include_screenshot": False,
-                    "max_elements": _AX_RUNG_MAX_ELEMENTS,
-                },
-                read_only=True,
+            result = await self._get_window_state(
+                target,
+                include_screenshot=False,
+                max_elements=_AX_RUNG_MAX_ELEMENTS,
             )
         except CuaDriverError:
             return None
