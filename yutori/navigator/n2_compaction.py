@@ -30,6 +30,17 @@ _COMPACTION_KIND_KEY = "_n2_compaction_kind"
 _WORKING_CHECKPOINT_KIND = "working_checkpoint"
 _IMAGE_TOKEN_ESTIMATE = 1_600
 
+
+def _require_positive(name: str, value: int) -> None:
+    if value < 1:
+        raise ValueError(f"{name} must be positive")
+
+
+def _require_non_negative(name: str, value: int | float) -> None:
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+
+
 _RETAINED_TAIL_NOTE = (
     "The session's most recent turns are retained verbatim alongside the checkpoint and are not shown "
     "here — cover the removed history exactly as shown, and do not guess at what happened after it."
@@ -393,18 +404,12 @@ class N2InlineCompactor:
         max_attempts: int = 3,
         retry_delay_seconds: float = 0.5,
     ) -> None:
-        if trigger_input_tokens < 1:
-            raise ValueError("trigger_input_tokens must be positive")
-        if keep_last_n_turns < 0:
-            raise ValueError("keep_last_n_turns must be non-negative")
-        if tail_token_budget < 1:
-            raise ValueError("tail_token_budget must be positive")
-        if target_max_chars < 1:
-            raise ValueError("target_max_chars must be positive")
-        if max_attempts < 1:
-            raise ValueError("max_attempts must be positive")
-        if retry_delay_seconds < 0:
-            raise ValueError("retry_delay_seconds must be non-negative")
+        _require_positive("trigger_input_tokens", trigger_input_tokens)
+        _require_non_negative("keep_last_n_turns", keep_last_n_turns)
+        _require_positive("tail_token_budget", tail_token_budget)
+        _require_positive("target_max_chars", target_max_chars)
+        _require_positive("max_attempts", max_attempts)
+        _require_non_negative("retry_delay_seconds", retry_delay_seconds)
 
         self.trigger_input_tokens = trigger_input_tokens
         self.keep_last_n_turns = keep_last_n_turns
