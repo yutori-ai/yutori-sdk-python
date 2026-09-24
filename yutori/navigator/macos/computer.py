@@ -81,6 +81,13 @@ _VCS_DIRECTORIES = {".git", ".hg", ".svn"}
 _GLOB_RESULT_LIMIT = 100
 _DELIVERY_BACKGROUND = "background"
 _DELIVERY_FOREGROUND = "foreground"
+# Rungs of the window-scope delivery ladder, as recorded on each MacOSActionOutcome.
+_RUNG_BACKGROUND = "background"
+_RUNG_ACCESSIBILITY = "accessibility"
+_RUNG_FOREGROUND = "foreground"
+_RUNG_FOREGROUND_SKIPPED = "foreground_skipped"
+# Bound on the driver's result line kept per outcome for the delivery inspector.
+_RESULT_DETAIL_LIMIT = 240
 # n2 emits the Linux key vocabulary its training desktop used, and `n2_actions` canonicalizes
 # it to `page_up`/`page_down`/`delete`. cua-driver's macOS keycode table
 # (platform-macos/src/input/keyboard.rs) only knows the page keys as `pageup`/`pagedown`, and it
@@ -262,12 +269,45 @@ def _window_target_from_record(pid: int, record: "dict[str, Any] | None") -> "Ma
     )
 
 
+def _action_summary(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """The privacy-safe part of an input action's arguments: key names, text length, addressing."""
+    key: "str | None" = None
+    if tool == "press_key" and isinstance(arguments.get("key"), str):
+        key = arguments["key"]
+    elif tool == "hotkey" and isinstance(arguments.get("keys"), list):
+        key = "+".join(str(part) for part in arguments["keys"])
+    text = arguments.get("text")
+    return {
+        "key": key,
+        "text_chars": len(text) if isinstance(text, str) else None,
+        "element_addressed": isinstance(arguments.get("element_token"), str)
+        or isinstance(arguments.get("element_index"), int),
+    }
+
+
+def _result_detail(result: dict[str, Any]) -> "str | None":
+    """The driver's human-readable result line, whitespace-collapsed and bounded.
+
+    The driver names what received the input here and nowhere else in its payload (the AX rung
+    reports ``into [12] AXTextField "Search"``); the line never echoes typed text.
+    """
+    for part in result.get("content") or []:
+        if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+            detail = " ".join(part["text"].split())
+            if detail:
+                return detail if len(detail) <= _RESULT_DETAIL_LIMIT else detail[: _RESULT_DETAIL_LIMIT - 1] + "…"
+    return None
+
+
 def _parse_action_outcome(
     tool: str,
     requested_delivery: str,
     structured: dict[str, Any],
     *,
     escalated: bool = False,
+    rung: "str | None" = None,
+    arguments: "dict[str, Any] | None" = None,
+    detail: "str | None" = None,
 ) -> MacOSActionOutcome:
     """Read the driver's action envelope (effect/route/delivery/escalation) defensively.
 
@@ -288,6 +328,11 @@ def _parse_action_outcome(
         refusal_code=_text(refusal.get("code")) if isinstance(refusal, dict) else _text(structured.get("code")),
         recommended=_text(escalation.get("recommended")) or _text(escalation.get("target")),
         escalation_reason=_text(escalation.get("reason")),
+        rung=rung,
+        path=_text(structured.get("path")),
+        reason=_text(structured.get("reason")),
+        detail=detail,
+        **_action_summary(tool, arguments or {}),
     )
 
 
@@ -298,6 +343,8 @@ def _refusal_outcome(
     code: "str | None",
     *,
     escalated: bool,
+    rung: "str | None" = None,
+    arguments: "dict[str, Any] | None" = None,
 ) -> MacOSActionOutcome:
     """The outcome for a refusal the driver raised as a tool error rather than a result.
 
@@ -320,6 +367,32 @@ def _refusal_outcome(
         refusal_code=code,
         recommended=_text(escalation.get("recommended")) or _text(escalation.get("target")) or _DELIVERY_FOREGROUND,
         escalation_reason=_text(escalation.get("reason")) or code,
+        rung=rung,
+        path=_text(structured.get("path")),
+        reason=_text(structured.get("reason")) or _text(escalation.get("reason")),
+        detail=" ".join(str(error).split())[:_RESULT_DETAIL_LIMIT] or None,
+        **_action_summary(tool, arguments or {}),
+    )
+
+
+def _fallback_skipped_outcome(tool: str, arguments: dict[str, Any]) -> MacOSActionOutcome:
+    """The record of a foreground retry that was withheld because the window already changed.
+
+    Nothing was sent: the driver's non-landing verdict for the background attempt can be wrong
+    for part of a keystroke sequence, and a frame that changed says the input probably arrived.
+    Recorded so a delivery inspector shows why an action neither escalated nor was refused.
+    """
+    return MacOSActionOutcome(
+        tool=tool,
+        requested_delivery=_DELIVERY_FOREGROUND,
+        effect="skipped",
+        route=None,
+        reported_delivery=None,
+        escalated=False,
+        refusal_code=None,
+        rung=_RUNG_FOREGROUND_SKIPPED,
+        reason="the window changed after the background attempt, so the foreground retry was withheld",
+        **_action_summary(tool, arguments),
     )
 
 
@@ -741,7 +814,15 @@ class MacOSComputer(PointerKeyLifecycleMixin):
 
     @property
     def last_action_outcome(self) -> "MacOSActionOutcome | None":
-        return self._action_outcomes[-1] if self._action_outcomes else None
+        """The driver's verdict on the latest input action.
+
+        A withheld foreground retry is recorded for the delivery trace but is not a verdict:
+        the last outcome the driver actually reported is what callers steering on it want.
+        """
+        for outcome in reversed(self._action_outcomes):
+            if outcome.rung != _RUNG_FOREGROUND_SKIPPED:
+                return outcome
+        return None
 
     @property
     def action_outcomes(self) -> tuple[MacOSActionOutcome, ...]:
@@ -1954,7 +2035,13 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         escalated = requested == _DELIVERY_FOREGROUND
         self._delivery_counts["foreground_escalations" if escalated else "background_attempts"] += 1
         reference = self._current_observation
-        outcome = await self._deliver_window_action(tool, arguments, requested, escalated=escalated)
+        outcome = await self._deliver_window_action(
+            tool,
+            arguments,
+            requested,
+            escalated=escalated,
+            rung=_RUNG_FOREGROUND if escalated else _RUNG_BACKGROUND,
+        )
         if outcome.landed:
             return
         if not escalated and outcome.refusal_code == _KEYBOARD_AMBIGUITY_CODE:
@@ -1967,6 +2054,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         if not escalated and self.allow_foreground_fallback:
             if self._frame_changed(reference, observation):
                 self._delivery_counts["fallback_skips"] += 1
+                self._action_outcomes.append(_fallback_skipped_outcome(tool, arguments))
                 return
             self._delivery_counts["foreground_escalations"] += 1
             outcome = await self._deliver_window_action(
@@ -1974,6 +2062,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                 {**arguments, "delivery_mode": _DELIVERY_FOREGROUND},
                 _DELIVERY_FOREGROUND,
                 escalated=True,
+                rung=_RUNG_FOREGROUND,
             )
             if outcome.landed:
                 return
@@ -2010,6 +2099,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             {**arguments, "element_token": token},
             _DELIVERY_BACKGROUND,
             escalated=False,
+            rung=_RUNG_ACCESSIBILITY,
         )
 
     async def _window_element_snapshot(self) -> "dict[str, Any] | None":
@@ -2091,6 +2181,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         requested: str,
         *,
         escalated: bool,
+        rung: "str | None" = None,
     ) -> MacOSActionOutcome:
         try:
             result = await self._call_tool(tool, arguments)
@@ -2099,7 +2190,9 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             if code in _ESCALATABLE_REFUSAL_CODES:
                 # Nothing was delivered; report it like a non-landing action so the fallback
                 # policy decides between another rung and a recoverable refusal.
-                outcome = _refusal_outcome(tool, requested, error, code, escalated=escalated)
+                outcome = _refusal_outcome(
+                    tool, requested, error, code, escalated=escalated, rung=rung, arguments=arguments
+                )
                 self._action_outcomes.append(outcome)
                 return outcome
             if _is_window_loss(error):
@@ -2140,7 +2233,15 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     observation,
                 ) from error
             raise
-        outcome = _parse_action_outcome(tool, requested, _structured(result), escalated=escalated)
+        outcome = _parse_action_outcome(
+            tool,
+            requested,
+            _structured(result),
+            escalated=escalated,
+            rung=rung,
+            arguments=arguments,
+            detail=_result_detail(result),
+        )
         self._action_outcomes.append(outcome)
         return outcome
 
