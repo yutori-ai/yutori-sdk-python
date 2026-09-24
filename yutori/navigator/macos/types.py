@@ -165,13 +165,53 @@ class MacOSActionOutcome:
     refusal_code: str | None
     recommended: str | None = None
     escalation_reason: str | None = None
+    # Which step of the delivery ladder this attempt was: ``background`` (the pid-addressed
+    # first attempt), ``accessibility`` (an AX write to one exact element), ``foreground``
+    # (the window was fronted for the action), or ``foreground_skipped`` (no attempt: the
+    # window already changed after the background attempt, so a retry could double-act).
+    rung: str | None = None
+    # The driver's own transport name for what it did (``key_events``, ``key_events_fg``,
+    # ``ax``, ...), distinct from ``route`` which is its verification route.
+    path: str | None = None
+    # The driver's sentence for a refusal or for an unverifiable verdict, verbatim.
+    reason: str | None = None
+    # The driver's human-readable result line (which element received the input, how many
+    # characters were delivered), bounded; never the typed text itself.
+    detail: str | None = None
+    # A privacy-safe summary of what was sent: the key name(s) of a press, the length of a
+    # typed string, and whether the caller addressed one exact element.
+    key: str | None = None
+    text_chars: int | None = None
+    element_addressed: bool = False
 
     @property
     def landed(self) -> bool:
         """Whether dispatch may have taken effect, so replaying it could duplicate input."""
         # Background hotkeys carry foreground-retry advice even after successful dispatch.
         # That advice is not a failure verdict; unverifiable and partial input must not replay.
-        return self.effect not in {"suspected_noop", "refused"}
+        # A withheld retry sent nothing, so it did not land either.
+        return self.effect not in {"suspected_noop", "refused", "skipped"}
+
+    def as_telemetry(self) -> dict[str, Any]:
+        """The outcome as one flat JSON-safe dict, for a host application's delivery inspector."""
+        return {
+            "tool": self.tool,
+            "rung": self.rung,
+            "requested_delivery": self.requested_delivery,
+            "reported_delivery": self.reported_delivery,
+            "effect": self.effect,
+            "route": self.route,
+            "path": self.path,
+            "escalated": self.escalated,
+            "refusal_code": self.refusal_code,
+            "recommended": self.recommended,
+            "reason": self.reason or self.escalation_reason,
+            "detail": self.detail,
+            "key": self.key,
+            "text_chars": self.text_chars,
+            "element_addressed": self.element_addressed,
+            "landed": self.landed,
+        }
 
 
 ShellLifecycleState = Literal[

@@ -1137,6 +1137,8 @@ class WindowFakeTransport(FakeTransport):
         self.tool_errors: dict[str, list[Exception]] = {}
         # Extra structuredContent merged into get_window_state responses, keyed by window_id.
         self.window_state_extra: dict[int, dict[str, Any]] = {}
+        # Scripted human-readable result lines (the driver's text content part), keyed by tool.
+        self.result_text: dict[str, list[str]] = {}
 
     async def call_tool(
         self,
@@ -1167,7 +1169,11 @@ class WindowFakeTransport(FakeTransport):
             raise AssertionError(f"App/menu support must use existing background APIs, not {name}")
         scripted = self.action_results.get(name)
         if scripted:
-            return {"structuredContent": scripted.pop(0)}
+            result: dict[str, Any] = {"structuredContent": scripted.pop(0)}
+            queued_text = self.result_text.get(name)
+            if queued_text:
+                result["content"] = [{"type": "text", "text": queued_text.pop(0)}]
+            return result
         if name in {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "move_cursor"}:
             return {
                 "structuredContent": {
@@ -2589,3 +2595,82 @@ async def test_host_window_ids_reach_the_presentation_controller(monkeypatch):
 
 async def _noop_restore():
     return "current"
+
+
+async def test_action_outcomes_record_every_rung_of_the_delivery_ladder():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [
+        CuaDriverToolError(
+            "Background input refused (same_pid_keyboard_ambiguity): pid 9 owns 1 other window",
+            structured={
+                "code": "same_pid_keyboard_ambiguity",
+                "effect": "refused",
+                "reason": "pid 9 owns 1 other eligible top-level window(s)",
+                "escalation": {"recommended": "accessibility", "reason": "pid 9 owns 1 other window"},
+            },
+        )
+    ]
+    transport.action_results["type_text"] = [
+        {"effect": "confirmed", "route": "accessibility", "path": "ax", "delivery": {"mode": "background"}}
+    ]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("hello")
+    refused, landed = computer.action_outcomes[-2:]
+    assert (refused.rung, refused.effect, refused.refusal_code) == (
+        "background",
+        "refused",
+        "same_pid_keyboard_ambiguity",
+    )
+    assert refused.reason == "pid 9 owns 1 other eligible top-level window(s)"
+    assert refused.detail is not None and refused.detail.startswith("Background input refused")
+    assert (refused.text_chars, refused.element_addressed, refused.key) == (5, False, None)
+    assert (landed.rung, landed.effect, landed.path, landed.element_addressed) == (
+        "accessibility",
+        "confirmed",
+        "ax",
+        True,
+    )
+    telemetry = landed.as_telemetry()
+    assert telemetry["rung"] == "accessibility" and telemetry["landed"] is True
+    assert telemetry["text_chars"] == 5 and "text" not in telemetry
+
+
+async def test_press_key_outcome_records_the_key_and_the_drivers_result_line():
+    transport = WindowFakeTransport()
+    transport.action_results["press_key"] = [
+        {"effect": "unverifiable", "path": "key_events", "delivery": {"mode": "background"}}
+    ]
+    transport.result_text["press_key"] = ["✅ Pressed return on pid 9."]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.keypress("Return")
+        await computer.keypress(["cmd", "n"])
+    pressed, chord = computer.action_outcomes[-2:]
+    assert (pressed.tool, pressed.key, pressed.rung, pressed.path) == (
+        "press_key",
+        "Return",
+        "background",
+        "key_events",
+    )
+    assert pressed.detail == "✅ Pressed return on pid 9."
+    assert (chord.tool, chord.key) == ("hotkey", "cmd+n")
+
+
+async def test_a_withheld_foreground_retry_is_recorded_without_becoming_a_verdict():
+    transport = WindowFakeTransport([_png(400, 300), _png(400, 300, color=(240, 240, 240))])
+    transport.action_results["press_key"] = [{"effect": "suspected_noop"}]
+    async with _bound_window_computer(transport, allow_foreground_fallback=True) as computer:
+        await computer.screenshot()
+        await computer.keypress("Return")
+    attempted, skipped = computer.action_outcomes[-2:]
+    assert (attempted.rung, attempted.effect) == ("background", "suspected_noop")
+    assert (skipped.rung, skipped.effect, skipped.key) == ("foreground_skipped", "skipped", "Return")
+    assert skipped.landed is False and skipped.as_telemetry()["landed"] is False
+    assert skipped.reason is not None and "withheld" in skipped.reason
+    assert computer.delivery_counts["fallback_skips"] == 1
+    # The record is for the trace; the driver's own last verdict is what steers the next action.
+    assert computer.last_action_outcome is attempted
+    assert _names(transport).count("press_key") == 1
