@@ -380,9 +380,8 @@ def _refusal_outcome(
 def _fallback_skipped_outcome(tool: str, arguments: dict[str, Any]) -> MacOSActionOutcome:
     """The record of a foreground retry that was withheld because the window already changed.
 
-    Nothing was sent: the driver's non-landing verdict for the background attempt can be wrong
-    for part of a keystroke sequence, and a frame that changed says the input probably arrived.
-    Recorded so a delivery inspector shows why an action neither escalated nor was refused.
+    No retry was sent: the background attempt may have partly landed, but unrelated frame
+    changes cannot establish delivery either. Record why the caller must inspect the new frame.
     """
     return MacOSActionOutcome(
         tool=tool,
@@ -430,8 +429,8 @@ def _refusal_message(tool: str, where: str, outcome: MacOSActionOutcome) -> str:
         return (
             f"{tool} ({_KEYBOARD_AMBIGUITY_CODE}) could not be delivered to {where} in the background: the "
             "application owns more than one open window, so keystrokes addressed to its process cannot be "
-            "proven to reach this one, and no accessibility write could stand in (web page content accepts "
-            "none). Nothing was sent. Reach the same result by clicking the window's own controls or its "
+            "proven to reach this one, and no safe equivalent fallback was available. Nothing was sent. "
+            "Reach the same result by clicking the window's own controls or its "
             "menu bar instead of pressing keys. Do NOT close the application's other windows to clear this: "
             "an application left with no window at all cannot be driven in window scope, and there is no "
             "Dock or menu bar in this frame to reopen one."
@@ -1337,9 +1336,23 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     if index:
                         await self._refresh_fallback_reference()
                     await self._guard_frontmost("type_text")
-                    await self._mutate("type_text", self._action_args(text=segment, delay_ms=0))
+                    await self._mutate("type_text", self._type_text_args(segment))
         finally:
             self._text_input_point = None
+
+    def _type_text_args(self, text: str) -> dict[str, Any]:
+        """Arguments for one ``type_text`` RPC.
+
+        Window scope asks for keystrokes rather than the driver's accessibility write: a browser
+        address bar displays text written through accessibility but does not count it as typed
+        input, so a Return afterwards -- in the same ``type`` call or as the model's next action
+        -- re-opens the current page instead of navigating (measured on Chrome's omnibox). The
+        keystroke requirement also applies to retries; drivers that predate the flag ignore it.
+        """
+        arguments = self._action_args(text=text, delay_ms=0)
+        if self.window_mode:
+            arguments["keystrokes"] = True
+        return arguments
 
     async def _refresh_fallback_reference(self) -> None:
         """Re-capture the frame a foreground retry is compared against.
@@ -1841,6 +1854,10 @@ class MacOSComputer(PointerKeyLifecycleMixin):
     ) -> dict[str, Any]:
         """Run one driver RPC while making Stop effective during the await."""
         self.cancellation.raise_if_cancelled()
+        # The driver allows up to 100 seconds of character synthesis. Its
+        # transport envelope is 120 seconds, longer than the SDK's default RPC.
+        if name == "type_text" and timeout_seconds is None:
+            timeout_seconds = 120.0
         if not read_only:
             self._initial_png = None
         try:
@@ -2031,7 +2048,7 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         same reason a foreground retry is skipped when the window already changed after the
         background attempt: the driver's ``delivery_failed`` verdict can be wrong for part of a
         keystroke sequence (typing "15*15" twice into Calculator was observed live), and the
-        model sees the actual state on its next frame either way.
+        caller receives the fresh frame in a recoverable error before continuing the sequence.
         """
         requested = str(arguments.get("delivery_mode", _DELIVERY_BACKGROUND))
         escalated = requested == _DELIVERY_FOREGROUND
@@ -2057,7 +2074,12 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             if self._frame_changed(reference, observation):
                 self._delivery_counts["fallback_skips"] += 1
                 self._action_outcomes.append(_fallback_skipped_outcome(tool, arguments))
-                return
+                raise MacOSUncertainActionError(
+                    f"{tool} delivery is uncertain: the window changed after the background attempt, "
+                    "so the foreground retry was withheld to avoid duplicating input. "
+                    "Inspect the attached frame before continuing or retrying.",
+                    observation,
+                )
             self._delivery_counts["foreground_escalations"] += 1
             outcome = await self._deliver_window_action(
                 tool,
@@ -2087,7 +2109,12 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         Returns ``None`` when no rung applies (a different tool, no snapshot, no text field under
         the pointer), leaving the caller's existing fallback policy untouched.
         """
-        if tool != "type_text" or "text" not in arguments or self._text_input_point is None:
+        if (
+            tool != "type_text"
+            or "text" not in arguments
+            or self._text_input_point is None
+            or arguments.get("keystrokes") is True
+        ):
             return None
         snapshot = await self._window_element_snapshot()
         if snapshot is None:
