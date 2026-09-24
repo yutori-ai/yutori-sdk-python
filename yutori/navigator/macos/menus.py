@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..n2_actions import is_strict_int
+
 _SYSTEM_MENU_TITLES = frozenset({"apple"})
 
 
@@ -24,7 +26,7 @@ def menu_elements(snapshot: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         if not isinstance(element, dict):
             continue
         depth = element.get("depth")
-        if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+        if not is_strict_int(depth) or depth < 0:
             ancestors.clear()
             continue
         while ancestors and ancestors[-1][0] >= depth:
