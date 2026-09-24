@@ -1,6 +1,7 @@
 import pytest
 
 from yutori.navigator import TOOL_SET_COMPUTER_USE_HYBRID_BATCH, N2ComputerAgent
+from yutori.navigator.macos.types import MacOSAppState
 
 from .conftest import FakeCompletions
 from .test_navigator_n2 import FakeComputer, _turn
@@ -179,3 +180,29 @@ async def test_guidance_after_final_commit_is_rejected_during_presentation():
     )
     _ = [step async for step in agent.run("task")]
     assert agent.stopped_by == "final_answer"
+
+
+async def test_text_only_app_state_guidance_is_injected_without_a_window():
+    observation = MacOSAppState(42, "Notes", (), ())
+
+    class Computer(FakeComputer):
+        async def get_dimensions(self):
+            return (1000, 1000)
+
+        async def screenshot(self):
+            return observation
+
+    class Events:
+        async def on_run_start(self, *_args):
+            agent.queue_guidance("one", "Open a new document")
+
+        async def on_screenshot(self, *_args):
+            pytest.fail("Text-only app state is not an image")
+
+    completions = FakeCompletions([_turn({"content": "Done"})])
+    agent = N2ComputerAgent(computer=Computer(), completions=completions, callbacks=[Events()])
+    _ = [step async for step in agent.run("task")]
+    message = completions.requests[0]["messages"][-1]
+    assert all(part["type"] == "text" for part in message["content"])
+    assert observation.text in [part["text"] for part in message["content"]]
+    assert agent.queue_guidance("one", "Open a new document") == "injected"

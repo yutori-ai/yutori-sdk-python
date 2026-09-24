@@ -1411,6 +1411,8 @@ class N2ComputerAgent:
 
     async def _guidance_observation(self) -> list[dict[str, Any]]:
         observation = await self._await_completion(self.computer.screenshot())
+        if isinstance(observation, MacOSAppState):
+            return [{"type": "input_text", "text": observation.text}]
         data_url, _, _, raw_base64 = _observation_data(observation)
         await self._callbacks.fire("on_screenshot", raw_base64, "guidance")
         return [{"type": "input_image", "image_url": data_url}]
