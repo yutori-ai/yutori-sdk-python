@@ -2668,6 +2668,7 @@ async def test_a_withheld_foreground_retry_is_recorded_without_becoming_a_verdic
     attempted, skipped = computer.action_outcomes[-2:]
     assert (attempted.rung, attempted.effect) == ("background", "suspected_noop")
     assert (skipped.rung, skipped.effect, skipped.key) == ("foreground_skipped", "skipped", "Return")
+    assert skipped.landed is False and skipped.as_telemetry()["landed"] is False
     assert skipped.reason is not None and "withheld" in skipped.reason
     assert computer.delivery_counts["fallback_skips"] == 1
     # The record is for the trace; the driver's own last verdict is what steers the next action.

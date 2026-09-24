@@ -189,7 +189,8 @@ class MacOSActionOutcome:
         """Whether dispatch may have taken effect, so replaying it could duplicate input."""
         # Background hotkeys carry foreground-retry advice even after successful dispatch.
         # That advice is not a failure verdict; unverifiable and partial input must not replay.
-        return self.effect not in {"suspected_noop", "refused"}
+        # A withheld retry sent nothing, so it did not land either.
+        return self.effect not in {"suspected_noop", "refused", "skipped"}
 
     def as_telemetry(self) -> dict[str, Any]:
         """The outcome as one flat JSON-safe dict, for a host application's delivery inspector."""
