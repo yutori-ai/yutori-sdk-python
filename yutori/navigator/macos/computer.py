@@ -1335,9 +1335,24 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     if index:
                         await self._refresh_fallback_reference()
                     await self._guard_frontmost("type_text")
-                    await self._mutate("type_text", self._action_args(text=segment, delay_ms=0))
+                    await self._mutate("type_text", self._type_text_args(segment))
         finally:
             self._text_input_point = None
+
+    def _type_text_args(self, text: str) -> dict[str, Any]:
+        """Arguments for one ``type_text`` RPC.
+
+        Window scope asks for keystrokes rather than the driver's accessibility write: a browser
+        address bar displays text written through accessibility but does not count it as typed
+        input, so a Return afterwards -- in the same ``type`` call or as the model's next action
+        -- re-opens the current page instead of navigating (measured on Chrome's omnibox). The
+        accessibility rung stays what a keyboard-ambiguity refusal falls back to, and drivers
+        that predate the flag ignore it.
+        """
+        arguments = self._action_args(text=text, delay_ms=0)
+        if self.window_mode:
+            arguments["keystrokes"] = True
+        return arguments
 
     async def _refresh_fallback_reference(self) -> None:
         """Re-capture the frame a foreground retry is compared against.
@@ -2094,9 +2109,11 @@ class MacOSComputer(PointerKeyLifecycleMixin):
         if token is None:
             return None
         self._delivery_counts["accessibility_rungs"] += 1
+        # The accessibility rung is a write, never keystrokes: drop the preference.
+        element_arguments = {key: value for key, value in arguments.items() if key != "keystrokes"}
         return await self._deliver_window_action(
             tool,
-            {**arguments, "element_token": token},
+            {**element_arguments, "element_token": token},
             _DELIVERY_BACKGROUND,
             escalated=False,
             rung=_RUNG_ACCESSIBILITY,

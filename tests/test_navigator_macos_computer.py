@@ -2674,3 +2674,31 @@ async def test_a_withheld_foreground_retry_is_recorded_without_becoming_a_verdic
     # The record is for the trace; the driver's own last verdict is what steers the next action.
     assert computer.last_action_outcome is attempted
     assert _names(transport).count("press_key") == 1
+
+
+async def test_window_scope_typing_asks_for_keystrokes_not_an_accessibility_write():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.type("yutori.com\nsecond")
+        await computer.type("plain")
+    submitted, trailing, plain = _arguments(transport, "type_text")
+    assert [(send["text"], send.get("keystrokes")) for send in (submitted, trailing, plain)] == [
+        ("yutori.com", True),
+        ("second", True),
+        ("plain", True),
+    ]
+    assert _names(transport).count("press_key") == 1
+
+
+async def test_the_accessibility_rung_drops_the_keystroke_preference():
+    transport = WindowFakeTransport()
+    transport.tool_errors["type_text"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    transport.window_state_extra[7] = {"elements": [_ROOT_WINDOW, _SEARCH_FIELD]}
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(20, 15)
+        await computer.type("hello\n")
+    first, retried = _arguments(transport, "type_text")
+    assert first.get("keystrokes") is True
+    assert "keystrokes" not in retried and retried["element_token"] == _SEARCH_FIELD["element_token"]
