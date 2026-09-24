@@ -249,9 +249,12 @@ wait "$watcher"
 """.strip()
 
 
-def _structured(result: dict[str, Any]) -> dict[str, Any]:
-    value = result.get("structuredContent") or result.get("structured_content") or {}
+def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _structured(result: dict[str, Any]) -> dict[str, Any]:
+    return _as_dict(result.get("structuredContent") or result.get("structured_content"))
 
 
 def _text(value: Any) -> "str | None":
@@ -316,7 +319,7 @@ def _parse_action_outcome(
     ``escalation.target`` (cua-driver 0.23) or ``escalation.recommended`` (the documented name).
     """
     delivery = structured.get("delivery")
-    escalation = structured.get("escalation") if isinstance(structured.get("escalation"), dict) else {}
+    escalation = _as_dict(structured.get("escalation"))
     refusal = structured.get("refusal")
     return MacOSActionOutcome(
         tool=tool,
@@ -355,8 +358,7 @@ def _refusal_outcome(
     assumption, which is what the routing policy did for every refusal before.
     """
     structured = error.structured
-    reported = structured.get("escalation")
-    escalation: dict[str, Any] = reported if isinstance(reported, dict) else {}
+    escalation = _as_dict(structured.get("escalation"))
     return MacOSActionOutcome(
         tool=tool,
         requested_delivery=requested_delivery,
