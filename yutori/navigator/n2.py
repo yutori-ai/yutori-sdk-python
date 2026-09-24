@@ -1356,6 +1356,64 @@ class N2ComputerAgent:
         self.last_request_id: "str | None" = None
         self.last_usage: dict[str, Any] = {}
         self._native_size: "tuple[int, int] | None" = None
+        self._guidance: dict[str, dict[str, str]] = {}
+        self._accepting_guidance = False
+
+    def queue_guidance(self, message_id: str, text: str) -> str:
+        """Queue user guidance for the next safe boundary; retries with the same ID are idempotent.
+
+        Call on the agent's event loop while run/resume is active. Guidance arriving during
+        inference supersedes the unexecuted response; a computer_batch already running finishes.
+        ``on_guidance_injected(messages)`` fires after guidance and a fresh frame enter history.
+        """
+        if not isinstance(message_id, str) or not message_id or len(message_id) > 128:
+            raise ValueError("Guidance requires an ID of at most 128 characters")
+        if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+            raise ValueError("Guidance must contain between 1 and 4000 characters")
+        text = text.strip()
+        previous = self._guidance.get(message_id)
+        if previous is not None:
+            if previous["text"] != text:
+                raise ValueError("Guidance ID already used for different text")
+            return previous["status"]
+        if not self._accepting_guidance:
+            raise ValueError("The agent is not accepting guidance")
+        if len(self._guidance) >= 32:
+            raise ValueError("This run has reached its guidance limit")
+        self._guidance[message_id] = {"id": message_id, "text": text, "status": "queued"}
+        return "queued"
+
+    def _pending_guidance(self) -> list[dict[str, str]]:
+        return [message for message in self._guidance.values() if message["status"] == "queued"]
+
+    async def _inject_guidance(self, old_items: list[dict[str, Any]], new_items: list[dict[str, Any]]) -> bool:
+        pending = self._pending_guidance()
+        if not pending:
+            return False
+        observation_content = await self._guidance_observation()
+        cancellation = getattr(self.computer, "cancellation", None)
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
+        new_items.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "\n\n".join(message["text"] for message in pending)},
+                    *observation_content,
+                ],
+            }
+        )
+        self.trajectory = old_items + new_items
+        for message in pending:
+            message["status"] = "injected"
+        await self._callbacks.fire("on_guidance_injected", [dict(message) for message in pending])
+        return True
+
+    async def _guidance_observation(self) -> list[dict[str, Any]]:
+        observation = await self._await_completion(self.computer.screenshot())
+        data_url, _, _, raw_base64 = _observation_data(observation)
+        await self._callbacks.fire("on_screenshot", raw_base64, "guidance")
+        return [{"type": "input_image", "image_url": data_url}]
 
     async def __aenter__(self) -> "N2ComputerAgent":
         return self
@@ -1559,15 +1617,11 @@ class N2ComputerAgent:
                 continue
             if output_item.get("reasoning"):
                 await _present(self.presentation, {"type": "reasoning", "text": output_item["reasoning"]})
-            if not message.get("tool_calls"):
-                await _present(
-                    self.presentation,
-                    {"type": "final", "text": _presentation_text(output_item, "content")},
-                )
         return {"output": output, "usage": usage, "message": message}
 
     async def run(self, messages: Any) -> "AsyncGenerator[dict[str, Any], None]":
         """Start a conversation from ``messages`` (a task string or a message list) and drive it until it ends."""
+        self._guidance = {}
         self.trajectory = self._initial_items(messages)
         # The task itself opens the presentation's transcript; a surface that only shows
         # what the model did reads as a conversation missing its first message.
@@ -1607,8 +1661,9 @@ class N2ComputerAgent:
         self.stopped_by = None
         started_at = time.monotonic()
         turns = 0
-        await self._callbacks.fire("on_run_start", run_kwargs, old_items)
+        self._accepting_guidance = True
         try:
+            await self._callbacks.fire("on_run_start", run_kwargs, old_items)
             while new_items[-1].get("role") != "assistant" if new_items else True:
                 if not await self._callbacks.should_continue(run_kwargs, old_items, new_items):
                     self.stopped_by = "callback"
@@ -1664,12 +1719,24 @@ class N2ComputerAgent:
                     self.stopped_by = "context_limit"
                     break
 
+                await self._inject_guidance(old_items, new_items)
                 result = await self._predict_step(old_items + new_items)
                 turns += 1
+                if await self._inject_guidance(old_items, new_items):
+                    continue
                 # Commit before yielding: a consumer that breaks at this yield
                 # still keeps the turn it was just handed.
                 new_items += result.get("output") or []
                 self.trajectory = old_items + new_items
+                if not (result.get("message") or {}).get("tool_calls"):
+                    # Commit the answer before presentation can yield to a late guidance request.
+                    self._accepting_guidance = False
+                    for output_item in result.get("output") or []:
+                        if output_item.get("type") == "message":
+                            await _present(
+                                self.presentation,
+                                {"type": "final", "text": _presentation_text(output_item, "content")},
+                            )
                 yield result
 
                 # A validation failure already produced this call's result
@@ -1691,7 +1758,19 @@ class N2ComputerAgent:
                     ):
                         executable.append(item)
 
-                for item in executable:
+                for index, item in enumerate(executable):
+                    if self._pending_guidance():
+                        new_items.extend(
+                            {
+                                "type": "function_call_output",
+                                "call_id": skipped.get("call_id"),
+                                "output": "Skipped because the user provided new guidance.",
+                                "_n2_turn_id": skipped.get("_n2_turn_id"),
+                            }
+                            for skipped in executable[index:]
+                        )
+                        await self._inject_guidance(old_items, new_items)
+                        break
                     execution = execute_n2_computer_call(
                         item,
                         self.computer,
@@ -1733,6 +1812,9 @@ class N2ComputerAgent:
                     # A turn without tool calls ends the run; the caller may resume().
                     self.stopped_by = "final_answer"
         finally:
+            self._accepting_guidance = False
+            for message in self._pending_guidance():
+                message["status"] = "not_sent"
             # The trajectory is committed incrementally at each yield, so a caller
             # that breaks out of the generator keeps everything up to that step.
             # Unlike the reference, this fires even when the very first
