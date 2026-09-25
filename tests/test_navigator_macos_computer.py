@@ -1458,6 +1458,8 @@ async def test_window_scope_actions_carry_the_window_target_and_background_deliv
         "accessibility_rungs": 0,
         "background_refusals": 0,
         "window_rebinds": 0,
+        "clipboard_restores_skipped": 0,
+        "clipboard_restore_failures": 0,
     }
     assert len(computer.action_outcomes) == 6
     assert computer.last_action_outcome is not None
@@ -1644,6 +1646,8 @@ async def test_foreground_fallback_that_still_fails_raises_after_one_retry():
         "accessibility_rungs": 0,
         "background_refusals": 1,
         "window_rebinds": 0,
+        "clipboard_restores_skipped": 0,
+        "clipboard_restore_failures": 0,
     }
 
 
@@ -2130,6 +2134,98 @@ async def test_upfront_keyboard_refusals_are_recoverable_in_strict_window_scope(
         assert raised.value.outcome is not None and raised.value.outcome.refusal_code == code
     assert _names(transport).count("hotkey") == 1
     assert computer.delivery_counts["background_refusals"] == 1
+
+
+def _paste_transport(*, restored: bool = True) -> WindowFakeTransport:
+    transport = WindowFakeTransport()
+    transport.action_results["clipboard_read"] = [{"snapshot_id": "clip-1", "change_count": 40}]
+    transport.action_results["clipboard_write"] = [
+        {"written_type": "text", "change_count": 41},
+        {"written_type": "snapshot", "restored": restored, "change_count": 42},
+    ]
+    return transport
+
+
+async def test_paste_writes_pastes_and_restores_the_users_clipboard(monkeypatch):
+    transport = _paste_transport()
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        await computer.paste_text("line one\nline two")
+    session = computer.session
+    clipboard = [
+        (name, arguments)
+        for name, arguments, _ in transport.calls
+        if name in {"clipboard_read", "clipboard_write", "hotkey"}
+    ]
+    assert clipboard[0] == ("clipboard_read", {"session": session, "snapshot": True})
+    assert clipboard[1] == ("clipboard_write", {"session": session, "text": "line one\nline two"})
+    name, hotkey = clipboard[2]
+    assert name == "hotkey" and hotkey["keys"] == ["cmd", "v"]
+    assert hotkey["target"] == {"kind": "window", "pid": PID, "window_id": 7}
+    assert hotkey["delivery_mode"] == "background"
+    assert clipboard[3] == (
+        "clipboard_write",
+        {"session": session, "restore_snapshot_id": "clip-1", "if_change_count": 41},
+    )
+    assert "type_text" not in _names(transport) and "press_key" not in _names(transport)
+
+
+async def test_paste_restores_the_clipboard_when_cmd_v_is_refused(monkeypatch):
+    transport = _paste_transport()
+    transport.tool_errors["hotkey"] = [_tool_error("same_pid_keyboard_ambiguity")]
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        with pytest.raises(MacOSBackgroundDeliveryError):
+            await computer.paste_text("secret-free text")
+    assert _arguments(transport, "clipboard_write")[-1]["restore_snapshot_id"] == "clip-1"
+
+
+async def test_paste_restores_the_clipboard_after_stop(monkeypatch):
+    transport = _paste_transport()
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+
+        async def stop_while_settling(_seconds: float) -> None:
+            computer.cancellation.request("operator_stop")
+            computer.cancellation.raise_if_cancelled()
+
+        monkeypatch.setattr(computer, "_sleep", stop_while_settling)
+        with pytest.raises(asyncio.CancelledError):
+            await computer.paste_text("abc")
+    assert _arguments(transport, "clipboard_write")[-1]["restore_snapshot_id"] == "clip-1"
+
+
+async def test_paste_is_recoverably_unavailable_on_a_driver_without_snapshots():
+    transport = WindowFakeTransport()
+    transport.tool_errors["clipboard_read"] = [_tool_error("invalid_arguments")]
+    async with _bound_window_computer(transport) as computer:
+        await computer.screenshot()
+        await computer.click(10, 10)
+        typing_target = computer._text_input_point
+        with pytest.raises(MacOSRecoverableActionError, match="Use type instead"):
+            await computer.paste_text("abc")
+        assert computer._text_input_point == typing_target is not None
+    assert "clipboard_write" not in _names(transport) and "hotkey" not in _names(transport)
+
+
+async def test_paste_counts_a_restore_skipped_for_the_users_newer_copy(monkeypatch):
+    transport = _paste_transport(restored=False)
+    async with _bound_window_computer(transport) as computer:
+        monkeypatch.setattr(computer, "_sleep", _no_wait)
+        await computer.screenshot()
+        await computer.paste_text("abc")
+    assert computer.delivery_counts["clipboard_restores_skipped"] == 1
+    assert computer.delivery_counts["clipboard_restore_failures"] == 0
+
+
+async def test_paste_rejects_empty_text_before_touching_the_clipboard():
+    transport = WindowFakeTransport()
+    async with _bound_window_computer(transport) as computer:
+        with pytest.raises(ValueError):
+            await computer.paste_text("")
+    assert "clipboard_read" not in _names(transport)
 
 
 def _element(index: int, role: str, frame: dict[str, float], **extra: Any) -> dict[str, Any]:
