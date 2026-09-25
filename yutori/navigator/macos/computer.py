@@ -1359,7 +1359,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             raise ValueError("paste_text requires non-empty text")
         if self._emulated_held_keys:
             raise MacOSRecoverableActionError("Release held modifier keys before pasting.")
-        self._text_input_point = None
+        # The cmd+V below clears the typing target like any keypress; until then it stays, so a
+        # driver without snapshots leaves `type` its accessibility rung for the clicked field.
         snapshot_id = await self._snapshot_clipboard()
         change_count: "int | None" = None
         try:

@@ -2202,8 +2202,11 @@ async def test_paste_is_recoverably_unavailable_on_a_driver_without_snapshots():
     transport.tool_errors["clipboard_read"] = [_tool_error("invalid_arguments")]
     async with _bound_window_computer(transport) as computer:
         await computer.screenshot()
+        await computer.click(10, 10)
+        typing_target = computer._text_input_point
         with pytest.raises(MacOSRecoverableActionError, match="Use type instead"):
             await computer.paste_text("abc")
+        assert computer._text_input_point == typing_target is not None
     assert "clipboard_write" not in _names(transport) and "hotkey" not in _names(transport)
 
 
