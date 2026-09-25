@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
-from ..n2_actions import N2_MAX_WAIT_SECONDS, require_positive_read_offset
+from ..n2_actions import N2_MAX_WAIT_SECONDS, is_strict_int, require_positive_read_offset
 from ..sandbox_tools import PointerKeyLifecycleMixin
 from .frontmost import FrontmostApp, frontmost_app
 from .menus import menu_elements
@@ -98,6 +98,9 @@ _DRIVER_KEY_NAMES = {"page_up": "pageup", "page_down": "pagedown", "delete": "fo
 # Newlines inside typed text travel as Return keystrokes; see MacOSComputer.type.
 _NEWLINE_PATTERN = re.compile(r"\r\n|\r|\n")
 _RETURN_SETTLE_SECONDS = 0.075
+# The target app reads the clipboard only when it handles cmd+V, after the driver has already
+# returned; restoring sooner would paste the user's own clipboard into the field instead.
+_PASTE_SETTLE_SECONDS = 0.5
 # Driver refusal codes that mean the driven window is gone (or never belonged to the
 # target process) versus ones that only invalidate the frame the coordinates came from.
 _WINDOW_LOSS_CODES = frozenset({"window_id_not_found", "window_owner_pid_mismatch"})
@@ -697,6 +700,8 @@ class MacOSComputer(PointerKeyLifecycleMixin):
             "accessibility_rungs": 0,
             "background_refusals": 0,
             "window_rebinds": 0,
+            "clipboard_restores_skipped": 0,
+            "clipboard_restore_failures": 0,
         }
         self.overlay_cache_directory = overlay_cache_directory
         self.verify_focus = verify_focus
@@ -1340,6 +1345,65 @@ class MacOSComputer(PointerKeyLifecycleMixin):
                     await self._mutate("type_text", self._action_args(text=segment, delay_ms=0))
         finally:
             self._text_input_point = None
+
+    async def paste_text(self, text: str) -> None:
+        """Insert ``text`` through the clipboard with cmd+V, then put the user's clipboard back.
+
+        Apps treat a paste as user input where they may not treat an accessibility write that
+        way (Chrome's address bar ignores AX-written text when Return is pressed), and a paste
+        inserts multi-line text without the Return keystrokes ``type`` sends. The driver keeps a
+        full copy of the user's clipboard, every item and type, and the restore is skipped when
+        the user copied something in the meantime so their new copy survives.
+        """
+        if not isinstance(text, str) or not text:
+            raise ValueError("paste_text requires non-empty text")
+        if self._emulated_held_keys:
+            raise MacOSRecoverableActionError("Release held modifier keys before pasting.")
+        self._text_input_point = None
+        snapshot_id = await self._snapshot_clipboard()
+        change_count: "int | None" = None
+        try:
+            written = _structured(await self._call_tool("clipboard_write", {"session": self.session, "text": text}))
+            if is_strict_int(written.get("change_count")):
+                change_count = written["change_count"]
+            await self._guard_frontmost("hotkey")
+            await self._mutate("hotkey", self._action_args(keys=["cmd", "v"]))
+            await self._sleep(_PASTE_SETTLE_SECONDS)
+        finally:
+            await self._restore_clipboard(snapshot_id, change_count)
+
+    async def _snapshot_clipboard(self) -> str:
+        try:
+            result = await self._call_tool(
+                "clipboard_read", {"session": self.session, "snapshot": True}, read_only=True
+            )
+        except CuaDriverToolError as error:
+            raise MacOSRecoverableActionError(
+                "This Cua Driver cannot restore the clipboard after a paste, so paste is unavailable. Use type instead."
+            ) from error
+        snapshot_id = _structured(result).get("snapshot_id")
+        if not isinstance(snapshot_id, str) or not snapshot_id:
+            raise MacOSRecoverableActionError(
+                "This Cua Driver cannot restore the clipboard after a paste, so paste is unavailable. Use type instead."
+            )
+        return snapshot_id
+
+    async def _restore_clipboard(self, snapshot_id: str, change_count: "int | None") -> None:
+        """Put the snapshot back even when Stop interrupted the paste.
+
+        Calls the transport directly: ``_call_tool`` raises once the run is cancelled, and a
+        stopped run must not leave the agent's text on the user's clipboard.
+        """
+        arguments: dict[str, Any] = {"session": self.session, "restore_snapshot_id": snapshot_id}
+        if change_count is not None:
+            arguments["if_change_count"] = change_count
+        try:
+            restored = _structured(await self.transport.call_tool("clipboard_write", arguments))
+        except CuaDriverError:
+            self._delivery_counts["clipboard_restore_failures"] += 1
+            return
+        if restored.get("restored") is False:
+            self._delivery_counts["clipboard_restores_skipped"] += 1
 
     async def _refresh_fallback_reference(self) -> None:
         """Re-capture the frame a foreground retry is compared against.
