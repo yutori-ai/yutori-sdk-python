@@ -8,6 +8,7 @@ from .._http import (
     _AsyncBaseNamespace,
     build_payload_with_schema,
     build_query_params,
+    build_task_list_params,
     prepare_scout_update,
 )
 
@@ -33,8 +34,7 @@ class AsyncScoutsNamespace(_AsyncBaseNamespace):
         Returns:
             Dictionary containing list of scouts and pagination info.
         """
-        # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
-        params = build_query_params(page_size=limit, status=status, cursor=cursor)
+        params = build_task_list_params(limit=limit, status=status, cursor=cursor)
         return await self._request("get", "/scouting/tasks", params=params)
 
     async def get(self, scout_id: str) -> dict[str, Any]:
