@@ -16,7 +16,7 @@ from typing import Any, TypeVar
 
 from PIL import Image
 
-from ..n2_actions import is_strict_int
+from ..n2_actions import as_dict, is_strict_int
 from .overlay_build import OVERLAY_PROTOCOL_VERSION, PreparedMacOSOverlay, load_prepared_macos_overlay
 from .process_lifecycle import (
     cancel_and_drain,
@@ -342,7 +342,7 @@ _ACTION_ICONS = {
 def _action_text(event: dict[str, Any]) -> str:
     """One line naming an action and where it lands: "left click at (100, 20)"."""
     name = str(event.get("name") or "action").replace("_", " ")
-    arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+    arguments = as_dict(event.get("arguments"))
     point = _point(arguments, "coordinates", "coordinate", "start_coordinate")
     if point is not None:
         return f"{name} at ({round(point[0])}, {round(point[1])})"
@@ -1229,7 +1229,7 @@ class MacOSPresentationController:
             for member in batch["members"]:
                 if not isinstance(member, dict):
                     continue
-                member_arguments = member.get("arguments") if isinstance(member.get("arguments"), dict) else {}
+                member_arguments = as_dict(member.get("arguments"))
                 items.append(_queue_item(str(member.get("name") or ""), member_arguments))
             queue = {
                 "key": f"batch-{batch.get('id')}",

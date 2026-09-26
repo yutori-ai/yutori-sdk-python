@@ -252,6 +252,15 @@ def is_optional_non_negative_int(value: Any) -> bool:
     return value is None or (is_strict_int(value) and value >= 0)
 
 
+def as_dict(value: Any) -> dict[str, Any]:
+    """``value`` if it's a ``dict``, otherwise ``{}``.
+
+    Shared by n2 and macOS action/argument parsing, which otherwise duplicated
+    this exact "malformed or missing payload field" guard.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def require_positive_read_offset(offset: int) -> None:
     """Validate the n2 ``read`` handler contract's 1-based ``offset``.
 
@@ -321,8 +330,7 @@ def flatten_batch_member(value: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(value.get("name"), str) or set(value) - {"name", "arguments"}:
         return normalize_modifier_args(value)
-    arguments = value.get("arguments")
-    flattened = arguments if isinstance(arguments, dict) else {}
+    flattened = as_dict(value.get("arguments"))
     return normalize_modifier_args({"action": value["name"], **flattened})
 
 

@@ -73,6 +73,7 @@ from .n2_actions import (
     TOOL_SETS_WITH_SHELL_COMMAND,
     TOOL_SETS_WITH_STANDALONE_SCREENSHOT,
     N2ActionValidationError,
+    as_dict,
     translate_n2_action,
     translate_n2_bash,
     translate_n2_batch,
@@ -879,7 +880,7 @@ async def execute_n2_computer_call(
     record_action = getattr(computer, "record_model_action", None)
     if callable(record_action):
         arguments = _parse_json_arguments(item.get("arguments"))
-        record_action(str(item.get("name") or ""), arguments if isinstance(arguments, dict) else {})
+        record_action(str(item.get("name") or ""), as_dict(arguments))
 
     action_counts: dict[int, int] = {}
     if isinstance(batch_actions, list):
