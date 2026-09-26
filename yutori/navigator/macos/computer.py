@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
-from ..n2_actions import N2_MAX_WAIT_SECONDS, require_positive_read_offset
+from ..n2_actions import N2_MAX_WAIT_SECONDS, as_dict, require_positive_read_offset
 from ..sandbox_tools import PointerKeyLifecycleMixin
 from .frontmost import FrontmostApp, frontmost_app
 from .menus import menu_elements
@@ -249,12 +249,8 @@ wait "$watcher"
 """.strip()
 
 
-def _as_dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
 def _structured(result: dict[str, Any]) -> dict[str, Any]:
-    return _as_dict(result.get("structuredContent") or result.get("structured_content"))
+    return as_dict(result.get("structuredContent") or result.get("structured_content"))
 
 
 def _text(value: Any) -> "str | None":
@@ -319,7 +315,7 @@ def _parse_action_outcome(
     ``escalation.target`` (cua-driver 0.23) or ``escalation.recommended`` (the documented name).
     """
     delivery = structured.get("delivery")
-    escalation = _as_dict(structured.get("escalation"))
+    escalation = as_dict(structured.get("escalation"))
     refusal = structured.get("refusal")
     return MacOSActionOutcome(
         tool=tool,
@@ -358,7 +354,7 @@ def _refusal_outcome(
     assumption, which is what the routing policy did for every refusal before.
     """
     structured = error.structured
-    escalation = _as_dict(structured.get("escalation"))
+    escalation = as_dict(structured.get("escalation"))
     return MacOSActionOutcome(
         tool=tool,
         requested_delivery=requested_delivery,
