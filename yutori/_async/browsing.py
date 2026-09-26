@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._http import _AsyncBaseNamespace, build_payload_with_schema, build_query_params
+from .._http import _AsyncBaseNamespace, build_payload_with_schema, build_task_list_params
 
 
 class AsyncBrowsingNamespace(_AsyncBaseNamespace):
@@ -35,8 +35,7 @@ class AsyncBrowsingNamespace(_AsyncBaseNamespace):
             ``summary`` counts, ``has_more``, and ``next_cursor`` / ``prev_cursor``
             pagination info.
         """
-        # API pagination parameter is `page_size`; keep `limit` for SDK ergonomics.
-        params = build_query_params(page_size=limit, status=status, cursor=cursor)
+        params = build_task_list_params(limit=limit, status=status, cursor=cursor)
         return await self._request("get", "/browsing/tasks", params=params)
 
     async def create(

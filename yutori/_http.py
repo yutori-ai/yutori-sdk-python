@@ -67,6 +67,16 @@ def build_query_params(**kwargs: Any) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
+def build_task_list_params(*, limit: int | None, status: str | None, cursor: str | None) -> dict[str, Any]:
+    """Build query params for a task-list request.
+
+    Centralizes the ``limit`` -> ``page_size`` rename every task-list endpoint
+    needs (the API's pagination parameter is ``page_size``; ``limit`` is kept
+    for SDK ergonomics) so the mapping can't drift between call sites.
+    """
+    return build_query_params(page_size=limit, status=status, cursor=cursor)
+
+
 def build_payload_with_schema(
     *,
     output_schema: object | None = None,
