@@ -71,6 +71,16 @@ def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _canonical_json_digest(payload: dict[str, Any]) -> str:
+    """Sha256 of ``payload``'s canonical (sorted-key, compact) JSON form.
+
+    Used to derive a stable content-addressed key from a dict of identity fields.
+    ``_pointer_name`` and `prepare_macos_overlay`'s on-disk cache key each hash their
+    own, unrelated superset of identity fields through this same canonical form.
+    """
+    return _sha256(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+
+
 def _asset_hashes() -> dict[str, str]:
     directory = _asset_directory()
     hashes: dict[str, str] = {}
@@ -90,7 +100,7 @@ def _pointer_name(asset_hashes: "dict[str, str] | None" = None) -> str:
         "renderer_protocol_version": RENDERER_PROTOCOL_VERSION,
         "deployment_target": OVERLAY_DEPLOYMENT_TARGET,
     }
-    digest = _sha256(json.dumps(pointer_identity, separators=(",", ":"), sort_keys=True).encode())
+    digest = _canonical_json_digest(pointer_identity)
     return f"current-{digest}.json"
 
 
@@ -280,7 +290,7 @@ def prepare_macos_overlay(
         "deployment_target": OVERLAY_DEPLOYMENT_TARGET,
         "flags": flags,
     }
-    key = _sha256(json.dumps(identity, separators=(",", ":"), sort_keys=True).encode())
+    key = _canonical_json_digest(identity)
     lock = cache / f".lock-{key}"
     _acquire_lock(lock)
     try:
