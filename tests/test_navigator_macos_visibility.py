@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import yutori.navigator.macos.visibility as visibility
+from yutori.navigator.macos import visibility
 
 _ASN = "ASN:0x0-0x39c39c:"
 

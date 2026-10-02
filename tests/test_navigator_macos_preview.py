@@ -9,7 +9,7 @@ from typing import Any
 
 from PIL import Image
 
-import yutori.navigator.macos.preview as preview
+from yutori.navigator.macos import preview
 from yutori.navigator.macos.preview import WindowPreviewStreamer, encode_preview, inline_image
 from yutori.navigator.macos.transport import CuaDriverConnectionError, CuaDriverToolError
 from yutori.navigator.macos.types import MacOSWindowTarget
