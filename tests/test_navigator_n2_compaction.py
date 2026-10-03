@@ -587,7 +587,6 @@ async def test_new_run_resets_usage_and_compactor_but_resume_continues_them():
 
         async def compact(self, items, *, last_usage, completions, model, tool_set):
             self.seen.append(dict(last_usage))
-            return None
 
     compactor = RecordingCompactor()
     completions = QueueCompletions(

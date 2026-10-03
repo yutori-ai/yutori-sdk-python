@@ -36,7 +36,7 @@ def _require_positive(name: str, value: int) -> None:
         raise ValueError(f"{name} must be positive")
 
 
-def _require_non_negative(name: str, value: int | float) -> None:
+def _require_non_negative(name: str, value: float) -> None:
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
 
